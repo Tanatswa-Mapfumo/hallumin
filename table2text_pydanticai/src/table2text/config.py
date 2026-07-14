@@ -49,8 +49,17 @@ class Settings:
     writer_target_words: int = 650
     writer_max_main_findings: int = 8
     repair_candidates_per_sentence: int = 3
-    writer_priority_fact_limit: int = 12
+    writer_quality_revision_rounds: int = 1
+    writer_priority_fact_limit: int = 10
     writer_supporting_fact_limit: int = 20
+
+    max_priority_dataset_overview_facts: int = 2
+    max_priority_data_quality_facts: int = 3
+    max_priority_correlation_facts: int = 3
+    max_priority_group_comparison_facts: int = 2
+    max_priority_predictive_facts: int = 1
+    max_priority_forecast_facts: int = 1
+    max_priority_limitation_facts: int = 2
 
     minimum_main_finding_score: float = 0.65
     minimum_main_effect_strength: str = "moderate"
@@ -60,6 +69,10 @@ class Settings:
     maximum_predictive_findings: int = 1
     maximum_forecast_findings: int = 1
     maximum_limitation_findings: int = 3
+
+    minimum_report_word_ratio: float = 0.45
+    minimum_report_word_floor: int = 160
+    maximum_repeated_caveat_mentions: int = 4
 
     zero_unusual_rate_threshold: float = 0.05
 
@@ -134,13 +147,45 @@ class Settings:
                 "T2T_REPAIR_CANDIDATES_PER_SENTENCE",
                 3,
             ),
+            writer_quality_revision_rounds=min(
+                env_int("T2T_WRITER_QUALITY_REVISION_ROUNDS", 1),
+                1,
+            ),
             writer_priority_fact_limit=env_int(
                 "T2T_WRITER_PRIORITY_FACT_LIMIT",
-                12,
+                10,
             ),
             writer_supporting_fact_limit=env_int(
                 "T2T_WRITER_SUPPORTING_FACT_LIMIT",
                 20,
+            ),
+            max_priority_dataset_overview_facts=env_int(
+                "T2T_MAX_PRIORITY_DATASET_OVERVIEW_FACTS",
+                2,
+            ),
+            max_priority_data_quality_facts=env_int(
+                "T2T_MAX_PRIORITY_DATA_QUALITY_FACTS",
+                3,
+            ),
+            max_priority_correlation_facts=env_int(
+                "T2T_MAX_PRIORITY_CORRELATION_FACTS",
+                3,
+            ),
+            max_priority_group_comparison_facts=env_int(
+                "T2T_MAX_PRIORITY_GROUP_COMPARISON_FACTS",
+                2,
+            ),
+            max_priority_predictive_facts=env_int(
+                "T2T_MAX_PRIORITY_PREDICTIVE_FACTS",
+                1,
+            ),
+            max_priority_forecast_facts=env_int(
+                "T2T_MAX_PRIORITY_FORECAST_FACTS",
+                1,
+            ),
+            max_priority_limitation_facts=env_int(
+                "T2T_MAX_PRIORITY_LIMITATION_FACTS",
+                2,
             ),
             minimum_main_finding_score=env_float(
                 "T2T_MINIMUM_MAIN_FINDING_SCORE",
@@ -169,6 +214,18 @@ class Settings:
             maximum_limitation_findings=env_int(
                 "T2T_MAX_LIMITATION_FINDINGS",
                 3,
+            ),
+            minimum_report_word_ratio=env_float(
+                "T2T_MINIMUM_REPORT_WORD_RATIO",
+                0.45,
+            ),
+            minimum_report_word_floor=env_int(
+                "T2T_MINIMUM_REPORT_WORD_FLOOR",
+                160,
+            ),
+            maximum_repeated_caveat_mentions=env_int(
+                "T2T_MAXIMUM_REPEATED_CAVEAT_MENTIONS",
+                4,
             ),
             zero_unusual_rate_threshold=env_float(
                 "T2T_ZERO_UNUSUAL_RATE_THRESHOLD",

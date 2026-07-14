@@ -370,14 +370,27 @@ def descriptive_analysis(
                         recommendation(
                             builder,
                             action=(
-                                f"Remove `{column_name}` from analytical feature sets "
-                                "unless its constancy has a documented meaning."
+                                f"Remove `{column_name}` from correlation, comparison, "
+                                "and predictive feature sets unless its constant value "
+                                "has a documented interpretation."
                             ),
                             recommendation_type="data_cleaning",
                             priority="high",
                             justification=(
-                                "Constant variables contain no observed analytical variation."
+                                "The variable contains no observed variation and therefore "
+                                "cannot distinguish observations or explain differences."
                             ),
+                            affected_analyses=[
+                                "correlation analysis",
+                                "group comparison",
+                                "predictive modelling",
+                            ],
+                            consequence_if_ignored=(
+                                "The field will add no analytical information and may "
+                                "create unnecessary processing or numerical issues in "
+                                "methods that expect varying predictors."
+                            ),
+                            confidence=1.0,
                         )
                     ],
                     prohibited_interpretations=[
@@ -483,7 +496,7 @@ def descriptive_analysis(
                         strength_label = "possible_data_quality_issue"
                         consequence = (
                             "If the zeros are invalid records, summaries and "
-                            "relationships involving this field may be biased."
+                            "relationships involving this field may be distorted."
                         )
                         confidence = 0.70
 
@@ -829,6 +842,16 @@ def association_analysis(
             key=lambda item: item["score"],
             reverse=True,
         )[: settings.max_group_findings]:
+            if candidate["imbalance_ratio"] >= 2:
+                group_imbalance_note = (
+                    "The groups are unevenly represented. The larger group mean is "
+                    "estimated from more observations than the smaller group mean, "
+                    "so the estimates may have different levels of precision and "
+                    "stability."
+                )
+            else:
+                group_imbalance_note = "The group sizes are not strongly imbalanced."
+
             builder.add(
                 route=AnalysisRoute.ASSOCIATION_COMPARISON,
                 task_ids=[task.task_id],
@@ -855,7 +878,8 @@ def association_analysis(
                 practical_interpretation=(
                     f"The extreme observed group means differ by "
                     f"{candidate['difference']:.4g}. The standardised difference "
-                    f"is classified as {candidate['strength']}."
+                    f"is classified as {candidate['strength']}. The comparison is "
+                    "descriptive and unadjusted."
                 ),
                 strength_label=(
                     f"{candidate['strength']}_group_difference"
@@ -877,11 +901,7 @@ def association_analysis(
                 limitations=[
                     "This is an unadjusted observed comparison.",
                     "The comparison does not establish causation.",
-                    (
-                        "Group sizes are imbalanced."
-                        if candidate["imbalance_ratio"] >= 2
-                        else "Group sizes are not extremely imbalanced."
-                    ),
+                    group_imbalance_note,
                 ],
                 prohibited_interpretations=[
                     "Do not say group membership caused the observed difference.",

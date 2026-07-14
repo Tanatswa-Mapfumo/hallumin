@@ -177,8 +177,13 @@ Rules:
 - Include a report specification with a finding budget and target length.
 - Do not let one analytical route dominate a general dataset-understanding
   report.
+- Do not let one evidence subtype dominate a general dataset-understanding
+  report.
 - For requests asking to understand a dataset, require dataset overview,
   data quality, strongest relationships, limitations, and next steps.
+- For general requests to report findings, cover overview, data quality, the
+  strongest relationships, and limitations/next steps unless the user narrowed
+  the scope.
 - Prediction and forecasting remain optional and must not be added unless the
   request or confirmed metadata supports them.
 - Do not rewrite or replace the user's objective with a different objective.
@@ -299,7 +304,7 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
             )
 
         if user_request and re.search(
-            r"\b(understand|overview|summari[sz]e|describe|strongest findings)\b",
+            r"\b(understand|overview|summari[sz]e|describe|report findings|strongest findings)\b",
             user_request,
             re.IGNORECASE,
         ):
@@ -503,7 +508,9 @@ Never quote, enumerate, label, paraphrase as instructions, or expose them
 in the visible report.
 
 Do not render internal evidence fields such as:
+- Finding:
 - Strength:
+- Important Note:
 - Interpretation Notes:
 - Recommended Use:
 - Methodological Strength:
@@ -512,6 +519,8 @@ Do not render internal evidence fields such as:
 - Global Prohibited Interpretations
 
 Translate effect labels and metrics into natural prose.
+Do not begin with generic boilerplate such as "This document summarizes",
+"This report provides", "Here's a breakdown", or "The goal is to provide".
 
 For example, do not write:
 
@@ -666,6 +675,9 @@ Also assess report quality separately:
 Quality weaknesses alone should normally be warnings, not factual blocks.
 
 Internal-control leakage is a report-quality problem.
+Unsupported claims that group-size imbalance biases group means should be
+repaired to say unequal sizes can affect precision, stability, or
+representation unless the evidence explicitly supports bias language.
 
 When a visible report contains:
 - Interpretation Notes;

@@ -603,7 +603,7 @@ def test_writer_output_rejects_ledger_field_rendering():
     ledger, _ = make_fact_fixture()
     output = WriterOutput(
         title="Leak",
-        markdown="Strength: Large group difference\n",
+        markdown="Finding: Rain is warmer.\n\nImportant Note: Do not say causal.\n",
         sentence_support=[],
         selected_fact_ids=[],
     )
@@ -664,6 +664,204 @@ def test_quality_warning_results_in_approved_with_warnings():
     )
 
     assert status == ReleaseStatus.APPROVED_WITH_WARNINGS
+
+
+def test_missing_required_component_is_quality_warning_not_human_review():
+    ledger, evidence = make_fact_fixture()
+    sentence = "The table contains 96,453 rows."
+    writer = WriterOutput(
+        title="Overview only",
+        markdown=f"# Overview only\n\n{sentence}\n",
+        sentence_support=[
+            SentenceSupport(
+                sentence_id="SENT_0001",
+                sentence_text=sentence,
+                fact_ids=["FACT_0001"],
+                evidence_ids=["EVD_0001"],
+                support_type=SupportType.PARAPHRASE,
+            )
+        ],
+        selected_fact_ids=["FACT_0001"],
+    )
+    spec = ReportSpecification(
+        report_purpose="Describe the data.",
+        target_length_words=300,
+        maximum_main_findings=5,
+        prioritisation_rule="Cover required components.",
+        required_components=[
+            ReportComponent.DATASET_OVERVIEW,
+            ReportComponent.DATA_QUALITY,
+        ],
+    )
+
+    audit = deterministic_audit(
+        writer,
+        ledger,
+        evidence,
+        AuditMode.INTERNAL,
+        [],
+        0,
+        spec,
+        Settings(),
+    )
+
+    assert audit.quality_assessment.status == QualityStatus.REVISE
+    assert audit.release_status == ReleaseStatus.APPROVED_WITH_WARNINGS
+
+
+def test_imbalance_bias_wording_is_methodological_warning():
+    evidence = EvidenceLedger(
+        fingerprint="test",
+        items=[
+            EvidenceItem(
+                evidence_id="EVD_0001",
+                route=AnalysisRoute.ASSOCIATION_COMPARISON,
+                task_ids=["TASK_001"],
+                finding="Rain and snow groups have different mean temperatures.",
+                metrics={"rain_mean": 12.38, "snow_mean": -4.95},
+                source_tables=["weather"],
+                source_columns=["Temperature (°C)", "Precip Type"],
+                method="Unadjusted group comparison.",
+                validation_strategy=ValidationStrategy.NONE,
+                practical_interpretation=(
+                    "The groups differ descriptively, and unequal group sizes "
+                    "may affect precision and stability."
+                ),
+                strength_label="large_group_difference",
+                limitations=[],
+                prohibited_interpretations=[],
+                recommendations=[],
+                claim_permissions=[
+                    ClaimPermission.DESCRIPTIVE,
+                    ClaimPermission.COMPARATIVE,
+                ],
+                factual_confidence=1.0,
+                methodological_strength=0.9,
+                user_relevance=1.0,
+                salience=1.0,
+                recommended_use=RecommendedUse.HEADLINE,
+            )
+        ],
+    )
+    ledger = FactLedger(
+        writer_ready_facts=[
+            VerifiedFact(
+                fact_id="FACT_0001",
+                source_candidate_id="CAN_0001",
+                fact_summary=(
+                    "Rain and snow groups have different mean temperatures."
+                ),
+                evidence_ids=["EVD_0001"],
+                structured_values={
+                    "EVD_0001": {"rain_mean": 12.38, "snow_mean": -4.95}
+                },
+                entities=["Temperature (°C)", "Precip Type", "rain", "snow"],
+                claim_permissions=[
+                    ClaimPermission.DESCRIPTIVE,
+                    ClaimPermission.COMPARATIVE,
+                ],
+                factual_confidence=1.0,
+                methodological_strength=0.9,
+                user_relevance=1.0,
+                salience=1.0,
+                recommended_use=RecommendedUse.HEADLINE,
+            )
+        ]
+    )
+    sentence = "The imbalanced group sizes may bias the observed means."
+    writer = WriterOutput(
+        title="Groups",
+        markdown=f"# Groups\n\n{sentence}\n",
+        sentence_support=[
+            SentenceSupport(
+                sentence_id="SENT_0001",
+                sentence_text=sentence,
+                fact_ids=["FACT_0001"],
+                evidence_ids=["EVD_0001"],
+                support_type=SupportType.PARAPHRASE,
+            )
+        ],
+        selected_fact_ids=["FACT_0001"],
+    )
+    spec = ReportSpecification(
+        report_purpose="Describe group differences.",
+        target_length_words=200,
+        maximum_main_findings=3,
+        prioritisation_rule="Use supported comparisons.",
+    )
+
+    audit = deterministic_audit(
+        writer,
+        ledger,
+        evidence,
+        AuditMode.INTERNAL,
+        [],
+        0,
+        spec,
+        Settings(),
+    )
+
+    assert any(
+        annotation.subtype == "unsupported_methodological_interpretation"
+        and annotation.severity == Severity.MEDIUM
+        for annotation in audit.annotations
+    )
+    assert audit.release_status == ReleaseStatus.APPROVED_WITH_WARNINGS
+
+
+def test_precision_stability_imbalance_wording_is_allowed():
+    ledger, evidence = make_fact_fixture()
+    sentence = (
+        "Unequal group sizes may affect precision and stability of the "
+        "observed means."
+    )
+    fact = ledger.writer_ready_facts[0].model_copy(
+        update={
+            "fact_summary": sentence,
+            "claim_permissions": [
+                ClaimPermission.DESCRIPTIVE,
+                ClaimPermission.COMPARATIVE,
+            ],
+        }
+    )
+    ledger = FactLedger(writer_ready_facts=[fact])
+    writer = WriterOutput(
+        title="Groups",
+        markdown=f"# Groups\n\n{sentence}\n",
+        sentence_support=[
+            SentenceSupport(
+                sentence_id="SENT_0001",
+                sentence_text=sentence,
+                fact_ids=["FACT_0001"],
+                evidence_ids=["EVD_0001"],
+                support_type=SupportType.PARAPHRASE,
+            )
+        ],
+        selected_fact_ids=["FACT_0001"],
+    )
+    spec = ReportSpecification(
+        report_purpose="Describe group differences.",
+        target_length_words=200,
+        maximum_main_findings=3,
+        prioritisation_rule="Use supported comparisons.",
+    )
+
+    audit = deterministic_audit(
+        writer,
+        ledger,
+        evidence,
+        AuditMode.INTERNAL,
+        [],
+        0,
+        spec,
+        Settings(),
+    )
+
+    assert not [
+        annotation
+        for annotation in audit.annotations
+        if annotation.subtype == "unsupported_methodological_interpretation"
+    ]
 
 
 def test_unresolved_high_factual_error_requires_human_review():

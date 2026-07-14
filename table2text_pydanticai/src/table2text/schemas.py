@@ -128,6 +128,16 @@ class QualityStatus(str, Enum):
     REVISE = "revise"
 
 
+class QualityIssueType(str, Enum):
+    MISSING_REQUIRED_COMPONENT = "missing_required_component"
+    LEDGER_STYLE_RENDERING = "ledger_style_rendering"
+    REPETITIVE_CAVEAT = "repetitive_caveat"
+    GENERIC_OPENING = "generic_opening"
+    WEAK_FINDING_SELECTION = "weak_finding_selection"
+    ROUTE_DOMINANCE = "route_dominance"
+    UNSUPPORTED_METHOD_INTERPRETATION = "unsupported_method_interpretation"
+
+
 class ColumnProfile(StrictModel):
     name: str
     dtype: str
@@ -459,6 +469,8 @@ class WriterOutput(StrictModel):
     ] = "llm_writer"
 
     eligible_for_primary_evaluation: bool = True
+    quality_revision_round: int = Field(default=0, ge=0, le=1)
+    quality_revision_summary: str | None = None
 
 
 class ExternalFact(StrictModel):
@@ -575,6 +587,8 @@ class AuditReport(StrictModel):
     residual_risk: str
     revision_instructions: list[str] = Field(default_factory=list)
     quality_assessment: ReportQualityAssessment
+    component_assessments: list[ReportComponentAssessment] = Field(default_factory=list)
+    methodological_warnings: list[str] = Field(default_factory=list)
 
     revision_round: int = 0
 
@@ -607,6 +621,7 @@ class PipelineResult(StrictModel):
     writer_evidence_pack: WriterEvidencePack
 
     raw_writer_output: WriterOutput
+    quality_revised_writer_output: WriterOutput | None = None
     final_writer_output: WriterOutput
 
     initial_audit: AuditReport

@@ -23,9 +23,11 @@ from .agents import (
 from .analytics import execute_plan
 from .audit import (
     apply_repair_proposal,
+    assess_report_component_coverage,
     assess_report_components,
     build_writer_evidence_pack,
     compact_json,
+    decide_release_status,
     deterministic_audit,
     fallback_audit_proposal,
     fallback_fact_candidates,
@@ -47,6 +49,7 @@ from .schemas import (
     ExternalTruthSource,
     FactCandidateSet,
     PipelineResult,
+    QualityStatus,
     ReportComponent,
     ReleaseStatus,
     RunManifest,
@@ -66,6 +69,7 @@ def infer_required_report_components(
             r"understand|"
             r"overview|"
             r"summarise|summarize|"
+            r"report findings|"
             r"strongest findings|"
             r"key findings|"
             r"explore"
@@ -86,18 +90,37 @@ def infer_required_report_components(
 
 
 def build_writer_quality_revision_prompt(
+    *,
     writer_pack: WriterEvidencePack,
     current_output: WriterOutput,
     missing_components: list[ReportComponent],
+    quality_findings: list[str],
 ) -> str:
     return (
-        "Revise the report to cover required report components while "
-        "preserving all currently supported factual statements.\n\n"
+        "Revise the whole report once for reader-facing quality before factual "
+        "audit. Preserve every supported factual claim unless you remove it for "
+        "selection or clarity.\n\n"
         "Do not invent calculations or facts.\n"
-        "Do not expose internal control fields.\n"
-        "You may reorganise, expand, combine, or omit supported content.\n\n"
+        "Do not calculate statistics.\n"
+        "Do not expose internal control fields such as Finding:, Strength:, "
+        "Important Note:, Interpretation Notes:, Recommended Use:, or Global "
+        "Prohibited Interpretations.\n"
+        "Do not open with generic boilerplate such as 'This report provides'.\n"
+        "Use natural data-science prose and keep caveats consolidated.\n"
+        "You may reorganise, expand, combine, or omit supported content.\n"
+        "Return the same WriterOutput schema with an updated hidden support map.\n\n"
         "Missing components:\n"
-        + "\n".join(f"- {component.value}" for component in missing_components)
+        + (
+            "\n".join(f"- {component.value}" for component in missing_components)
+            if missing_components
+            else "- None"
+        )
+        + "\n\nQuality findings:\n"
+        + (
+            "\n".join(f"- {finding}" for finding in quality_findings)
+            if quality_findings
+            else "- None"
+        )
         + "\n\nEvidence pack:\n"
         + compact_json(writer_pack)
         + "\n\nCurrent output:\n"
@@ -255,6 +278,7 @@ class Table2TextWorkflow:
             external_sources=external_truth_sources,
             revision_round=revision_round,
             report_specification=plan.report_specification,
+            settings=self.settings,
         )
 
         prompt = (
@@ -424,6 +448,7 @@ class Table2TextWorkflow:
         required_components = infer_required_report_components(request)
         report_specification = plan.report_specification.model_copy(
             update={
+                "report_purpose": request,
                 "required_components": list(
                     dict.fromkeys(
                         [
@@ -528,6 +553,7 @@ class Table2TextWorkflow:
             )
             store.save_json("05_fact_candidates_recovered.json", fact_candidates)
             store.save_json("06_verification_recovered.json", verification)
+            store.save_json("07_fact_ledger_recovered.json", fact_ledger)
         store.save_json("07_fact_ledger.json", fact_ledger)
 
         writer_pack = build_writer_evidence_pack(
@@ -558,44 +584,6 @@ class Table2TextWorkflow:
             store=store,
         )
         raw_writer_output = WriterOutput.model_validate(raw_writer_output)
-        component_assessments = assess_report_components(
-            raw_writer_output,
-            fact_ledger,
-            evidence_ledger,
-            plan.report_specification.required_components,
-        )
-        missing_components = [
-            assessment.component
-            for assessment in component_assessments
-            if not assessment.covered
-        ]
-
-        if missing_components and raw_writer_output.writer_mode == "llm_writer":
-            revised_writer_output = await self.run_agent_or_fallback(
-                stage="writer_quality_revision",
-                agent=self.writer_agent,
-                prompt=build_writer_quality_revision_prompt(
-                    writer_pack,
-                    raw_writer_output,
-                    missing_components,
-                ),
-                dependencies=AgentDependencies(
-                    run_id=run_id,
-                    payload={
-                        "fact_ledger": fact_ledger.model_dump(mode="json")
-                    },
-                ),
-                fallback=lambda: raw_writer_output,
-                store=store,
-            )
-            raw_writer_output = WriterOutput.model_validate(revised_writer_output)
-            component_assessments = assess_report_components(
-                raw_writer_output,
-                fact_ledger,
-                evidence_ledger,
-                plan.report_specification.required_components,
-            )
-
         store.save_json(
             "09_writer_raw_output.json",
             raw_writer_output,
@@ -608,14 +596,95 @@ class Table2TextWorkflow:
             "09_writer_support_map.json",
             raw_writer_output.sentence_support,
         )
+
+        component_assessments = assess_report_component_coverage(
+            writer_output=raw_writer_output,
+            fact_ledger=fact_ledger,
+            evidence=evidence_ledger,
+            required_components=plan.report_specification.required_components,
+        )
+        missing_components = [
+            assessment.component
+            for assessment in component_assessments
+            if not assessment.covered
+        ]
         store.save_json(
             "09_writer_component_coverage.json",
             component_assessments,
         )
 
+        initial_quality_audit = deterministic_audit(
+            writer_output=raw_writer_output,
+            fact_ledger=fact_ledger,
+            evidence=evidence_ledger,
+            mode=audit_mode,
+            external_sources=external_truth_sources,
+            revision_round=0,
+            report_specification=plan.report_specification,
+            settings=self.settings,
+        )
+        store.save_json("10_initial_writer_quality.json", initial_quality_audit)
+
+        writer_output_for_audit = raw_writer_output
+        quality_revised_writer_output: WriterOutput | None = None
+        needs_quality_revision = (
+            bool(missing_components)
+            or initial_quality_audit.quality_assessment.status == QualityStatus.REVISE
+        )
+
+        if (
+            needs_quality_revision
+            and raw_writer_output.writer_mode == "llm_writer"
+            and self.settings.writer_quality_revision_rounds > 0
+        ):
+            revised_writer_output = await self.run_agent_or_fallback(
+                stage="writer_quality_revision",
+                agent=self.writer_agent,
+                prompt=build_writer_quality_revision_prompt(
+                    writer_pack=writer_pack,
+                    current_output=raw_writer_output,
+                    missing_components=missing_components,
+                    quality_findings=initial_quality_audit.quality_assessment.findings,
+                ),
+                dependencies=AgentDependencies(
+                    run_id=run_id,
+                    payload={
+                        "fact_ledger": fact_ledger.model_dump(mode="json")
+                    },
+                ),
+                fallback=lambda: raw_writer_output,
+                store=store,
+            )
+            quality_revised_writer_output = WriterOutput.model_validate(
+                revised_writer_output
+            ).model_copy(
+                update={
+                    "quality_revision_round": 1,
+                    "quality_revision_summary": (
+                        "Bounded whole-report quality revision before factual audit."
+                    ),
+                }
+            )
+            writer_output_for_audit = quality_revised_writer_output
+            revised_component_assessments = assess_report_component_coverage(
+                writer_output=writer_output_for_audit,
+                fact_ledger=fact_ledger,
+                evidence=evidence_ledger,
+                required_components=plan.report_specification.required_components,
+            )
+            store.save_json("10_writer_quality_revision.json", writer_output_for_audit)
+            store.save_text(
+                "10_writer_quality_revision.md",
+                writer_output_for_audit.markdown,
+            )
+            store.save_json(
+                "10_writer_quality_revision_component_coverage.json",
+                revised_component_assessments,
+            )
+
         initial_audit, proposal = await self.audit_once(
             run_id=run_id,
-            writer_output=raw_writer_output,
+            writer_output=writer_output_for_audit,
             fact_ledger=fact_ledger,
             evidence_ledger=evidence_ledger,
             plan=plan,
@@ -633,7 +702,7 @@ class Table2TextWorkflow:
         )
         store.save_json("11_repair_candidates_round_0.json", proposal)
 
-        current_output = raw_writer_output
+        current_output = writer_output_for_audit
         current_audit = initial_audit
         repair_rounds = 0
         all_patches = []
@@ -650,14 +719,20 @@ class Table2TextWorkflow:
             )
 
             if not patches:
-                release_status = (
-                    ReleaseStatus.HUMAN_REVIEW_REQUIRED
-                    if current_audit.annotations
-                    else ReleaseStatus.APPROVED_WITH_WARNINGS
+                release_status = decide_release_status(
+                    annotations=current_audit.annotations,
+                    quality=current_audit.quality_assessment,
+                    methodological_warnings=current_audit.methodological_warnings,
+                    repair_budget_exhausted=True,
+                    audit_mode=audit_mode,
                 )
                 current_audit = current_audit.model_copy(
                     update={
-                        "decision": AuditDecision.BLOCK,
+                        "decision": (
+                            AuditDecision.BLOCK
+                            if release_status == ReleaseStatus.HUMAN_REVIEW_REQUIRED
+                            else AuditDecision.PASS
+                        ),
                         "release_status": release_status,
                         "residual_risk": (
                             current_audit.residual_risk
@@ -710,15 +785,23 @@ class Table2TextWorkflow:
                 proposal,
             )
 
-        if current_audit.decision == AuditDecision.REVISE:
-            release_status = (
-                ReleaseStatus.HUMAN_REVIEW_REQUIRED
-                if current_audit.annotations
-                else ReleaseStatus.APPROVED_WITH_WARNINGS
+        repair_budget_exhausted = current_audit.decision == AuditDecision.REVISE
+
+        if repair_budget_exhausted:
+            release_status = decide_release_status(
+                annotations=current_audit.annotations,
+                quality=current_audit.quality_assessment,
+                methodological_warnings=current_audit.methodological_warnings,
+                repair_budget_exhausted=True,
+                audit_mode=audit_mode,
             )
             current_audit = current_audit.model_copy(
                 update={
-                    "decision": AuditDecision.BLOCK,
+                    "decision": (
+                        AuditDecision.BLOCK
+                        if release_status == ReleaseStatus.HUMAN_REVIEW_REQUIRED
+                        else AuditDecision.PASS
+                    ),
                     "release_status": release_status,
                     "residual_risk": (
                         current_audit.residual_risk
@@ -738,7 +821,16 @@ class Table2TextWorkflow:
                 plan.report_specification.required_components,
             ),
         )
-        release_status = final_audit.release_status
+        release_status = decide_release_status(
+            annotations=final_audit.annotations,
+            quality=final_audit.quality_assessment,
+            methodological_warnings=final_audit.methodological_warnings,
+            repair_budget_exhausted=repair_budget_exhausted,
+            audit_mode=audit_mode,
+        )
+        final_audit = final_audit.model_copy(
+            update={"release_status": release_status}
+        )
 
         approved = release_status in {
             ReleaseStatus.APPROVED,
@@ -756,6 +848,7 @@ class Table2TextWorkflow:
             fact_ledger=fact_ledger,
             writer_evidence_pack=writer_pack,
             raw_writer_output=raw_writer_output,
+            quality_revised_writer_output=quality_revised_writer_output,
             final_writer_output=current_output,
             initial_audit=initial_audit,
             final_audit=final_audit,
