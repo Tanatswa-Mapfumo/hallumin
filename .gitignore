@@ -1,0 +1,25 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Local Python environments and installers
+.venv/
+.bootstrap39/
+.uv-cache/
+.uv-python/
+table2text_pydanticai/.venv/
+table2text_pydanticai/.bootstrap39/
+table2text_pydanticai/.uv-cache/
+table2text_pydanticai/.uv-python/
+
+# Generated run artifacts
+runs/
+runs_*/
+table2text_pydanticai/runs/
+table2text_pydanticai/runs_*/
+
+# Local input datasets
+inputs/
+table2text_pydanticai/inputs/
