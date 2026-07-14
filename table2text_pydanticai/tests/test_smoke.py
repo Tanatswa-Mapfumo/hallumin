@@ -9,17 +9,23 @@ from table2text import Settings, Table2TextWorkflow
 from table2text.analytics import execute_plan
 from table2text.audit import (
     apply_repair_proposal,
+    build_writer_evidence_pack,
+    decide_release_status,
     deterministic_audit,
+    fallback_writer,
     validate_repair_candidate,
+    validate_writer_output,
 )
 from table2text.data import load_data, profile_data
 from table2text.schemas import (
     AnalysisRoute,
+    AuditAnnotation,
     AuditDecision,
     AuditMode,
     AuditRepairProposal,
     ClaimPermission,
     DataUnderstanding,
+    ErrorType,
     EvidenceItem,
     EvidenceLedger,
     ExecutionPlan,
@@ -30,18 +36,20 @@ from table2text.schemas import (
     RepairCandidate,
     RepairStrategy,
     ReportQualityAssessment,
+    ReportComponent,
     ReportSpecification,
     SentenceRepair,
     SentenceSupport,
+    Severity,
     SupportType,
     TargetStatus,
     ValidationStrategy,
     VerifiedFact,
     WriterOutput,
+    ZeroRisk,
 )
 from table2text.agents import (
     fallback_execution_plan,
-    fallback_understanding,
 )
 
 
@@ -88,7 +96,6 @@ def test_constant_outcome_not_group_compared(tmp_path):
 
     bundle = load_data([path])
     profile = profile_data(bundle)
-    understanding = fallback_understanding(profile)
 
     plan = fallback_execution_plan(
         "Describe the strongest relationships.",
@@ -506,3 +513,292 @@ def test_full_workflow_without_llm(tmp_path):
         ReleaseStatus.APPROVED_WITH_WARNINGS,
         ReleaseStatus.HUMAN_REVIEW_REQUIRED,
     }
+
+
+def test_zero_wind_bearing_is_likely_valid(tmp_path):
+    path = tmp_path / "bearing.csv"
+    pd.DataFrame(
+        {
+            "Wind Bearing (degrees)": [0, 10, 90, 180, 270] * 20,
+        }
+    ).to_csv(path, index=False)
+
+    profile = profile_data(load_data([path]))
+    column = profile.tables[0].columns[0]
+
+    assert column.zero_risk == ZeroRisk.LIKELY_VALID
+    assert not column.suspicious_zero_values
+
+
+def test_zero_visibility_is_context_dependent(tmp_path):
+    path = tmp_path / "visibility.csv"
+    pd.DataFrame(
+        {
+            "Visibility (km)": [0, 1, 5, 10, 16] * 20,
+        }
+    ).to_csv(path, index=False)
+
+    profile = profile_data(load_data([path]))
+    column = profile.tables[0].columns[0]
+
+    assert column.zero_risk == ZeroRisk.CONTEXT_DEPENDENT
+    assert not column.suspicious_zero_values
+
+
+def test_zero_pressure_is_possible_sentinel(tmp_path):
+    path = tmp_path / "pressure.csv"
+    pd.DataFrame(
+        {
+            "Pressure (millibars)": [0] * 2 + list(np.linspace(990, 1030, 198)),
+        }
+    ).to_csv(path, index=False)
+
+    profile = profile_data(load_data([path]))
+    column = profile.tables[0].columns[0]
+
+    assert column.zero_risk == ZeroRisk.POSSIBLE_SENTINEL
+    assert column.suspicious_zero_values
+
+
+def test_generic_dataset_report_requires_overview(tmp_path):
+    path = tmp_path / "overview.csv"
+    pd.DataFrame(
+        {
+            "group": ["a", "b"] * 60,
+            "value": np.arange(120),
+        }
+    ).to_csv(path, index=False)
+
+    profile = profile_data(load_data([path]))
+    plan = fallback_execution_plan(
+        "Understand the dataset and report the strongest findings.",
+        profile,
+        AuditMode.INTERNAL,
+        Settings(),
+    )
+
+    required = set(plan.report_specification.required_components)
+    assert ReportComponent.DATASET_OVERVIEW in required
+    assert ReportComponent.DATA_QUALITY in required
+    assert ReportComponent.STRONGEST_RELATIONSHIPS in required
+
+
+def test_writer_output_rejects_internal_guardrail_leakage():
+    ledger, _ = make_fact_fixture()
+    markdown = """
+## Global Prohibited Interpretations
+- Do not say group membership caused the difference.
+"""
+    output = WriterOutput(
+        title="Leak",
+        markdown=markdown,
+        sentence_support=[],
+        selected_fact_ids=[],
+    )
+
+    assert validate_writer_output(output, ledger)
+
+
+def test_writer_output_rejects_ledger_field_rendering():
+    ledger, _ = make_fact_fixture()
+    output = WriterOutput(
+        title="Leak",
+        markdown="Strength: Large group difference\n",
+        sentence_support=[],
+        selected_fact_ids=[],
+    )
+
+    assert validate_writer_output(output, ledger)
+
+
+def test_writer_output_accepts_natural_effect_interpretation():
+    ledger, _ = make_fact_fixture()
+    sentence = (
+        "Rain observations were on average 17.3°C warmer than snow "
+        "observations, representing a large difference."
+    )
+    fact = ledger.writer_ready_facts[0].model_copy(
+        update={
+            "fact_summary": sentence,
+            "structured_values": {"EVD_0001": {"difference": 17.3}},
+            "entities": ["Rain", "snow"],
+        }
+    )
+    ledger = FactLedger(writer_ready_facts=[fact])
+    output = WriterOutput(
+        title="Natural",
+        markdown=f"# Natural\n\n{sentence}\n",
+        sentence_support=[
+            SentenceSupport(
+                sentence_id="SENT_0001",
+                sentence_text=sentence,
+                fact_ids=["FACT_0001"],
+                evidence_ids=["EVD_0001"],
+                support_type=SupportType.PARAPHRASE,
+            )
+        ],
+        selected_fact_ids=["FACT_0001"],
+    )
+
+    assert not validate_writer_output(output, ledger)
+
+
+def test_quality_warning_results_in_approved_with_warnings():
+    quality = ReportQualityAssessment(
+        status=QualityStatus.WARNING,
+        request_responsiveness=0.8,
+        finding_selection=0.8,
+        coherence=0.9,
+        concision=0.9,
+        caveat_integration=0.8,
+        data_science_interpretation=0.9,
+        findings=["The report omits a requested overview."],
+    )
+
+    status = decide_release_status(
+        annotations=[],
+        quality=quality,
+        methodological_warnings=[],
+        repair_budget_exhausted=False,
+        audit_mode=AuditMode.INTERNAL,
+    )
+
+    assert status == ReleaseStatus.APPROVED_WITH_WARNINGS
+
+
+def test_unresolved_high_factual_error_requires_human_review():
+    quality = ReportQualityAssessment(
+        status=QualityStatus.PASS,
+        request_responsiveness=1.0,
+        finding_selection=1.0,
+        coherence=1.0,
+        concision=1.0,
+        caveat_integration=1.0,
+        data_science_interpretation=1.0,
+    )
+    status = decide_release_status(
+        annotations=[
+            AuditAnnotation(
+                annotation_id="ANN_0001",
+                sentence="The table has 12 rows.",
+                text_span="12",
+                error_type=ErrorType.INCORRECT_NUMBER,
+                subtype="unsupported_number",
+                severity=Severity.HIGH,
+                explanation="Wrong number.",
+                correction_goal="Use the supported number.",
+                confidence=0.95,
+            )
+        ],
+        quality=quality,
+        methodological_warnings=[],
+        repair_budget_exhausted=True,
+        audit_mode=AuditMode.INTERNAL,
+    )
+
+    assert status == ReleaseStatus.HUMAN_REVIEW_REQUIRED
+
+
+def test_targeted_repair_preserves_unflagged_sentences():
+    ledger, evidence = make_fact_fixture()
+    bad_sentence = "The dataset contains 12 observations."
+    good_sentence = "The table contains 96,453 rows."
+    writer = WriterOutput(
+        title="Test",
+        markdown=f"# Test\n\n{bad_sentence}\n\n{good_sentence}\n",
+        sentence_support=[
+            SentenceSupport(
+                sentence_id="SENT_0001",
+                sentence_text=bad_sentence,
+                fact_ids=["FACT_0001"],
+                evidence_ids=["EVD_0001"],
+                support_type=SupportType.PARAPHRASE,
+            ),
+            SentenceSupport(
+                sentence_id="SENT_0002",
+                sentence_text=good_sentence,
+                fact_ids=["FACT_0001"],
+                evidence_ids=["EVD_0001"],
+                support_type=SupportType.DIRECT,
+            ),
+        ],
+        selected_fact_ids=["FACT_0001"],
+    )
+    proposal = AuditRepairProposal(
+        annotations=[],
+        repairs=[
+            SentenceRepair(
+                sentence_id="SENT_0001",
+                original_sentence=bad_sentence,
+                annotation_ids=[],
+                candidates=[
+                    RepairCandidate(
+                        repair_id="REP_001",
+                        replacement_text="The dataset contains 96,453 observations.",
+                        strategy=RepairStrategy.MINIMAL_CORRECTION,
+                        supporting_fact_ids=["FACT_0001"],
+                        supporting_evidence_ids=["EVD_0001"],
+                        factual_support_score=1.0,
+                        meaning_preservation_score=1.0,
+                        readability_score=1.0,
+                        residual_hallucination_risk=0.0,
+                    )
+                ],
+                preferred_repair_id="REP_001",
+                selection_reason="Correct the number.",
+            )
+        ],
+        recommended_decision=AuditDecision.REVISE,
+        residual_risk="Repair required.",
+        quality_assessment=ReportQualityAssessment(
+            status=QualityStatus.PASS,
+            request_responsiveness=1.0,
+            finding_selection=1.0,
+            coherence=1.0,
+            concision=1.0,
+            caveat_integration=1.0,
+            data_science_interpretation=1.0,
+        ),
+    )
+
+    repaired, _ = apply_repair_proposal(writer, proposal, ledger, evidence)
+
+    assert good_sentence in repaired.markdown
+
+
+def test_deterministic_writer_fallback_is_not_primary_evaluation():
+    ledger, evidence = make_fact_fixture()
+    understanding = DataUnderstanding(
+        profile_fingerprint="test",
+        dataset_summary="Test.",
+        tables=[],
+    )
+    plan = ExecutionPlan(
+        objective="Describe the data.",
+        tasks=[],
+        route_order=[],
+        report_specification=ReportSpecification(
+            report_purpose="Describe the data.",
+            target_length_words=300,
+            maximum_main_findings=5,
+            prioritisation_rule="Use verified facts.",
+            required_components=[ReportComponent.DATASET_OVERVIEW],
+        ),
+        audit_mode=AuditMode.INTERNAL,
+        revision_limit=1,
+        maximum_facts=10,
+        rationale="Test plan.",
+    )
+    pack = build_writer_evidence_pack(
+        request="Describe the data.",
+        understanding=understanding,
+        plan=plan,
+        evidence=evidence,
+        fact_ledger=ledger,
+        settings=Settings(),
+    )
+
+    output = fallback_writer(pack)
+
+    assert output.writer_mode == "deterministic_fallback"
+    assert not output.eligible_for_primary_evaluation

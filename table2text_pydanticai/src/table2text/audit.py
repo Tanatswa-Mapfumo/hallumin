@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections import Counter
+from collections import defaultdict
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from .schemas import (
+    AnalysisRoute,
     AuditAnnotation,
     AuditDecision,
     AuditMode,
@@ -29,6 +30,8 @@ from .schemas import (
     ReleaseStatus,
     RepairCandidate,
     RepairStrategy,
+    ReportComponent,
+    ReportComponentAssessment,
     ReportPatch,
     ReportQualityAssessment,
     ReviewDecision,
@@ -40,6 +43,7 @@ from .schemas import (
     WriterEvidencePack,
     WriterOutput,
 )
+from .config import Settings
 
 
 NUMBER_PATTERN = re.compile(
@@ -69,6 +73,48 @@ APPROXIMATE_PATTERN = re.compile(
     r"more than|over|less than|under)\b",
     re.IGNORECASE,
 )
+
+INTERNAL_CONTROL_PATTERNS = [
+    r"global prohibited interpretations",
+    r"prohibited interpretations",
+    r"interpretation notes",
+    r"recommended use",
+    r"methodological strength",
+    r"user relevance",
+    r"\bsalience\b",
+    r"\bdo not say\b",
+    r"\bdo not describe\b",
+]
+
+INTERNAL_CONTROL_PATTERN = re.compile(
+    "|".join(f"(?:{pattern})" for pattern in INTERNAL_CONTROL_PATTERNS),
+    re.IGNORECASE,
+)
+
+FIELD_LABEL_PATTERN = re.compile(
+    r"(?im)^\s*(?:[-*]\s*)?"
+    r"(Strength|Interpretation Notes|Recommended Use|"
+    r"Methodological Strength|User Relevance|Salience)\s*:"
+)
+
+UNSANCTIONED_UNIT_TERMS = {
+    "event",
+    "events",
+    "experiment",
+    "experiments",
+    "subject",
+    "subjects",
+}
+
+
+def minimum_report_words(
+    specification: Any,
+) -> int:
+    component_count = len(specification.required_components)
+    component_floor = component_count * 55
+    target_floor = int(specification.target_length_words * 0.45)
+
+    return max(120, component_floor, target_floor)
 
 
 def json_safe(value: Any) -> Any:
@@ -398,6 +444,22 @@ def validate_fact_candidates(
     return errors
 
 
+def collect_entity_strings(value: Any) -> set[str]:
+    entities: set[str] = set()
+
+    if isinstance(value, str):
+        entities.add(value)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            entities.add(str(key))
+            entities.update(collect_entity_strings(item))
+    elif isinstance(value, (list, tuple, set)):
+        for item in value:
+            entities.update(collect_entity_strings(item))
+
+    return entities
+
+
 def fallback_fact_candidates(
     evidence: EvidenceLedger,
     maximum_facts: int,
@@ -533,9 +595,7 @@ def finalise_fact_ledger(
             entities.update(item.source_tables)
             entities.update(item.source_columns)
 
-            for value in item.metrics.values():
-                if isinstance(value, str):
-                    entities.add(value)
+            entities.update(collect_entity_strings(item.metrics))
 
         facts.append(
             VerifiedFact(
@@ -574,60 +634,313 @@ def finalise_fact_ledger(
     )
 
 
+FACT_LOW_PRIORITY_STRENGTH_LABELS = {
+    "negligible",
+    "negligible_association",
+    "weak_but_reportable_association",
+    "small_group_difference",
+}
+
+ROUTE_LIMITS = {
+    AnalysisRoute.DESCRIPTIVE: 3,
+    AnalysisRoute.ASSOCIATION_COMPARISON: 4,
+    AnalysisRoute.PREDICTIVE: 1,
+    AnalysisRoute.FORECASTING: 1,
+    AnalysisRoute.CAUSAL_FEASIBILITY: 1,
+}
+
+COMPONENT_MINIMUMS = {
+    ReportComponent.DATASET_OVERVIEW: 1,
+    ReportComponent.DATA_QUALITY: 1,
+    ReportComponent.STRONGEST_RELATIONSHIPS: 2,
+    ReportComponent.MODELLING_VALIDATION: 0,
+    ReportComponent.LIMITATIONS_NEXT_STEPS: 1,
+}
+
+
+def evidence_priority_score_for_fact(
+    fact: VerifiedFact,
+    evidence_lookup: dict[str, Any],
+) -> float:
+    evidence_scores: list[float] = []
+
+    for evidence_id in fact.evidence_ids:
+        item = evidence_lookup.get(evidence_id)
+        if item is None:
+            continue
+        score = item.metrics.get("priority_score")
+        if isinstance(score, (int, float)):
+            evidence_scores.append(float(score))
+
+    base = (
+        0.30 * fact.salience
+        + 0.25 * fact.user_relevance
+        + 0.20 * fact.methodological_strength
+        + 0.15 * fact.factual_confidence
+    )
+
+    return max(evidence_scores, default=base)
+
+
+def fact_route(
+    fact: VerifiedFact,
+    evidence_lookup: dict[str, Any],
+) -> AnalysisRoute | None:
+    for evidence_id in fact.evidence_ids:
+        item = evidence_lookup.get(evidence_id)
+        if item is not None:
+            return item.route
+    return None
+
+
+def fact_strength_labels(
+    fact: VerifiedFact,
+    evidence_lookup: dict[str, Any],
+) -> set[str]:
+    return {
+        item.strength_label
+        for evidence_id in fact.evidence_ids
+        if (item := evidence_lookup.get(evidence_id)) is not None
+    }
+
+
+def classify_fact_component(
+    fact: VerifiedFact,
+    evidence_lookup: dict[str, Any],
+) -> ReportComponent:
+    evidence_items = [
+        evidence_lookup[evidence_id]
+        for evidence_id in fact.evidence_ids
+        if evidence_id in evidence_lookup
+    ]
+
+    strength_labels = {
+        item.strength_label
+        for item in evidence_items
+    }
+
+    if "dataset_overview" in strength_labels:
+        return ReportComponent.DATASET_OVERVIEW
+
+    if strength_labels & {
+        "constant_column",
+        "possible_sentinel_zero",
+        "possible_data_quality_issue",
+        "material_missingness",
+        "low_missingness",
+    }:
+        return ReportComponent.DATA_QUALITY
+
+    permissions = set(fact.claim_permissions)
+
+    if (
+        ClaimPermission.PREDICTIVE in permissions
+        or ClaimPermission.FORECAST in permissions
+    ):
+        return ReportComponent.MODELLING_VALIDATION
+
+    if (
+        ClaimPermission.ASSOCIATIONAL in permissions
+        or ClaimPermission.COMPARATIVE in permissions
+    ):
+        return ReportComponent.STRONGEST_RELATIONSHIPS
+
+    if (
+        ClaimPermission.INSUFFICIENCY in permissions
+        or fact.recommended_use == RecommendedUse.LIMITATION
+        or fact.required_caveats
+    ):
+        return ReportComponent.LIMITATIONS_NEXT_STEPS
+
+    return ReportComponent.DATASET_OVERVIEW
+
+
+def eligible_fact_as_priority(
+    fact: VerifiedFact,
+    evidence_lookup: dict[str, Any],
+) -> bool:
+    if fact.recommended_use not in {
+        RecommendedUse.HEADLINE,
+        RecommendedUse.MAIN_FINDING,
+    }:
+        return False
+
+    if fact_strength_labels(fact, evidence_lookup) & FACT_LOW_PRIORITY_STRENGTH_LABELS:
+        return False
+
+    return (
+        fact.factual_confidence >= 0.90
+        and fact.methodological_strength >= 0.70
+        and fact.user_relevance >= 0.65
+    )
+
+
+def select_priority_facts(
+    facts: list[VerifiedFact],
+    evidence: EvidenceLedger,
+    required_components: list[ReportComponent],
+    settings: Settings,
+) -> list[VerifiedFact]:
+    evidence_lookup = {
+        item.evidence_id: item
+        for item in evidence.items
+    }
+    facts_by_component: dict[ReportComponent, list[VerifiedFact]] = defaultdict(list)
+
+    for fact in facts:
+        facts_by_component[
+            classify_fact_component(fact, evidence_lookup)
+        ].append(fact)
+
+    for component in facts_by_component:
+        facts_by_component[component].sort(
+            key=lambda fact: evidence_priority_score_for_fact(
+                fact,
+                evidence_lookup,
+            ),
+            reverse=True,
+        )
+
+    selected: list[VerifiedFact] = []
+    selected_ids: set[str] = set()
+
+    for component in required_components:
+        minimum = COMPONENT_MINIMUMS.get(component, 1)
+
+        for fact in facts_by_component.get(component, [])[:minimum]:
+            if fact.fact_id in selected_ids:
+                continue
+
+            selected.append(fact)
+            selected_ids.add(fact.fact_id)
+
+            if len(selected) >= settings.writer_priority_fact_limit:
+                return selected
+
+    remaining = sorted(
+        [
+            fact
+            for fact in facts
+            if fact.fact_id not in selected_ids
+            and (
+                eligible_fact_as_priority(fact, evidence_lookup)
+                or fact.recommended_use != RecommendedUse.OMIT_UNLESS_REQUESTED
+            )
+        ],
+        key=lambda fact: evidence_priority_score_for_fact(fact, evidence_lookup),
+        reverse=True,
+    )
+
+    for fact in remaining:
+        if len(selected) >= settings.writer_priority_fact_limit:
+            break
+        selected.append(fact)
+        selected_ids.add(fact.fact_id)
+
+    return selected
+
+
+def reader_facing_caveat(text: str) -> str | None:
+    lowered = text.strip().lower()
+
+    if not text.strip():
+        return None
+
+    if lowered.startswith(("do not", "never", "prohibited", "internal")):
+        if "caus" in lowered:
+            return (
+                "These are unadjusted descriptive comparisons and should not "
+                "be interpreted as causal effects."
+            )
+        if "confounding" in lowered or "adjusted" in lowered:
+            return "The comparisons are unadjusted and do not control for confounding."
+        if "predict" in lowered:
+            return (
+                "Predictive wording should be limited to validated modelling "
+                "results and not inferred from descriptive evidence."
+            )
+        return None
+
+    return text.strip()
+
+
+def build_reader_facing_limitations(
+    facts: list[VerifiedFact],
+) -> list[str]:
+    limitations: list[str] = []
+
+    for fact in facts:
+        for caveat in fact.required_caveats + fact.prohibited_interpretations:
+            rendered = reader_facing_caveat(caveat)
+            if rendered:
+                limitations.append(rendered)
+
+    return list(dict.fromkeys(limitations))
+
+
 def build_writer_evidence_pack(
     request: str,
     understanding: Any,
     plan: Any,
     evidence: EvidenceLedger,
     fact_ledger: FactLedger,
+    settings: Settings,
 ) -> WriterEvidencePack:
     facts = fact_ledger.writer_ready_facts
+    evidence_lookup = {
+        item.evidence_id: item
+        for item in evidence.items
+    }
 
-    priority = sorted(
-        [
-            fact
-            for fact in facts
-            if fact.recommended_use in {
-                RecommendedUse.HEADLINE,
-                RecommendedUse.MAIN_FINDING,
-            }
-        ],
-        key=lambda fact: (
-            fact.salience
-            + fact.user_relevance
-            + fact.methodological_strength
-        ),
+    priority = select_priority_facts(
+        facts,
+        evidence,
+        plan.report_specification.required_components,
+        settings,
+    )
+    priority_ids = {
+        fact.fact_id
+        for fact in priority
+    }
+    ranked_facts = sorted(
+        facts,
+        key=lambda fact: evidence_priority_score_for_fact(fact, evidence_lookup),
         reverse=True,
     )
-
-    supporting = sorted(
-        [
-            fact
-            for fact in facts
-            if fact.recommended_use == RecommendedUse.SUPPORTING_DETAIL
-        ],
-        key=lambda fact: (
-            fact.salience
-            + fact.user_relevance
-        ),
-        reverse=True,
-    )
+    supporting = [
+        fact
+        for fact in ranked_facts
+        if fact.fact_id not in priority_ids
+        and fact.recommended_use != RecommendedUse.OMIT_UNLESS_REQUESTED
+    ][: settings.writer_supporting_fact_limit]
 
     limitations = sorted(
         [
             fact
             for fact in facts
-            if fact.recommended_use == RecommendedUse.LIMITATION
+            if (
+                fact.recommended_use == RecommendedUse.LIMITATION
+                or ClaimPermission.INSUFFICIENCY in fact.claim_permissions
+                or fact.required_caveats
+            )
         ],
-        key=lambda fact: fact.salience,
+        key=lambda fact: evidence_priority_score_for_fact(fact, evidence_lookup),
         reverse=True,
-    )
+    )[: settings.maximum_limitation_findings]
 
-    recommendations = [
+    recommendations = sorted(
+        [
         recommendation
         for item in evidence.items
         for recommendation in item.recommendations
-    ]
+        if recommendation.priority in {"high", "medium"}
+        ],
+        key=lambda item: (
+            {"high": 2, "medium": 1, "low": 0}[item.priority],
+            item.confidence,
+        ),
+        reverse=True,
+    )
 
     prohibited = list(
         dict.fromkeys(
@@ -646,7 +959,10 @@ def build_writer_evidence_pack(
         limitation_facts=limitations,
         evidence_ledger=evidence,
         analytical_recommendations=recommendations,
-        global_prohibited_interpretations=prohibited,
+        reader_facing_limitations=build_reader_facing_limitations(
+            priority + limitations
+        ),
+        internal_prohibited_interpretations=prohibited,
     )
 
 
@@ -663,6 +979,17 @@ def validate_writer_output(
     if re.search(r"\[(?:CLM|FACT)_\d+", output.markdown):
         errors.append(
             "Internal fact or claim IDs must not appear in the visible report."
+        )
+
+    if INTERNAL_CONTROL_PATTERN.search(output.markdown):
+        errors.append(
+            "The visible report exposes an internal writer or auditor control."
+        )
+
+    if FIELD_LABEL_PATTERN.search(output.markdown):
+        errors.append(
+            "The visible report renders internal evidence fields instead of "
+            "natural analytical prose."
         )
 
     seen_sentence_ids: set[str] = set()
@@ -713,9 +1040,14 @@ def fallback_writer(
 ) -> WriterOutput:
     maximum = pack.report_specification.maximum_main_findings
 
-    selected = (
-        pack.priority_facts[:maximum]
-        + pack.limitation_facts[:2]
+    selected = list(
+        {
+            fact.fact_id: fact
+            for fact in (
+                pack.priority_facts[:maximum]
+                + pack.limitation_facts[:2]
+            )
+        }.values()
     )
 
     sections: dict[str, list[VerifiedFact]] = {
@@ -752,7 +1084,7 @@ def fallback_writer(
         lines.extend([f"## {heading}", ""])
 
         for fact in facts:
-            sentence = fact.fact_summary
+            sentence = reader_facing_caveat(fact.fact_summary) or fact.fact_summary
             lines.append(sentence)
 
             support_map.append(
@@ -804,6 +1136,107 @@ def default_quality_assessment() -> ReportQualityAssessment:
         findings=[],
         recommendations=[],
     )
+
+
+def assess_report_component_coverage(
+    writer_output: WriterOutput,
+    fact_ledger: FactLedger,
+    evidence: EvidenceLedger,
+    required_components: list[ReportComponent],
+) -> list[ReportComponentAssessment]:
+    fact_lookup = {
+        fact.fact_id: fact
+        for fact in fact_ledger.writer_ready_facts
+    }
+    evidence_lookup = {
+        item.evidence_id: item
+        for item in evidence.items
+    }
+    selected_facts = [
+        fact_lookup[fact_id]
+        for fact_id in writer_output.selected_fact_ids
+        if fact_id in fact_lookup
+    ]
+
+    selected_by_component: dict[ReportComponent, list[str]] = {
+        component: []
+        for component in required_components
+    }
+
+    for fact in selected_facts:
+        component = classify_fact_component(
+            fact,
+            evidence_lookup,
+        )
+
+        if component in selected_by_component:
+            selected_by_component[component].append(fact.fact_id)
+
+    return [
+            ReportComponentAssessment(
+                component=component,
+                covered=bool(selected_by_component[component]),
+                supporting_fact_ids=selected_by_component[component],
+                explanation=(
+                    "The report uses at least one verified fact for this component."
+                    if selected_by_component[component]
+                    else "No selected fact covers this required component."
+                ),
+            )
+        for component in required_components
+    ]
+
+
+def assess_report_components(
+    writer_output: WriterOutput,
+    fact_ledger: FactLedger,
+    evidence: EvidenceLedger,
+    required_components: list[ReportComponent],
+) -> list[ReportComponentAssessment]:
+    return assess_report_component_coverage(
+        writer_output,
+        fact_ledger,
+        evidence,
+        required_components,
+    )
+
+
+def decide_release_status(
+    *,
+    annotations: list[AuditAnnotation],
+    quality: ReportQualityAssessment,
+    methodological_warnings: list[str],
+    repair_budget_exhausted: bool,
+    audit_mode: AuditMode,
+) -> ReleaseStatus:
+    if audit_mode == AuditMode.ANNOTATION_ONLY:
+        return ReleaseStatus.APPROVED_WITH_WARNINGS
+
+    unresolved_critical = any(
+        annotation.severity == Severity.CRITICAL
+        and annotation.confidence >= 0.80
+        for annotation in annotations
+    )
+    unresolved_high = any(
+        annotation.severity == Severity.HIGH
+        and annotation.confidence >= 0.80
+        for annotation in annotations
+    )
+
+    if unresolved_critical:
+        return ReleaseStatus.HUMAN_REVIEW_REQUIRED
+
+    if unresolved_high and repair_budget_exhausted:
+        return ReleaseStatus.HUMAN_REVIEW_REQUIRED
+
+    if (
+        annotations
+        or methodological_warnings
+        or quality.status != QualityStatus.PASS
+    ):
+        return ReleaseStatus.APPROVED_WITH_WARNINGS
+
+    return ReleaseStatus.APPROVED
 
 
 def add_annotation(
@@ -1097,11 +1530,21 @@ def deterministic_audit(
             supported_count += 1
 
     word_count = len(
-        re.findall(r"\b\w+\b", writer_output.markdown)
+        re.findall(r"\b[\w'-]+\b", writer_output.markdown)
     )
 
     quality_findings: list[str] = []
     quality_recommendations: list[str] = []
+
+    if INTERNAL_CONTROL_PATTERN.search(writer_output.markdown) or FIELD_LABEL_PATTERN.search(
+        writer_output.markdown
+    ):
+        quality_findings.append(
+            "The report exposes internal writer or auditor guardrails."
+        )
+        quality_recommendations.append(
+            "Convert internal constraints into concise reader-facing caveats."
+        )
 
     if word_count > report_specification.target_length_words * 1.5:
         quality_findings.append(
@@ -1109,6 +1552,17 @@ def deterministic_audit(
         )
         quality_recommendations.append(
             "Remove low-priority detail and consolidate methodological caveats."
+        )
+
+    minimum_words = minimum_report_words(report_specification)
+    if word_count < minimum_words:
+        quality_findings.append(
+            f"The report contains {word_count} words, below the minimum useful "
+            f"coverage threshold of {minimum_words}."
+        )
+        quality_recommendations.append(
+            "Expand the report using verified facts covering the required dataset "
+            "overview, quality, relationship, and limitation components."
         )
 
     if (
@@ -1138,11 +1592,54 @@ def deterministic_audit(
             "Consolidate recurring caveats at section level."
         )
 
+    component_assessments = assess_report_components(
+        writer_output,
+        fact_ledger,
+        evidence,
+        report_specification.required_components,
+    )
+    missing_required_components = False
+    for assessment in component_assessments:
+        if not assessment.covered:
+            missing_required_components = True
+            quality_findings.append(
+                f"Required report component `{assessment.component.value}` is not clearly covered."
+            )
+            quality_recommendations.append(
+                "Revise the report to cover the required component using verified facts."
+            )
+
+    fact_text = " ".join(
+        fact.fact_summary.lower()
+        + " "
+        + " ".join(entity.lower() for entity in fact.entities)
+        for fact in fact_ledger.writer_ready_facts
+    )
+    unsupported_unit_terms = [
+        term
+        for term in UNSANCTIONED_UNIT_TERMS
+        if re.search(rf"\b{re.escape(term)}\b", writer_output.markdown, re.IGNORECASE)
+        and term not in fact_text
+    ]
+    if unsupported_unit_terms:
+        quality_findings.append(
+            "The report may substitute an unsupported unit of observation: "
+            + ", ".join(sorted(set(unsupported_unit_terms)))
+            + "."
+        )
+        quality_recommendations.append(
+            "Use the unit of observation supplied by dataset understanding or verified facts."
+        )
+
     quality = ReportQualityAssessment(
         status=(
-            QualityStatus.WARNING
-            if quality_findings
-            else QualityStatus.PASS
+            QualityStatus.REVISE
+            if missing_required_components
+            else (
+                QualityStatus.WARNING
+                if quality_findings
+                else QualityStatus.PASS
+            )
         ),
         request_responsiveness=0.8 if quality_findings else 1.0,
         finding_selection=0.7 if quality_findings else 1.0,
@@ -1171,12 +1668,13 @@ def deterministic_audit(
     else:
         decision = AuditDecision.PASS
 
-    if decision == AuditDecision.REVISE:
-        release_status = ReleaseStatus.HUMAN_REVIEW_REQUIRED
-    elif annotations or quality.status == QualityStatus.WARNING:
-        release_status = ReleaseStatus.APPROVED_WITH_WARNINGS
-    else:
-        release_status = ReleaseStatus.APPROVED
+    release_status = decide_release_status(
+        annotations=annotations,
+        quality=quality,
+        methodological_warnings=[],
+        repair_budget_exhausted=False,
+        audit_mode=mode,
+    )
 
     return AuditReport(
         mode=mode,
@@ -1252,17 +1750,16 @@ def merge_audit_proposal(
     else:
         decision = AuditDecision.PASS
 
-    warning_present = bool(
-        annotations
-        or proposal.quality_assessment.status != QualityStatus.PASS
+    release_status = decide_release_status(
+        annotations=annotations,
+        quality=proposal.quality_assessment,
+        methodological_warnings=[],
+        repair_budget_exhausted=False,
+        audit_mode=deterministic.mode,
     )
 
-    if decision in {AuditDecision.REVISE, AuditDecision.BLOCK}:
+    if decision == AuditDecision.BLOCK:
         release_status = ReleaseStatus.HUMAN_REVIEW_REQUIRED
-    elif warning_present:
-        release_status = ReleaseStatus.APPROVED_WITH_WARNINGS
-    else:
-        release_status = ReleaseStatus.APPROVED
 
     return deterministic.model_copy(
         update={
@@ -1422,6 +1919,15 @@ def apply_repair_proposal(
         support.sentence_text: support
         for support in support_map
     }
+    flagged_sentences = {
+        repair.original_sentence
+        for repair in proposal.repairs
+    }
+    original_unflagged_sentences = {
+        support.sentence_text
+        for support in writer_output.sentence_support
+        if support.sentence_text not in flagged_sentences
+    }
 
     for repair in proposal.repairs:
         original = repair.original_sentence
@@ -1535,6 +2041,12 @@ def apply_repair_proposal(
         fact.fact_id
         for fact in fact_ledger.writer_ready_facts
     ]
+
+    for sentence in original_unflagged_sentences:
+        if sentence and sentence not in markdown:
+            raise ValueError(
+                "A targeted repair modified or removed unflagged report content."
+            )
 
     return (
         writer_output.model_copy(

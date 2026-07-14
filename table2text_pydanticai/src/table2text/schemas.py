@@ -77,6 +77,22 @@ class RecommendedUse(str, Enum):
     OMIT_UNLESS_REQUESTED = "omit_unless_requested"
 
 
+class ZeroRisk(str, Enum):
+    NONE = "none"
+    LIKELY_VALID = "likely_valid_zero"
+    CONTEXT_DEPENDENT = "context_dependent_zero"
+    UNUSUAL = "unusual_zero"
+    POSSIBLE_SENTINEL = "possible_sentinel_zero"
+
+
+class ReportComponent(str, Enum):
+    DATASET_OVERVIEW = "dataset_overview"
+    DATA_QUALITY = "data_quality"
+    STRONGEST_RELATIONSHIPS = "strongest_relationships"
+    MODELLING_VALIDATION = "modelling_validation"
+    LIMITATIONS_NEXT_STEPS = "limitations_next_steps"
+
+
 class TargetStatus(str, Enum):
     USER_SELECTED = "user_selected"
     METADATA_CONFIRMED = "metadata_confirmed"
@@ -134,6 +150,8 @@ class ColumnProfile(StrictModel):
 
     suspicious_zero_values: bool = False
     possible_sentinel_values: bool = False
+    zero_risk: ZeroRisk = ZeroRisk.NONE
+    zero_risk_reason: str | None = None
 
     quality_warnings: list[str] = Field(default_factory=list)
 
@@ -208,6 +226,7 @@ class ReportSpecification(StrictModel):
     maximum_main_findings: int = Field(ge=2, le=20)
 
     preferred_sections: list[str] = Field(default_factory=list)
+    required_components: list[ReportComponent] = Field(default_factory=list)
     include_negative_findings: bool = True
     include_methodological_details: bool = True
 
@@ -267,6 +286,11 @@ class AnalyticalRecommendation(StrictModel):
     ]
     priority: Literal["high", "medium", "low"]
     justification: str
+    affected_analyses: list[str] = Field(default_factory=list)
+    consequence_if_ignored: str = (
+        "The related analysis may be less reliable or harder to interpret."
+    )
+    confidence: float = Field(default=0.75, ge=0.0, le=1.0)
 
 
 class EvidenceItem(StrictModel):
@@ -396,7 +420,15 @@ class WriterEvidencePack(StrictModel):
     analytical_recommendations: list[AnalyticalRecommendation] = Field(
         default_factory=list
     )
-    global_prohibited_interpretations: list[str] = Field(default_factory=list)
+    reader_facing_limitations: list[str] = Field(default_factory=list)
+    internal_prohibited_interpretations: list[str] = Field(default_factory=list)
+
+
+class ReportComponentAssessment(StrictModel):
+    component: ReportComponent
+    covered: bool
+    supporting_fact_ids: list[str] = Field(default_factory=list)
+    explanation: str
 
 
 class SentenceSupport(StrictModel):

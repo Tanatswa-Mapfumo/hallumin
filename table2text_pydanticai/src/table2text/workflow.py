@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -22,6 +23,7 @@ from .agents import (
 from .analytics import execute_plan
 from .audit import (
     apply_repair_proposal,
+    assess_report_components,
     build_writer_evidence_pack,
     compact_json,
     deterministic_audit,
@@ -45,11 +47,62 @@ from .schemas import (
     ExternalTruthSource,
     FactCandidateSet,
     PipelineResult,
+    ReportComponent,
     ReleaseStatus,
     RunManifest,
     VerificationResult,
+    WriterEvidencePack,
     WriterOutput,
 )
+
+
+def infer_required_report_components(
+    request: str,
+) -> list[ReportComponent]:
+    normalised = request.lower()
+    general_understanding_request = bool(
+        re.search(
+            r"\b("
+            r"understand|"
+            r"overview|"
+            r"summarise|summarize|"
+            r"strongest findings|"
+            r"key findings|"
+            r"explore"
+            r")\b",
+            normalised,
+        )
+    )
+
+    if general_understanding_request:
+        return [
+            ReportComponent.DATASET_OVERVIEW,
+            ReportComponent.DATA_QUALITY,
+            ReportComponent.STRONGEST_RELATIONSHIPS,
+            ReportComponent.LIMITATIONS_NEXT_STEPS,
+        ]
+
+    return []
+
+
+def build_writer_quality_revision_prompt(
+    writer_pack: WriterEvidencePack,
+    current_output: WriterOutput,
+    missing_components: list[ReportComponent],
+) -> str:
+    return (
+        "Revise the report to cover required report components while "
+        "preserving all currently supported factual statements.\n\n"
+        "Do not invent calculations or facts.\n"
+        "Do not expose internal control fields.\n"
+        "You may reorganise, expand, combine, or omit supported content.\n\n"
+        "Missing components:\n"
+        + "\n".join(f"- {component.value}" for component in missing_components)
+        + "\n\nEvidence pack:\n"
+        + compact_json(writer_pack)
+        + "\n\nCurrent output:\n"
+        + compact_json(current_output)
+    )
 
 
 class ArtifactStore:
@@ -352,6 +405,7 @@ class Table2TextWorkflow:
                 payload={
                     "table_names": table_names,
                     "columns": columns,
+                    "user_request": request,
                     "allow_experimental_targets": (
                         self.settings.allow_experimental_targets
                     ),
@@ -366,8 +420,24 @@ class Table2TextWorkflow:
             store=store,
         )
 
-        plan = ExecutionPlan.model_validate(plan).model_copy(
+        plan = ExecutionPlan.model_validate(plan)
+        required_components = infer_required_report_components(request)
+        report_specification = plan.report_specification.model_copy(
             update={
+                "required_components": list(
+                    dict.fromkeys(
+                        [
+                            *plan.report_specification.required_components,
+                            *required_components,
+                        ]
+                    )
+                )
+            }
+        )
+        plan = plan.model_copy(
+            update={
+                "objective": request,
+                "report_specification": report_specification,
                 "audit_mode": audit_mode,
                 "revision_limit": min(
                     plan.revision_limit,
@@ -438,14 +508,35 @@ class Table2TextWorkflow:
             verification,
             evidence_ledger,
         )
+        if not fact_ledger.writer_ready_facts:
+            store.trace(
+                "fact_ledger_finalisation",
+                "recovery",
+                {
+                    "reason": "Verifier rejected every fact candidate.",
+                },
+            )
+            fact_candidates = fallback_fact_candidates(
+                evidence_ledger,
+                plan.maximum_facts,
+            )
+            verification = fallback_verification(fact_candidates)
+            fact_ledger = finalise_fact_ledger(
+                fact_candidates,
+                verification,
+                evidence_ledger,
+            )
+            store.save_json("05_fact_candidates_recovered.json", fact_candidates)
+            store.save_json("06_verification_recovered.json", verification)
         store.save_json("07_fact_ledger.json", fact_ledger)
 
         writer_pack = build_writer_evidence_pack(
-            request,
-            understanding,
-            plan,
-            evidence_ledger,
-            fact_ledger,
+            request=request,
+            understanding=understanding,
+            plan=plan,
+            evidence=evidence_ledger,
+            fact_ledger=fact_ledger,
+            settings=self.settings,
         )
         store.save_json("08_writer_evidence_pack.json", writer_pack)
 
@@ -467,6 +558,43 @@ class Table2TextWorkflow:
             store=store,
         )
         raw_writer_output = WriterOutput.model_validate(raw_writer_output)
+        component_assessments = assess_report_components(
+            raw_writer_output,
+            fact_ledger,
+            evidence_ledger,
+            plan.report_specification.required_components,
+        )
+        missing_components = [
+            assessment.component
+            for assessment in component_assessments
+            if not assessment.covered
+        ]
+
+        if missing_components and raw_writer_output.writer_mode == "llm_writer":
+            revised_writer_output = await self.run_agent_or_fallback(
+                stage="writer_quality_revision",
+                agent=self.writer_agent,
+                prompt=build_writer_quality_revision_prompt(
+                    writer_pack,
+                    raw_writer_output,
+                    missing_components,
+                ),
+                dependencies=AgentDependencies(
+                    run_id=run_id,
+                    payload={
+                        "fact_ledger": fact_ledger.model_dump(mode="json")
+                    },
+                ),
+                fallback=lambda: raw_writer_output,
+                store=store,
+            )
+            raw_writer_output = WriterOutput.model_validate(revised_writer_output)
+            component_assessments = assess_report_components(
+                raw_writer_output,
+                fact_ledger,
+                evidence_ledger,
+                plan.report_specification.required_components,
+            )
 
         store.save_json(
             "09_writer_raw_output.json",
@@ -479,6 +607,10 @@ class Table2TextWorkflow:
         store.save_json(
             "09_writer_support_map.json",
             raw_writer_output.sentence_support,
+        )
+        store.save_json(
+            "09_writer_component_coverage.json",
+            component_assessments,
         )
 
         initial_audit, proposal = await self.audit_once(
@@ -495,6 +627,10 @@ class Table2TextWorkflow:
         )
 
         store.save_json("10_initial_audit.json", initial_audit)
+        store.save_json(
+            "10_initial_quality_assessment.json",
+            initial_audit.quality_assessment,
+        )
         store.save_json("11_repair_candidates_round_0.json", proposal)
 
         current_output = raw_writer_output
@@ -514,10 +650,15 @@ class Table2TextWorkflow:
             )
 
             if not patches:
+                release_status = (
+                    ReleaseStatus.HUMAN_REVIEW_REQUIRED
+                    if current_audit.annotations
+                    else ReleaseStatus.APPROVED_WITH_WARNINGS
+                )
                 current_audit = current_audit.model_copy(
                     update={
                         "decision": AuditDecision.BLOCK,
-                        "release_status": ReleaseStatus.HUMAN_REVIEW_REQUIRED,
+                        "release_status": release_status,
                         "residual_risk": (
                             current_audit.residual_risk
                             + " No deterministic-valid repair candidate was available."
@@ -570,10 +711,15 @@ class Table2TextWorkflow:
             )
 
         if current_audit.decision == AuditDecision.REVISE:
+            release_status = (
+                ReleaseStatus.HUMAN_REVIEW_REQUIRED
+                if current_audit.annotations
+                else ReleaseStatus.APPROVED_WITH_WARNINGS
+            )
             current_audit = current_audit.model_copy(
                 update={
                     "decision": AuditDecision.BLOCK,
-                    "release_status": ReleaseStatus.HUMAN_REVIEW_REQUIRED,
+                    "release_status": release_status,
                     "residual_risk": (
                         current_audit.residual_risk
                         + " The bounded repair budget was exhausted."
@@ -583,6 +729,15 @@ class Table2TextWorkflow:
             )
 
         final_audit = current_audit
+        store.save_json(
+            "14_final_component_coverage.json",
+            assess_report_components(
+                current_output,
+                fact_ledger,
+                evidence_ledger,
+                plan.report_specification.required_components,
+            ),
+        )
         release_status = final_audit.release_status
 
         approved = release_status in {

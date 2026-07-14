@@ -3,14 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-import numpy as np
 import pandas as pd
 
-from .schemas import ColumnProfile, DataProfile, TableProfile
+from .schemas import ColumnProfile, DataProfile, TableProfile, ZeroRisk
 
 
 SUPPORTED_EXTENSIONS = {
@@ -21,6 +21,33 @@ SUPPORTED_EXTENSIONS = {
     ".parquet",
     ".xlsx",
     ".xls",
+}
+
+VALID_ZERO_TERMS = {
+    "bearing",
+    "direction",
+    "angle",
+    "degree",
+    "degrees",
+    "count",
+    "number",
+    "index",
+    "flag",
+    "binary",
+}
+
+CONTEXT_DEPENDENT_ZERO_TERMS = {
+    "visibility",
+    "speed",
+    "precipitation",
+    "rain",
+    "snow",
+    "distance",
+}
+
+POSSIBLE_SENTINEL_ZERO_TERMS = {
+    "pressure",
+    "blood pressure",
 }
 
 
@@ -160,6 +187,79 @@ def load_data(inputs: Iterable[str | Path]) -> DataBundle:
     )
 
 
+def normalise_column_name(column_name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", column_name.lower()).strip()
+
+
+def looks_datetime_like(series: pd.Series) -> bool:
+    sample = series.dropna().astype(str).head(200)
+
+    if sample.empty:
+        return False
+
+    datetime_pattern_rate = sample.str.contains(
+        r"\d{4}[-/]\d{1,2}[-/]\d{1,2}"
+        r"|"
+        r"\d{1,2}[-/]\d{1,2}[-/]\d{2,4}"
+        r"|"
+        r"\d{1,2}:\d{2}",
+        regex=True,
+    ).mean()
+
+    return bool(datetime_pattern_rate >= 0.5)
+
+
+def classify_zero_risk(
+    *,
+    column_name: str,
+    zero_count: int,
+    zero_rate: float,
+    median: float,
+    q05: float,
+) -> tuple[ZeroRisk, str]:
+    if zero_count == 0:
+        return ZeroRisk.NONE, "No zero observations were recorded."
+
+    name = normalise_column_name(column_name)
+
+    if any(term in name for term in VALID_ZERO_TERMS):
+        return (
+            ZeroRisk.LIKELY_VALID,
+            "Zero is valid on the apparent measurement or coding scale.",
+        )
+
+    if any(term in name for term in CONTEXT_DEPENDENT_ZERO_TERMS):
+        return (
+            ZeroRisk.CONTEXT_DEPENDENT,
+            "Zero may be a genuine extreme observation and should not be "
+            "treated as erroneous without contextual evidence.",
+        )
+
+    if (
+        any(term in name for term in POSSIBLE_SENTINEL_ZERO_TERMS)
+        and median > 0
+        and q05 > 0
+    ):
+        return (
+            ZeroRisk.POSSIBLE_SENTINEL,
+            "Zero is separated from the main positive distribution and may "
+            "represent encoded missingness or measurement failure.",
+        )
+
+    if median >= 10 and q05 > 0 and zero_rate <= 0.05:
+        return (
+            ZeroRisk.UNUSUAL,
+            "Zero is unusual relative to the observed distribution, but its "
+            "validity cannot be established without metadata.",
+        )
+
+    return (
+        ZeroRisk.NONE,
+        "The observed distribution does not provide sufficient evidence that "
+        "zero is problematic.",
+    )
+
+
 def datetime_parse_rate(series: pd.Series) -> float:
     non_missing = series.dropna()
 
@@ -172,6 +272,9 @@ def datetime_parse_rate(series: pd.Series) -> float:
         return 1.0
 
     if pd.api.types.is_numeric_dtype(sample):
+        return 0.0
+
+    if not looks_datetime_like(sample):
         return 0.0
 
     parsed = pd.to_datetime(sample, errors="coerce", utc=True)
@@ -206,12 +309,13 @@ def infer_semantic_type(
 
 
 def numeric_diagnostics(
+    column_name: str,
     series: pd.Series,
-) -> tuple[dict[str, float | int], list[str], bool]:
+) -> tuple[dict[str, float | int], list[str], ZeroRisk, str, bool]:
     numeric = pd.to_numeric(series, errors="coerce").dropna()
 
     if numeric.empty:
-        return {}, [], False
+        return {}, [], ZeroRisk.NONE, "No numeric observations were available.", False
 
     q01 = float(numeric.quantile(0.01))
     q05 = float(numeric.quantile(0.05))
@@ -235,20 +339,22 @@ def numeric_diagnostics(
 
     median = float(numeric.median())
 
-    suspicious_zero = bool(
-        zero_count > 0
-        and median >= 10
-        and q05 > 0
-        and zero_rate < 0.20
+    zero_risk, zero_risk_reason = classify_zero_risk(
+        column_name=column_name,
+        zero_count=zero_count,
+        zero_rate=float(zero_rate),
+        median=median,
+        q05=q05,
     )
+    suspicious_zero = zero_risk in {
+        ZeroRisk.UNUSUAL,
+        ZeroRisk.POSSIBLE_SENTINEL,
+    }
 
     warnings: list[str] = []
 
     if suspicious_zero:
-        warnings.append(
-            "Zero values are separated from most of the positive distribution "
-            "and may require validation as possible sentinel or measurement values."
-        )
+        warnings.append(zero_risk_reason)
 
     summary: dict[str, float | int] = {
         "count": int(numeric.count()),
@@ -277,7 +383,7 @@ def numeric_diagnostics(
         "iqr_outlier_count": outlier_count,
     }
 
-    return summary, warnings, suspicious_zero
+    return summary, warnings, zero_risk, zero_risk_reason, suspicious_zero
 
 
 def profile_data(bundle: DataBundle) -> DataProfile:
@@ -338,10 +444,19 @@ def profile_data(bundle: DataBundle) -> DataProfile:
             summary: dict[str, float | int] = {}
             quality_warnings: list[str] = []
             suspicious_zero = False
+            zero_risk = ZeroRisk.NONE
+            zero_risk_reason = None
 
             if semantic_type == "numeric":
-                summary, numeric_warnings, suspicious_zero = numeric_diagnostics(
-                    series
+                (
+                    summary,
+                    numeric_warnings,
+                    zero_risk,
+                    zero_risk_reason,
+                    suspicious_zero,
+                ) = numeric_diagnostics(
+                    column_name,
+                    series,
                 )
                 quality_warnings.extend(numeric_warnings)
 
@@ -383,6 +498,8 @@ def profile_data(bundle: DataBundle) -> DataProfile:
                     dominant_value_rate=round(dominant_rate, 6),
                     suspicious_zero_values=suspicious_zero,
                     possible_sentinel_values=suspicious_zero,
+                    zero_risk=zero_risk,
+                    zero_risk_reason=zero_risk_reason,
                     quality_warnings=quality_warnings,
                 )
             )

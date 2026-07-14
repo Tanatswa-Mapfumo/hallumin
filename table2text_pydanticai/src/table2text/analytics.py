@@ -25,7 +25,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 from .config import Settings
-from .data import DataBundle, safe_hashable
+from .data import DataBundle, classify_zero_risk, safe_hashable
 from .schemas import (
     AnalysisRoute,
     AnalyticalRecommendation,
@@ -37,6 +37,7 @@ from .schemas import (
     RecommendedUse,
     TargetStatus,
     ValidationStrategy,
+    ZeroRisk,
 )
 
 
@@ -73,32 +74,32 @@ class EvidenceBuilder:
     ) -> None:
         evidence_id = f"EVD_{len(self.items) + 1:04d}"
 
-        self.items.append(
-            EvidenceItem(
-                evidence_id=evidence_id,
-                route=route,
-                task_ids=task_ids,
-                finding=finding,
-                metrics=metrics,
-                source_tables=source_tables,
-                source_columns=source_columns,
-                method=method,
-                validation_strategy=validation_strategy,
-                practical_interpretation=practical_interpretation,
-                strength_label=strength_label,
-                limitations=limitations or [],
-                prohibited_interpretations=prohibited_interpretations or [],
-                recommendations=recommendations or [],
-                claim_permissions=claim_permissions,
-                factual_confidence=factual_confidence,
-                methodological_strength=methodological_strength,
-                user_relevance=user_relevance,
-                salience=salience,
-                recommended_use=recommended_use,
-                eligible_for_writer=eligible_for_writer,
-                exclusion_reason=exclusion_reason,
-            )
+        item = EvidenceItem(
+            evidence_id=evidence_id,
+            route=route,
+            task_ids=task_ids,
+            finding=finding,
+            metrics=metrics,
+            source_tables=source_tables,
+            source_columns=source_columns,
+            method=method,
+            validation_strategy=validation_strategy,
+            practical_interpretation=practical_interpretation,
+            strength_label=strength_label,
+            limitations=limitations or [],
+            prohibited_interpretations=prohibited_interpretations or [],
+            recommendations=recommendations or [],
+            claim_permissions=claim_permissions,
+            factual_confidence=factual_confidence,
+            methodological_strength=methodological_strength,
+            user_relevance=user_relevance,
+            salience=salience,
+            recommended_use=recommended_use,
+            eligible_for_writer=eligible_for_writer,
+            exclusion_reason=exclusion_reason,
         )
+        item.metrics["priority_score"] = evidence_priority_score(item)
+        self.items.append(item)
 
     def build(self) -> EvidenceLedger:
         return EvidenceLedger(
@@ -150,6 +151,9 @@ def recommendation(
     recommendation_type: str,
     priority: str,
     justification: str,
+    affected_analyses: list[str] | None = None,
+    consequence_if_ignored: str | None = None,
+    confidence: float = 0.75,
 ) -> AnalyticalRecommendation:
     count = sum(len(item.recommendations) for item in builder.items) + 1
 
@@ -159,6 +163,75 @@ def recommendation(
         recommendation_type=recommendation_type,
         priority=priority,
         justification=justification,
+        affected_analyses=affected_analyses or [],
+        consequence_if_ignored=(
+            consequence_if_ignored
+            or "The related analysis may be less reliable or harder to interpret."
+        ),
+        confidence=confidence,
+    )
+
+
+LOW_PRIORITY_STRENGTH_LABELS = {
+    "negligible",
+    "negligible_association",
+    "weak_but_reportable_association",
+    "small_group_difference",
+}
+
+
+def eligible_as_main_finding(item: EvidenceItem) -> bool:
+    if not item.eligible_for_writer:
+        return False
+
+    if item.recommended_use not in {
+        RecommendedUse.HEADLINE,
+        RecommendedUse.MAIN_FINDING,
+    }:
+        return False
+
+    if item.strength_label in LOW_PRIORITY_STRENGTH_LABELS:
+        return False
+
+    return (
+        item.factual_confidence >= 0.90
+        and item.methodological_strength >= 0.70
+        and item.user_relevance >= 0.65
+    )
+
+
+def evidence_priority_score(item: EvidenceItem) -> float:
+    use_bonus = {
+        RecommendedUse.HEADLINE: 0.25,
+        RecommendedUse.MAIN_FINDING: 0.15,
+        RecommendedUse.SUPPORTING_DETAIL: 0.0,
+        RecommendedUse.LIMITATION: 0.10,
+        RecommendedUse.OMIT_UNLESS_REQUESTED: -0.30,
+    }[item.recommended_use]
+
+    strength_bonus = {
+        "very_strong_association": 0.20,
+        "strong_association": 0.15,
+        "moderate_association": 0.08,
+        "large_group_difference": 0.18,
+        "moderate_group_difference": 0.10,
+        "small_group_difference": -0.08,
+        "possible_data_quality_issue": 0.12,
+        "possible_sentinel_zero": 0.15,
+        "constant_column": 0.15,
+        "validated_internal_prediction": 0.15,
+        "validated_forecast": 0.15,
+        "model_not_better_than_baseline": 0.10,
+        "forecast_not_better_than_baseline": 0.10,
+    }.get(item.strength_label, 0.0)
+
+    return (
+        0.30 * item.salience
+        + 0.25 * item.user_relevance
+        + 0.20 * item.methodological_strength
+        + 0.15 * item.factual_confidence
+        + use_bonus
+        + strength_bonus
     )
 
 
@@ -329,6 +402,14 @@ def descriptive_analysis(
                 median = float(values.median())
                 std = float(values.std(ddof=1)) if len(values) > 1 else 0.0
                 zero_count = int((values == 0).sum())
+                zero_rate = zero_count / len(values)
+                zero_risk, zero_risk_reason = classify_zero_risk(
+                    column_name=column_name,
+                    zero_count=zero_count,
+                    zero_rate=zero_rate,
+                    median=median,
+                    q05=q05,
+                )
 
                 metrics = {
                     "count": int(values.count()),
@@ -343,6 +424,9 @@ def descriptive_analysis(
                     "q99": q99,
                     "maximum": float(values.max()),
                     "zero_count": zero_count,
+                    "zero_rate": zero_rate,
+                    "zero_risk": zero_risk.value,
+                    "zero_risk_reason": zero_risk_reason,
                     "negative_count": int((values < 0).sum()),
                     "skewness": (
                         float(values.skew())
@@ -365,12 +449,10 @@ def descriptive_analysis(
                         "which may indicate skewness or influential values."
                     )
 
-                suspicious_zero = bool(
-                    zero_count > 0
-                    and median >= 10
-                    and q05 > 0
-                    and zero_count / len(values) < 0.20
-                )
+                suspicious_zero = zero_risk in {
+                    ZeroRisk.UNUSUAL,
+                    ZeroRisk.POSSIBLE_SENTINEL,
+                }
 
                 limitations = [
                     "Distribution summaries do not establish a trend, prediction, "
@@ -379,29 +461,59 @@ def descriptive_analysis(
 
                 recommendations: list[AnalyticalRecommendation] = []
 
+                if zero_risk == ZeroRisk.CONTEXT_DEPENDENT:
+                    limitations.append(zero_risk_reason)
+
                 if suspicious_zero:
-                    limitations.append(
-                        "Zero observations are separated from most of the positive "
-                        "distribution and may represent valid extremes, measurement "
-                        "failures, or sentinel values."
-                    )
+                    limitations.append(zero_risk_reason)
+
+                    if zero_risk == ZeroRisk.POSSIBLE_SENTINEL:
+                        priority = "high"
+                        recommendation_use = RecommendedUse.MAIN_FINDING
+                        strength_label = "possible_sentinel_zero"
+                        consequence = (
+                            "Treating encoded missing values as genuine measurements "
+                            "could distort means, associations, and fitted model "
+                            "relationships."
+                        )
+                        confidence = 0.85
+                    else:
+                        priority = "medium"
+                        recommendation_use = RecommendedUse.SUPPORTING_DETAIL
+                        strength_label = "possible_data_quality_issue"
+                        consequence = (
+                            "If the zeros are invalid records, summaries and "
+                            "relationships involving this field may be biased."
+                        )
+                        confidence = 0.70
 
                     recommendations.append(
                         recommendation(
                             builder,
                             action=(
-                                f"Inspect the frequency, timing, and source records of "
-                                f"zero values in `{column_name}` before relying on "
-                                "analyses involving this field."
+                                f"Validate zero values in `{column_name}` against "
+                                "source records or metadata before relying on analyses "
+                                "involving this field."
                             ),
                             recommendation_type="data_cleaning",
-                            priority="high",
-                            justification=(
-                                "Zero observations occur below a distribution whose "
-                                "fifth percentile and median are positive."
-                            ),
+                            priority=priority,
+                            justification=zero_risk_reason,
+                            affected_analyses=[
+                                "descriptive statistics",
+                                "correlation analysis",
+                                "predictive modelling",
+                            ],
+                            consequence_if_ignored=consequence,
+                            confidence=confidence,
                         )
                     )
+                else:
+                    recommendation_use = (
+                        RecommendedUse.OMIT_UNLESS_REQUESTED
+                        if zero_risk == ZeroRisk.CONTEXT_DEPENDENT
+                        else RecommendedUse.SUPPORTING_DETAIL
+                    )
+                    strength_label = "distribution_summary"
 
                 builder.add(
                     route=AnalysisRoute.DESCRIPTIVE,
@@ -421,9 +533,7 @@ def descriptive_analysis(
                     ),
                     practical_interpretation=interpretation,
                     strength_label=(
-                        "possible_data_quality_issue"
-                        if suspicious_zero
-                        else "distribution_summary"
+                        strength_label
                     ),
                     claim_permissions=[
                         ClaimPermission.DESCRIPTIVE,
@@ -433,11 +543,7 @@ def descriptive_analysis(
                     methodological_strength=0.98,
                     user_relevance=0.85 if suspicious_zero else 0.55,
                     salience=0.90 if suspicious_zero else 0.50,
-                    recommended_use=(
-                        RecommendedUse.MAIN_FINDING
-                        if suspicious_zero
-                        else RecommendedUse.SUPPORTING_DETAIL
-                    ),
+                    recommended_use=recommendation_use,
                     limitations=limitations,
                     recommendations=recommendations,
                     prohibited_interpretations=[

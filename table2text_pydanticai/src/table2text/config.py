@@ -49,6 +49,19 @@ class Settings:
     writer_target_words: int = 650
     writer_max_main_findings: int = 8
     repair_candidates_per_sentence: int = 3
+    writer_priority_fact_limit: int = 12
+    writer_supporting_fact_limit: int = 20
+
+    minimum_main_finding_score: float = 0.65
+    minimum_main_effect_strength: str = "moderate"
+
+    maximum_data_quality_findings: int = 3
+    maximum_association_findings: int = 4
+    maximum_predictive_findings: int = 1
+    maximum_forecast_findings: int = 1
+    maximum_limitation_findings: int = 3
+
+    zero_unusual_rate_threshold: float = 0.05
 
     ollama_base_url: str = "http://localhost:11434/v1"
 
@@ -120,6 +133,46 @@ class Settings:
             repair_candidates_per_sentence=env_int(
                 "T2T_REPAIR_CANDIDATES_PER_SENTENCE",
                 3,
+            ),
+            writer_priority_fact_limit=env_int(
+                "T2T_WRITER_PRIORITY_FACT_LIMIT",
+                12,
+            ),
+            writer_supporting_fact_limit=env_int(
+                "T2T_WRITER_SUPPORTING_FACT_LIMIT",
+                20,
+            ),
+            minimum_main_finding_score=env_float(
+                "T2T_MINIMUM_MAIN_FINDING_SCORE",
+                0.65,
+            ),
+            minimum_main_effect_strength=os.getenv(
+                "T2T_MINIMUM_MAIN_EFFECT_STRENGTH",
+                "moderate",
+            ),
+            maximum_data_quality_findings=env_int(
+                "T2T_MAX_DATA_QUALITY_FINDINGS",
+                3,
+            ),
+            maximum_association_findings=env_int(
+                "T2T_MAX_ASSOCIATION_FINDINGS",
+                4,
+            ),
+            maximum_predictive_findings=env_int(
+                "T2T_MAX_PREDICTIVE_FINDINGS",
+                1,
+            ),
+            maximum_forecast_findings=env_int(
+                "T2T_MAX_FORECAST_FINDINGS",
+                1,
+            ),
+            maximum_limitation_findings=env_int(
+                "T2T_MAX_LIMITATION_FINDINGS",
+                3,
+            ),
+            zero_unusual_rate_threshold=env_float(
+                "T2T_ZERO_UNUSUAL_RATE_THRESHOLD",
+                0.05,
             ),
             ollama_base_url=os.getenv(
                 "OLLAMA_BASE_URL",

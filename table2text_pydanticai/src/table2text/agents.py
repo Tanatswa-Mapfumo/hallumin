@@ -27,8 +27,8 @@ from .schemas import (
     FactCandidateSet,
     FactLedger,
     InvestigationTask,
+    ReportComponent,
     ReportSpecification,
-    ReviewDecision,
     TableUnderstanding,
     TargetStatus,
     ValidationStrategy,
@@ -175,6 +175,13 @@ Rules:
   and naive baselines.
 - Causal work is feasibility-first.
 - Include a report specification with a finding budget and target length.
+- Do not let one analytical route dominate a general dataset-understanding
+  report.
+- For requests asking to understand a dataset, require dataset overview,
+  data quality, strongest relationships, limitations, and next steps.
+- Prediction and forecasting remain optional and must not be added unless the
+  request or confirmed metadata supports them.
+- Do not rewrite or replace the user's objective with a different objective.
 - Negative and insufficiency findings are valid.
 - Set frozen=true.
 """
@@ -218,6 +225,12 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
 
         if not output.frozen:
             raise ModelRetry("Set frozen=true.")
+
+        user_request = context.deps.payload.get("user_request")
+        if user_request and output.objective.strip() != user_request.strip():
+            raise ModelRetry(
+                "Use the exact supplied user objective; do not substitute a new purpose."
+            )
 
         if not output.tasks:
             raise ModelRetry(
@@ -285,6 +298,24 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
                 "route_order must include every route used by the tasks."
             )
 
+        if user_request and re.search(
+            r"\b(understand|overview|summari[sz]e|describe|strongest findings)\b",
+            user_request,
+            re.IGNORECASE,
+        ):
+            required = set(output.report_specification.required_components)
+            expected = {
+                ReportComponent.DATASET_OVERVIEW,
+                ReportComponent.DATA_QUALITY,
+                ReportComponent.STRONGEST_RELATIONSHIPS,
+                ReportComponent.LIMITATIONS_NEXT_STEPS,
+            }
+            if not expected.issubset(required):
+                raise ModelRetry(
+                    "General dataset-understanding reports must require overview, "
+                    "data quality, strongest relationships, and limitations/next steps."
+                )
+
         return output
 
     return agent
@@ -308,6 +339,12 @@ Rules:
 - Carry forward prohibited interpretations and material caveats.
 - Exclude evidence marked eligible_for_writer=false.
 - Do not make every candidate a headline; preserve recommended_use.
+- Do not select facts only from the final evidence items or a single route.
+- Preserve dataset overview facts, important quality facts, strong or moderate
+  relationships, negative modelling findings, and limitations.
+- Do not promote small or weak effects to main findings when stronger unused
+  evidence is available.
+- Do not copy internal prohibited interpretations into fact_summary.
 """
 
 
@@ -434,45 +471,88 @@ def build_verifier_agent(settings: Settings) -> Agent:
 
 
 WRITER_INSTRUCTIONS = """
-You are an expert data scientist and data-to-text report writer.
+You are an expert data scientist and natural report writer.
 
-You receive:
-- the user's request;
-- a report specification;
-- dataset understanding;
-- verified priority facts;
-- supporting facts;
-- limitation facts;
-- the full evidence ledger;
-- grounded analytical recommendations;
-- prohibited interpretations.
+Use the supplied verified evidence to produce a selective, coherent,
+reader-facing data-science report.
 
-Use your writing ability and judgement.
+You have freedom over:
+- wording;
+- structure;
+- selection;
+- synthesis;
+- paragraph organisation;
+- explanation;
+- consolidation of caveats.
 
-You should:
-- answer the user's actual request;
-- identify the strongest and most relevant findings;
-- omit weak or irrelevant details;
-- combine related facts into natural paragraphs;
-- interpret effect magnitude using supplied strength labels;
-- explain how data-quality issues affect analysis;
-- distinguish descriptive association, prediction, and forecasting;
-- explain negative modelling results;
-- provide grounded next analytical steps;
-- consolidate caveats instead of repeating them;
-- write a coherent Markdown report.
+You do not have freedom to invent:
+- calculated values;
+- table or column names;
+- categories;
+- dates;
+- locations;
+- provenance;
+- domain definitions;
+- causal explanations;
+- predictive performance;
+- forecast performance;
+- deployment claims.
 
-You are not required to reproduce every fact or use evidence wording verbatim.
+Internal prohibited interpretations are private safety constraints.
+Never quote, enumerate, label, paraphrase as instructions, or expose them
+in the visible report.
 
-Do not:
-- invent calculated values;
-- invent variables, categories, dates, locations, provenance, or metadata;
-- change the direction or polarity of a result;
-- turn association into causation;
-- describe internal validation as deployment readiness;
-- describe an unsuccessful forecast as successful;
-- add external domain explanations not present in the evidence;
-- expose internal FACT or evidence IDs in visible Markdown.
+Do not render internal evidence fields such as:
+- Strength:
+- Interpretation Notes:
+- Recommended Use:
+- Methodological Strength:
+- User Relevance:
+- Salience:
+- Global Prohibited Interpretations
+
+Translate effect labels and metrics into natural prose.
+
+For example, do not write:
+
+"Strength: Large group difference; Standardized Difference: 1.00"
+
+Write naturally:
+
+"The groups differ substantially; the standardised mean difference is
+approximately 1.0."
+
+Use the unit of observation supplied by the Data Understanding Agent.
+Do not replace "observations", "records", "rows", "patients", "recipes",
+or other identified units with "events", "cases", "experiments", or
+"subjects" unless that terminology is explicitly supported.
+
+For a major group comparison, where supplied, explain:
+- the group means;
+- their absolute difference;
+- whether the difference is small, moderate, or large;
+- relevant group-size imbalance;
+- whether the comparison is adjusted or unadjusted.
+
+Do not mechanically print all fields. Integrate the most useful context
+into natural prose.
+
+Do not include every available fact.
+Prioritise the strongest, most relevant, and methodologically defensible
+findings.
+
+A generic dataset-understanding report should normally include:
+- a concise dataset overview;
+- important data-quality findings;
+- the strongest observed relationships;
+- relevant methodological limitations;
+- grounded next analytical steps.
+
+Small or weak effects should normally be omitted unless they materially
+qualify a stronger finding or the user requested completeness.
+
+Every factual sentence must be represented in the hidden sentence support
+map.
 
 Return:
 1. natural Markdown;
@@ -584,6 +664,19 @@ Also assess report quality separately:
 - data-science interpretation.
 
 Quality weaknesses alone should normally be warnings, not factual blocks.
+
+Internal-control leakage is a report-quality problem.
+
+When a visible report contains:
+- Interpretation Notes;
+- Global Prohibited Interpretations;
+- Do not say...;
+- evidence-field labels;
+
+propose a targeted natural-language repair or removal.
+
+Do not classify this alone as a critical factual hallucination.
+Do not rewrite the complete report.
 """
 
 
@@ -1105,6 +1198,12 @@ def fallback_execution_plan(
                 "Strongest observed relationships",
                 "Modelling and validation",
                 "Limitations and next steps",
+            ],
+            required_components=[
+                ReportComponent.DATASET_OVERVIEW,
+                ReportComponent.DATA_QUALITY,
+                ReportComponent.STRONGEST_RELATIONSHIPS,
+                ReportComponent.LIMITATIONS_NEXT_STEPS,
             ],
             include_negative_findings=True,
             include_methodological_details=True,
