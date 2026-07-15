@@ -53,6 +53,13 @@ class ReviewDecision(str, Enum):
     REJECT = "reject"
 
 
+class VerificationMethod(str, Enum):
+    LLM_VERIFIED = "llm_verified"
+    DETERMINISTIC_EVIDENCE_RECOVERY = (
+        "deterministic_evidence_recovery"
+    )
+
+
 class ErrorType(str, Enum):
     INCORRECT_NAMED_ENTITY = "incorrect_named_entity"
     INCORRECT_NUMBER = "incorrect_number"
@@ -384,6 +391,10 @@ class VerifiedFact(StrictModel):
     fact_id: str
     source_candidate_id: str
 
+    verification_method: VerificationMethod = (
+        VerificationMethod.LLM_VERIFIED
+    )
+
     fact_summary: str
     evidence_ids: list[str]
 
@@ -413,6 +424,13 @@ class FactLedger(StrictModel):
     writer_ready_facts: list[VerifiedFact]
     rejected_facts: list[RejectedFact] = Field(default_factory=list)
     verifier_notes: list[str] = Field(default_factory=list)
+
+    deterministically_recovered_fact_ids: list[str] = Field(
+        default_factory=list
+    )
+    coverage_recovery_notes: list[str] = Field(
+        default_factory=list
+    )
 
 
 class WriterEvidencePack(StrictModel):
@@ -449,6 +467,36 @@ class SentenceSupport(StrictModel):
     evidence_ids: list[str] = Field(default_factory=list)
 
     support_type: SupportType
+
+
+class WriterSentenceDraft(StrictModel):
+    text: str = Field(min_length=1)
+
+    fact_ids: list[str] = Field(
+        default_factory=list
+    )
+
+    support_type: SupportType
+
+
+class WriterSectionDraft(StrictModel):
+    heading: str = Field(min_length=1)
+
+    sentences: list[WriterSentenceDraft] = Field(
+        default_factory=list
+    )
+
+
+class WriterAgentDraft(StrictModel):
+    title: str = Field(min_length=1)
+
+    sections: list[WriterSectionDraft] = Field(
+        default_factory=list
+    )
+
+    writer_notes: list[str] = Field(
+        default_factory=list
+    )
 
 
 class WriterOutput(StrictModel):

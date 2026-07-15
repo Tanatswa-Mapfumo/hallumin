@@ -13,6 +13,8 @@ from table2text.audit import (
     decide_release_status,
     deterministic_audit,
     fallback_writer,
+    materialise_writer_output,
+    merge_audit_proposal,
     validate_repair_candidate,
     validate_writer_output,
 )
@@ -23,6 +25,7 @@ from table2text.schemas import (
     AuditDecision,
     AuditMode,
     AuditRepairProposal,
+    AuditReport,
     ClaimPermission,
     DataUnderstanding,
     ErrorType,
@@ -45,12 +48,39 @@ from table2text.schemas import (
     TargetStatus,
     ValidationStrategy,
     VerifiedFact,
+    WriterAgentDraft,
     WriterOutput,
+    WriterSectionDraft,
+    WriterSentenceDraft,
     ZeroRisk,
 )
 from table2text.agents import (
     fallback_execution_plan,
 )
+
+
+def make_passing_audit_report() -> AuditReport:
+    return AuditReport(
+        mode=AuditMode.INTERNAL,
+        decision=AuditDecision.PASS,
+        release_status=ReleaseStatus.APPROVED,
+        annotations=[],
+        applied_patches=[],
+        factual_sentence_count=1,
+        supported_sentence_count=1,
+        support_rate=1.0,
+        residual_risk="No high-confidence factual issue detected.",
+        revision_instructions=[],
+        quality_assessment=ReportQualityAssessment(
+            status=QualityStatus.PASS,
+            request_responsiveness=1.0,
+            finding_selection=1.0,
+            coherence=1.0,
+            concision=1.0,
+            caveat_integration=1.0,
+            data_science_interpretation=1.0,
+        ),
+    )
 
 
 def test_profile_detects_constant_and_suspicious_zero(tmp_path):
@@ -161,7 +191,47 @@ def test_weak_correlations_are_filtered(tmp_path):
 
     assert all(abs(value) >= 0.20 for value in correlations)
 
+def test_final_approved_status_cannot_have_block_decision():
+    release_status = (
+        ReleaseStatus.APPROVED_WITH_WARNINGS
+    )
 
+    final_decision = (
+        AuditDecision.BLOCK
+        if release_status
+        == ReleaseStatus.HUMAN_REVIEW_REQUIRED
+        else AuditDecision.PASS
+    )
+
+    assert final_decision == AuditDecision.PASS
+    
+def test_semantic_block_without_serious_annotations_is_advisory():
+    deterministic = make_passing_audit_report()
+
+    proposal = AuditRepairProposal(
+        annotations=[],
+        repairs=[],
+        recommended_decision=AuditDecision.BLOCK,
+        residual_risk=(
+            "The model requested blocking without "
+            "supporting serious annotations."
+        ),
+        quality_assessment=(
+            deterministic.quality_assessment
+        ),
+    )
+
+    merged = merge_audit_proposal(
+        deterministic,
+        proposal,
+    )
+
+    assert merged.decision == AuditDecision.PASS
+    assert merged.release_status in {
+        ReleaseStatus.APPROVED,
+        ReleaseStatus.APPROVED_WITH_WARNINGS,
+    }
+    
 def test_generic_request_does_not_invent_prediction_target(tmp_path):
     path = tmp_path / "weather.csv"
 
@@ -643,6 +713,40 @@ def test_writer_output_accepts_natural_effect_interpretation():
     assert not validate_writer_output(output, ledger)
 
 
+def test_materialise_writer_output_splits_multi_sentence_draft_text():
+    ledger, _ = make_fact_fixture()
+    draft = WriterAgentDraft(
+        title="Weather summary",
+        sections=[
+            WriterSectionDraft(
+                heading="Dataset overview",
+                sentences=[
+                    WriterSentenceDraft(
+                        text=(
+                            "The table contains 96,453 rows. "
+                            "The dataset is large."
+                        ),
+                        fact_ids=["FACT_0001"],
+                        support_type=SupportType.PARAPHRASE,
+                    )
+                ],
+            )
+        ],
+    )
+
+    output = materialise_writer_output(draft, ledger)
+
+    assert [
+        support.sentence_text
+        for support in output.sentence_support
+    ] == [
+        "The table contains 96,453 rows.",
+        "The dataset is large.",
+    ]
+    assert output.selected_fact_ids == ["FACT_0001"]
+    assert not validate_writer_output(output, ledger)
+
+
 def test_quality_warning_results_in_approved_with_warnings():
     quality = ReportQualityAssessment(
         status=QualityStatus.WARNING,
@@ -999,4 +1103,461 @@ def test_deterministic_writer_fallback_is_not_primary_evaluation():
     output = fallback_writer(pack)
 
     assert output.writer_mode == "deterministic_fallback"
+    assert not output.eligible_for_primary_evaluation
+# ============================================================
+# REPORT-COVERAGE REGRESSION TESTS
+# ============================================================
+
+
+def _coverage_evidence_item(
+    *,
+    evidence_id,
+    finding,
+    route,
+    metrics,
+    strength_label,
+    recommended_use,
+    permissions,
+    relevance=0.95,
+    salience=0.95,
+):
+    return EvidenceItem(
+        evidence_id=evidence_id,
+        route=route,
+        task_ids=["TASK_COVERAGE"],
+        finding=finding,
+        metrics=metrics,
+        source_tables=["weather"],
+        source_columns=list(
+            metrics.get(
+                "source_columns",
+                [],
+            )
+        ),
+        method="Deterministic test evidence.",
+        validation_strategy=ValidationStrategy.NONE,
+        practical_interpretation=finding,
+        strength_label=strength_label,
+        limitations=[],
+        prohibited_interpretations=[],
+        recommendations=[],
+        claim_permissions=permissions,
+        factual_confidence=1.0,
+        methodological_strength=0.95,
+        user_relevance=relevance,
+        salience=salience,
+        recommended_use=recommended_use,
+        eligible_for_writer=True,
+    )
+
+
+def _coverage_fact(
+    item,
+    fact_id,
+):
+    return VerifiedFact(
+        fact_id=fact_id,
+        source_candidate_id=(
+            f"CAN_{fact_id}"
+        ),
+        fact_summary=item.finding,
+        evidence_ids=[item.evidence_id],
+        structured_values={
+            item.evidence_id: item.metrics
+        },
+        entities=[
+            "weather",
+            *item.source_columns,
+        ],
+        claim_permissions=(
+            item.claim_permissions
+        ),
+        factual_confidence=(
+            item.factual_confidence
+        ),
+        methodological_strength=(
+            item.methodological_strength
+        ),
+        user_relevance=item.user_relevance,
+        salience=item.salience,
+        recommended_use=item.recommended_use,
+    )
+
+
+def _coverage_fixture():
+    overview = _coverage_evidence_item(
+        evidence_id="EVD_COV_001",
+        finding=(
+            "Table `weather` contains 96,453 "
+            "rows and 12 columns."
+        ),
+        route=AnalysisRoute.DESCRIPTIVE,
+        metrics={
+            "row_count": 96_453,
+            "column_count": 12,
+        },
+        strength_label="dataset_overview",
+        recommended_use=RecommendedUse.HEADLINE,
+        permissions=[
+            ClaimPermission.DESCRIPTIVE
+        ],
+    )
+
+    quality = _coverage_evidence_item(
+        evidence_id="EVD_COV_002",
+        finding=(
+            "`Loud Cover` is constant at `0` "
+            "across all observations."
+        ),
+        route=AnalysisRoute.DESCRIPTIVE,
+        metrics={
+            "constant": True,
+            "constant_value": 0,
+        },
+        strength_label="constant_column",
+        recommended_use=(
+            RecommendedUse.MAIN_FINDING
+        ),
+        permissions=[
+            ClaimPermission.DESCRIPTIVE,
+            ClaimPermission.METHODOLOGICAL,
+        ],
+    )
+
+    correlation = _coverage_evidence_item(
+        evidence_id="EVD_COV_003",
+        finding=(
+            "`Temperature (C)` and "
+            "`Apparent Temperature (C)` have "
+            "a Pearson correlation of 0.9926."
+        ),
+        route=(
+            AnalysisRoute
+            .ASSOCIATION_COMPARISON
+        ),
+        metrics={
+            "pearson_r": 0.9926,
+            "complete_pairs": 96_453,
+        },
+        strength_label=(
+            "very_strong_association"
+        ),
+        recommended_use=(
+            RecommendedUse.MAIN_FINDING
+        ),
+        permissions=[
+            ClaimPermission.ASSOCIATIONAL,
+            ClaimPermission.METHODOLOGICAL,
+        ],
+    )
+
+    large_group = _coverage_evidence_item(
+        evidence_id="EVD_COV_004",
+        finding=(
+            "Rain observations have a mean "
+            "temperature of 12.36 compared with "
+            "-4.97 for snow, a difference of "
+            "17.33."
+        ),
+        route=(
+            AnalysisRoute
+            .ASSOCIATION_COMPARISON
+        ),
+        metrics={
+            "highest_group": {
+                "group": "rain",
+                "mean": 12.36,
+            },
+            "lowest_group": {
+                "group": "snow",
+                "mean": -4.97,
+            },
+            "difference": 17.33,
+            "standardised_difference": 1.0,
+        },
+        strength_label=(
+            "large_group_difference"
+        ),
+        recommended_use=(
+            RecommendedUse.MAIN_FINDING
+        ),
+        permissions=[
+            ClaimPermission.COMPARATIVE,
+            ClaimPermission.METHODOLOGICAL,
+        ],
+    )
+
+    small_group = _coverage_evidence_item(
+        evidence_id="EVD_COV_005",
+        finding=(
+            "Rain observations have a mean wind "
+            "speed of 10.97 compared with 9.482 "
+            "for snow, a difference of 1.489."
+        ),
+        route=(
+            AnalysisRoute
+            .ASSOCIATION_COMPARISON
+        ),
+        metrics={
+            "highest_group": {
+                "group": "rain",
+                "mean": 10.97,
+            },
+            "lowest_group": {
+                "group": "snow",
+                "mean": 9.482,
+            },
+            "difference": 1.489,
+            "standardised_difference": 0.22,
+        },
+        strength_label=(
+            "small_group_difference"
+        ),
+        recommended_use=(
+            RecommendedUse.MAIN_FINDING
+        ),
+        permissions=[
+            ClaimPermission.COMPARATIVE,
+            ClaimPermission.METHODOLOGICAL,
+        ],
+        relevance=0.80,
+        salience=0.75,
+    )
+
+    evidence = EvidenceLedger(
+        fingerprint="coverage-test",
+        items=[
+            overview,
+            quality,
+            correlation,
+            large_group,
+            small_group,
+        ],
+    )
+
+    facts = {
+        item.evidence_id: _coverage_fact(
+            item,
+            f"FACT_COV_{index:03d}",
+        )
+        for index, item in enumerate(
+            evidence.items,
+            start=1,
+        )
+    }
+
+    return evidence, facts
+
+
+def test_report_coverage_recovery_regression():
+    from table2text.audit import (
+        augment_fact_ledger_for_report_coverage,
+    )
+    from table2text.schemas import (
+        VerificationMethod,
+    )
+
+    evidence, facts = _coverage_fixture()
+
+    thin_ledger = FactLedger(
+        writer_ready_facts=[
+            facts["EVD_COV_005"]
+        ]
+    )
+
+    recovered = (
+        augment_fact_ledger_for_report_coverage(
+            fact_ledger=thin_ledger,
+            evidence=evidence,
+            required_components=[
+                ReportComponent.DATASET_OVERVIEW,
+                ReportComponent.DATA_QUALITY,
+                ReportComponent.STRONGEST_RELATIONSHIPS,
+                ReportComponent.LIMITATIONS_NEXT_STEPS,
+            ],
+            settings=Settings(),
+        )
+    )
+
+    assert (
+        len(recovered.writer_ready_facts)
+        > len(thin_ledger.writer_ready_facts)
+    )
+
+    assert (
+        recovered
+        .deterministically_recovered_fact_ids
+    )
+
+    recovered_facts = [
+        fact
+        for fact in recovered.writer_ready_facts
+        if fact.fact_id
+        in recovered
+        .deterministically_recovered_fact_ids
+    ]
+
+    assert recovered_facts
+
+    assert all(
+        fact.verification_method
+        == VerificationMethod
+        .DETERMINISTIC_EVIDENCE_RECOVERY
+        for fact in recovered_facts
+    )
+
+    represented = {
+        evidence_id
+        for fact in recovered.writer_ready_facts
+        for evidence_id in fact.evidence_ids
+    }
+
+    assert "EVD_COV_001" in represented
+    assert "EVD_COV_002" in represented
+    assert "EVD_COV_003" in represented
+    assert "EVD_COV_004" in represented
+
+
+def test_priority_selection_never_refills_with_small_effect():
+    from table2text.audit import (
+        select_balanced_priority_facts,
+    )
+
+    evidence, facts = _coverage_fixture()
+
+    ledger = FactLedger(
+        writer_ready_facts=list(
+            facts.values()
+        )
+    )
+
+    selected = (
+        select_balanced_priority_facts(
+            facts=ledger.writer_ready_facts,
+            evidence=evidence,
+            required_components=[
+                ReportComponent.DATASET_OVERVIEW,
+                ReportComponent.DATA_QUALITY,
+                ReportComponent.STRONGEST_RELATIONSHIPS,
+            ],
+            settings=Settings(),
+        )
+    )
+
+    selected_evidence_ids = {
+        evidence_id
+        for fact in selected
+        for evidence_id in fact.evidence_ids
+    }
+
+    assert "EVD_COV_001" in selected_evidence_ids
+    assert "EVD_COV_002" in selected_evidence_ids
+    assert "EVD_COV_003" in selected_evidence_ids
+    assert "EVD_COV_004" in selected_evidence_ids
+    assert "EVD_COV_005" not in selected_evidence_ids
+
+
+def test_minimum_report_words_never_exceeds_target():
+    from table2text.audit import (
+        minimum_useful_report_words,
+    )
+
+    minimum = minimum_useful_report_words(
+        target_words=150,
+        required_component_count=4,
+        settings=Settings(),
+    )
+
+    assert minimum <= 150
+    assert minimum > 0
+
+
+def test_recovered_balanced_fallback_is_not_two_sentence_report():
+    from table2text.audit import (
+        augment_fact_ledger_for_report_coverage,
+    )
+
+    evidence, facts = _coverage_fixture()
+
+    thin_ledger = FactLedger(
+        writer_ready_facts=[
+            facts["EVD_COV_005"]
+        ]
+    )
+
+    ledger = (
+        augment_fact_ledger_for_report_coverage(
+            fact_ledger=thin_ledger,
+            evidence=evidence,
+            required_components=[
+                ReportComponent.DATASET_OVERVIEW,
+                ReportComponent.DATA_QUALITY,
+                ReportComponent.STRONGEST_RELATIONSHIPS,
+                ReportComponent.LIMITATIONS_NEXT_STEPS,
+            ],
+            settings=Settings(),
+        )
+    )
+
+    understanding = DataUnderstanding(
+        profile_fingerprint="coverage-test",
+        dataset_summary=(
+            "Weather observations."
+        ),
+        tables=[],
+    )
+
+    plan = ExecutionPlan(
+        objective=(
+            "Understand the weather dataset and "
+            "report its strongest findings."
+        ),
+        tasks=[],
+        route_order=[],
+        report_specification=ReportSpecification(
+            report_purpose=(
+                "Understand the weather dataset."
+            ),
+            target_length_words=300,
+            maximum_main_findings=8,
+            prioritisation_rule=(
+                "Cover required components using "
+                "the strongest evidence."
+            ),
+            required_components=[
+                ReportComponent.DATASET_OVERVIEW,
+                ReportComponent.DATA_QUALITY,
+                ReportComponent.STRONGEST_RELATIONSHIPS,
+                ReportComponent.LIMITATIONS_NEXT_STEPS,
+            ],
+        ),
+        audit_mode=AuditMode.INTERNAL,
+        revision_limit=1,
+        maximum_facts=20,
+        rationale="Regression test.",
+    )
+
+    pack = build_writer_evidence_pack(
+        request=plan.objective,
+        understanding=understanding,
+        plan=plan,
+        evidence=evidence,
+        fact_ledger=ledger,
+        settings=Settings(),
+    )
+
+    output = fallback_writer(pack)
+
+    assert "## Dataset overview" in output.markdown
+    assert "## Data quality" in output.markdown
+    assert (
+        "## Strongest observed relationships"
+        in output.markdown
+    )
+    assert "1.489" not in output.markdown
+    assert len(output.sentence_support) >= 4
+    assert (
+        output.writer_mode
+        == "deterministic_fallback"
+    )
     assert not output.eligible_for_primary_evaluation

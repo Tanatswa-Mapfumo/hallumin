@@ -53,6 +53,18 @@ class Settings:
     writer_priority_fact_limit: int = 10
     writer_supporting_fact_limit: int = 20
 
+    # Deterministic coverage recovery from the trusted evidence ledger.
+    minimum_writer_ready_fact_count: int = 6
+    minimum_overview_fact_count: int = 1
+    minimum_data_quality_fact_count: int = 1
+    minimum_relationship_fact_count: int = 2
+
+    maximum_recovered_overview_facts: int = 2
+    maximum_recovered_data_quality_facts: int = 3
+    maximum_recovered_correlation_facts: int = 3
+    maximum_recovered_group_comparison_facts: int = 2
+    maximum_recovered_modelling_facts: int = 1
+
     max_priority_dataset_overview_facts: int = 2
     max_priority_data_quality_facts: int = 3
     max_priority_correlation_facts: int = 3
@@ -158,6 +170,42 @@ class Settings:
             writer_supporting_fact_limit=env_int(
                 "T2T_WRITER_SUPPORTING_FACT_LIMIT",
                 20,
+            ),
+            minimum_writer_ready_fact_count=env_int(
+                "T2T_MINIMUM_WRITER_READY_FACT_COUNT",
+                6,
+            ),
+            minimum_overview_fact_count=env_int(
+                "T2T_MINIMUM_OVERVIEW_FACT_COUNT",
+                1,
+            ),
+            minimum_data_quality_fact_count=env_int(
+                "T2T_MINIMUM_DATA_QUALITY_FACT_COUNT",
+                1,
+            ),
+            minimum_relationship_fact_count=env_int(
+                "T2T_MINIMUM_RELATIONSHIP_FACT_COUNT",
+                2,
+            ),
+            maximum_recovered_overview_facts=env_int(
+                "T2T_MAXIMUM_RECOVERED_OVERVIEW_FACTS",
+                2,
+            ),
+            maximum_recovered_data_quality_facts=env_int(
+                "T2T_MAXIMUM_RECOVERED_DATA_QUALITY_FACTS",
+                3,
+            ),
+            maximum_recovered_correlation_facts=env_int(
+                "T2T_MAXIMUM_RECOVERED_CORRELATION_FACTS",
+                3,
+            ),
+            maximum_recovered_group_comparison_facts=env_int(
+                "T2T_MAXIMUM_RECOVERED_GROUP_COMPARISON_FACTS",
+                2,
+            ),
+            maximum_recovered_modelling_facts=env_int(
+                "T2T_MAXIMUM_RECOVERED_MODELLING_FACTS",
+                1,
             ),
             max_priority_dataset_overview_facts=env_int(
                 "T2T_MAX_PRIORITY_DATASET_OVERVIEW_FACTS",

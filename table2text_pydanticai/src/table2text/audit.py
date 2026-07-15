@@ -39,8 +39,10 @@ from .schemas import (
     SentenceSupport,
     Severity,
     SupportType,
+    VerificationMethod,
     VerificationResult,
     VerifiedFact,
+    WriterAgentDraft,
     WriterEvidencePack,
     WriterOutput,
 )
@@ -138,11 +140,31 @@ def minimum_useful_report_words(
     required_component_count: int,
     settings: Settings,
 ) -> int:
-    ratio_floor = int(target_words * settings.minimum_report_word_ratio)
-    component_floor = required_component_count * 45
+    """
+    Return a diagnostic minimum that never exceeds the planned target.
+    """
 
-    return max(settings.minimum_report_word_floor, ratio_floor, component_floor)
+    bounded_target = max(1, target_words)
 
+    ratio_floor = int(
+        bounded_target
+        * settings.minimum_report_word_ratio
+    )
+
+    component_floor = (
+        required_component_count * 45
+    )
+
+    desired_minimum = max(
+        settings.minimum_report_word_floor,
+        ratio_floor,
+        component_floor,
+    )
+
+    return min(
+        bounded_target,
+        desired_minimum,
+    )
 
 def json_safe(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, bool)):
@@ -242,31 +264,76 @@ def number_supported(
     support_numbers: list[float],
     sentence: str,
 ) -> bool:
-    approximate = bool(APPROXIMATE_PATTERN.search(sentence))
+    """
+    Check whether a rendered number is supported.
+
+    The tolerance accounts for ordinary display rounding. This is
+    particularly important for percentages, where a deterministic
+    value such as 0.005359 may be rendered as 0.54%.
+    """
+
+    approximate = bool(
+        APPROXIMATE_PATTERN.search(sentence)
+    )
+
+    token_without_percent = (
+        raw_token.rstrip("%").replace(",", "")
+    )
+
+    if "." in token_without_percent:
+        decimal_places = len(
+            token_without_percent.split(".", 1)[1]
+        )
+    else:
+        decimal_places = 0
+
+    displayed_resolution = 10.0 ** (-decimal_places)
+
+    if raw_token.endswith("%"):
+        displayed_resolution /= 100.0
+
+    rounding_tolerance = (
+        displayed_resolution / 2.0
+    ) + 1e-12
 
     for candidate in support_numbers:
-        exact_tolerance = max(1e-6, abs(number) * 0.001)
+        relative_tolerance = max(
+            1e-6,
+            abs(candidate) * 0.001,
+        )
+
+        exact_tolerance = max(
+            rounding_tolerance,
+            relative_tolerance,
+        )
 
         if abs(number - candidate) <= exact_tolerance:
             return True
 
         if approximate:
             approximate_tolerance = max(
+                displayed_resolution,
                 0.01,
                 abs(candidate) * 0.03,
             )
 
-            if abs(number - candidate) <= approximate_tolerance:
+            if (
+                abs(number - candidate)
+                <= approximate_tolerance
+            ):
                 return True
 
-        digits = raw_token.rstrip("%").replace(",", "")
+        digits = token_without_percent
 
-        if "." not in digits and len(digits) >= 4 and digits.endswith("000"):
+        if (
+            "." not in digits
+            and len(digits) >= 4
+            and digits.endswith("000")
+        ):
             if abs(number - candidate) <= 500:
                 return True
 
     return False
-
 
 def numbers_supported(
     text: str,
@@ -678,6 +745,25 @@ def finalise_fact_ledger(
     )
 
 
+
+def normalise_strength_label(
+    label: str,
+) -> str:
+    mapping = {
+        "very_strong": "very_strong_association",
+        "strong": "strong_association",
+        "moderate": "moderate_association",
+        "weak": "weak_but_reportable_association",
+        "weak_but_reportable": (
+            "weak_but_reportable_association"
+        ),
+        "large": "large_group_difference",
+        "small": "small_group_difference",
+        "negligible": "negligible_group_difference",
+    }
+
+    return mapping.get(label, label)
+
 LOW_PRIORITY_STRENGTH_LABELS = {
     "negligible",
     "negligible_association",
@@ -686,37 +772,86 @@ LOW_PRIORITY_STRENGTH_LABELS = {
     "small_group_difference",
 }
 
+RECOVERABLE_CORRELATION_LABELS = {
+    "very_strong_association",
+    "strong_association",
+    "moderate_association",
+}
 
-def evidence_subtype(item: EvidenceItem) -> str:
+RECOVERABLE_GROUP_LABELS = {
+    "large_group_difference",
+    "moderate_group_difference",
+}
+
+RECOVERABLE_MODELLING_LABELS = {
+    "validated_internal_prediction",
+    "model_not_better_than_baseline",
+    "validated_forecast",
+    "forecast_not_better_than_baseline",
+    "predictive_insufficiency",
+    "forecast_insufficiency",
+}
+
+RECOVERABLE_DATA_QUALITY_LABELS = {
+    "constant_column",
+    "possible_sentinel_zero",
+    "possible_data_quality_issue",
+    "material_missingness",
+    "low_missingness",
+}
+
+
+def evidence_subtype(
+    item: EvidenceItem,
+) -> str:
     metrics = item.metrics
+    label = normalise_strength_label(
+        item.strength_label
+    )
 
     if item.route == AnalysisRoute.DESCRIPTIVE:
-        if "row_count" in metrics and "column_count" in metrics:
+        if (
+            "row_count" in metrics
+            and "column_count" in metrics
+        ):
             return "dataset_overview"
 
         if (
             metrics.get("constant") is True
             or "missing_count" in metrics
-            or item.strength_label
+            or "missing_rate" in metrics
+            or label
             in {
                 "constant_column",
                 "possible_sentinel_zero",
                 "possible_data_quality_issue",
                 "material_missingness",
+                "low_missingness",
             }
         ):
             return "data_quality"
 
         return "descriptive_detail"
 
-    if item.route == AnalysisRoute.ASSOCIATION_COMPARISON:
-        if "pearson_r" in metrics:
+    if (
+        item.route
+        == AnalysisRoute.ASSOCIATION_COMPARISON
+    ):
+        if (
+            "pearson_r" in metrics
+            or "spearman_r" in metrics
+            or "correlation" in metrics
+        ):
             return "correlation"
 
         if (
             "highest_group" in metrics
+            or "lowest_group" in metrics
             or "group_counts" in metrics
-            or "standardised_difference" in metrics
+            or "standardised_difference"
+            in metrics
+            or "standardized_difference"
+            in metrics
         ):
             return "group_comparison"
 
@@ -728,46 +863,70 @@ def evidence_subtype(item: EvidenceItem) -> str:
     if item.route == AnalysisRoute.FORECASTING:
         return "forecast_validation"
 
-    if item.route == AnalysisRoute.CAUSAL_FEASIBILITY:
+    if (
+        item.route
+        == AnalysisRoute.CAUSAL_FEASIBILITY
+    ):
         return "causal_feasibility"
 
     return "other"
-
 
 def fact_priority_score(
     fact: VerifiedFact,
     evidence_lookup: dict[str, EvidenceItem],
 ) -> float:
-    evidence_items = evidence_for_fact(fact, evidence_lookup)
+    evidence_items = evidence_for_fact(
+        fact,
+        evidence_lookup,
+    )
+
     use_bonus = {
         RecommendedUse.HEADLINE: 0.25,
         RecommendedUse.MAIN_FINDING: 0.15,
         RecommendedUse.SUPPORTING_DETAIL: 0.0,
         RecommendedUse.LIMITATION: 0.10,
         RecommendedUse.OMIT_UNLESS_REQUESTED: -0.30,
-    }.get(fact.recommended_use, 0.0)
+    }.get(
+        fact.recommended_use,
+        0.0,
+    )
 
-    strength_labels = {item.strength_label for item in evidence_items}
-    strength_bonus = 0.0
     bonus_by_label = {
         "dataset_overview": 0.18,
         "constant_column": 0.15,
         "possible_sentinel_zero": 0.15,
         "possible_data_quality_issue": 0.12,
-        "very_strong_association": 0.20,
-        "strong_association": 0.15,
-        "moderate_association": 0.08,
+        "material_missingness": 0.12,
+        "low_missingness": 0.03,
+        "very_strong_association": 0.22,
+        "strong_association": 0.17,
+        "moderate_association": 0.10,
+        "weak_but_reportable_association": -0.08,
         "large_group_difference": 0.18,
         "moderate_group_difference": 0.10,
-        "small_group_difference": -0.12,
-        "negligible_group_difference": -0.30,
+        "small_group_difference": -0.15,
+        "negligible_group_difference": -0.35,
         "validated_internal_prediction": 0.15,
+        "model_not_better_than_baseline": 0.12,
         "validated_forecast": 0.15,
-        "model_not_better_than_baseline": 0.10,
-        "forecast_not_better_than_baseline": 0.10,
+        "forecast_not_better_than_baseline": 0.12,
     }
-    for label in strength_labels:
-        strength_bonus = max(strength_bonus, bonus_by_label.get(label, 0.0))
+
+    strength_bonuses = [
+        bonus_by_label.get(
+            normalise_strength_label(
+                item.strength_label
+            ),
+            0.0,
+        )
+        for item in evidence_items
+    ]
+
+    strength_bonus = (
+        max(strength_bonuses)
+        if strength_bonuses
+        else 0.0
+    )
 
     return (
         0.30 * fact.salience
@@ -777,7 +936,6 @@ def fact_priority_score(
         + use_bonus
         + strength_bonus
     )
-
 
 def evidence_priority_score_for_fact(
     fact: VerifiedFact,
@@ -835,18 +993,482 @@ def eligible_fact_as_priority(
         return False
 
     strength_labels = {
-        item.strength_label
-        for item in evidence_for_fact(fact, evidence_lookup)
+        normalise_strength_label(
+            item.strength_label
+        )
+        for item
+        in evidence_for_fact(
+            fact,
+            evidence_lookup,
+        )
     }
-    if strength_labels & LOW_PRIORITY_STRENGTH_LABELS:
+
+    if (
+        strength_labels
+        & LOW_PRIORITY_STRENGTH_LABELS
+    ):
         return False
 
     return (
         fact.factual_confidence >= 0.90
-        and fact.methodological_strength >= 0.70
+        and fact.methodological_strength
+        >= 0.70
         and fact.user_relevance >= 0.60
     )
 
+def evidence_priority_score(
+    item: EvidenceItem,
+) -> float:
+    temporary_fact = VerifiedFact(
+        fact_id="FACT_SCORE_ONLY",
+        source_candidate_id=(
+            f"SCORE_{item.evidence_id}"
+        ),
+        verification_method=(
+            VerificationMethod
+            .DETERMINISTIC_EVIDENCE_RECOVERY
+        ),
+        fact_summary=item.finding,
+        evidence_ids=[item.evidence_id],
+        structured_values={
+            item.evidence_id: item.metrics
+        },
+        entities=[
+            *item.source_tables,
+            *item.source_columns,
+        ],
+        claim_permissions=(
+            item.claim_permissions
+        ),
+        allowed_interpretations=[
+            item.practical_interpretation
+        ],
+        prohibited_interpretations=(
+            item.prohibited_interpretations
+        ),
+        required_caveats=item.limitations,
+        factual_confidence=(
+            item.factual_confidence
+        ),
+        methodological_strength=(
+            item.methodological_strength
+        ),
+        user_relevance=item.user_relevance,
+        salience=item.salience,
+        recommended_use=item.recommended_use,
+    )
+
+    return fact_priority_score(
+        temporary_fact,
+        {
+            item.evidence_id: item,
+        },
+    )
+
+
+def eligible_for_deterministic_fact_recovery(
+    item: EvidenceItem,
+) -> bool:
+    if not item.eligible_for_writer:
+        return False
+
+    if item.factual_confidence < 0.90:
+        return False
+
+    if item.methodological_strength < 0.65:
+        return False
+
+    subtype = evidence_subtype(item)
+    label = normalise_strength_label(
+        item.strength_label
+    )
+
+    if subtype == "dataset_overview":
+        return True
+
+    if subtype == "data_quality":
+        return (
+            label
+            in RECOVERABLE_DATA_QUALITY_LABELS
+        )
+
+    if subtype == "correlation":
+        return (
+            label
+            in RECOVERABLE_CORRELATION_LABELS
+        )
+
+    if subtype == "group_comparison":
+        return (
+            label in RECOVERABLE_GROUP_LABELS
+        )
+
+    if subtype in {
+        "predictive_validation",
+        "forecast_validation",
+    }:
+        return (
+            label
+            in RECOVERABLE_MODELLING_LABELS
+            or ClaimPermission.INSUFFICIENCY
+            in item.claim_permissions
+        )
+
+    if subtype == "causal_feasibility":
+        return (
+            ClaimPermission.INSUFFICIENCY
+            in item.claim_permissions
+        )
+
+    return False
+
+
+def deterministic_fact_from_evidence(
+    *,
+    item: EvidenceItem,
+    ordinal: int,
+) -> VerifiedFact:
+    entities = set(
+        [
+            *item.source_tables,
+            *item.source_columns,
+        ]
+    )
+
+    entities.update(
+        collect_entity_strings(item.metrics)
+    )
+
+    return VerifiedFact(
+        fact_id=f"FACT_REC_{ordinal:04d}",
+        source_candidate_id=(
+            f"RECOVERY_{item.evidence_id}"
+        ),
+        verification_method=(
+            VerificationMethod
+            .DETERMINISTIC_EVIDENCE_RECOVERY
+        ),
+        fact_summary=item.finding,
+        evidence_ids=[item.evidence_id],
+        structured_values={
+            item.evidence_id: item.metrics
+        },
+        entities=sorted(entities),
+        claim_permissions=(
+            item.claim_permissions
+        ),
+        allowed_interpretations=(
+            [item.practical_interpretation]
+            if item.practical_interpretation
+            else []
+        ),
+        prohibited_interpretations=(
+            item.prohibited_interpretations
+        ),
+        required_caveats=item.limitations,
+        factual_confidence=(
+            item.factual_confidence
+        ),
+        methodological_strength=(
+            item.methodological_strength
+        ),
+        user_relevance=item.user_relevance,
+        salience=item.salience,
+        recommended_use=item.recommended_use,
+    )
+
+
+def fact_subtype_counts(
+    *,
+    facts: list[VerifiedFact],
+    evidence_lookup: dict[str, EvidenceItem],
+) -> Counter[str]:
+    counts: Counter[str] = Counter()
+
+    for fact in facts:
+        represented_subtypes = {
+            evidence_subtype(
+                evidence_lookup[evidence_id]
+            )
+            for evidence_id in fact.evidence_ids
+            if evidence_id in evidence_lookup
+        }
+
+        for subtype in represented_subtypes:
+            counts[subtype] += 1
+
+    return counts
+
+
+def augment_fact_ledger_for_report_coverage(
+    *,
+    fact_ledger: FactLedger,
+    evidence: EvidenceLedger,
+    required_components: list[ReportComponent],
+    settings: Settings,
+) -> FactLedger:
+    """
+    Augment a thin fact ledger using exact, trusted deterministic
+    evidence statements.
+
+    This does not create new calculations or LLM interpretations.
+    """
+
+    lookup = build_evidence_lookup(evidence)
+
+    represented_evidence_ids = {
+        evidence_id
+        for fact
+        in fact_ledger.writer_ready_facts
+        for evidence_id in fact.evidence_ids
+    }
+
+    existing_counts = fact_subtype_counts(
+        facts=fact_ledger.writer_ready_facts,
+        evidence_lookup=lookup,
+    )
+
+    candidates = sorted(
+        [
+            item
+            for item in evidence.items
+            if (
+                item.evidence_id
+                not in represented_evidence_ids
+                and eligible_for_deterministic_fact_recovery(
+                    item
+                )
+            )
+        ],
+        key=evidence_priority_score,
+        reverse=True,
+    )
+
+    subtype_limits = {
+        "dataset_overview": (
+            settings
+            .maximum_recovered_overview_facts
+        ),
+        "data_quality": (
+            settings
+            .maximum_recovered_data_quality_facts
+        ),
+        "correlation": (
+            settings
+            .maximum_recovered_correlation_facts
+        ),
+        "group_comparison": (
+            settings
+            .maximum_recovered_group_comparison_facts
+        ),
+        "predictive_validation": (
+            settings
+            .maximum_recovered_modelling_facts
+        ),
+        "forecast_validation": (
+            settings
+            .maximum_recovered_modelling_facts
+        ),
+        "causal_feasibility": 1,
+    }
+
+    recovered: list[VerifiedFact] = []
+    recovered_counts: Counter[str] = Counter()
+    recovery_notes: list[str] = []
+    recovered_evidence_ids: set[str] = set()
+
+    existing_fact_ids = {
+        fact.fact_id
+        for fact
+        in fact_ledger.writer_ready_facts
+    }
+
+    next_ordinal = 1
+
+    def next_fact_id_ordinal() -> int:
+        nonlocal next_ordinal
+
+        while (
+            f"FACT_REC_{next_ordinal:04d}"
+            in existing_fact_ids
+        ):
+            next_ordinal += 1
+
+        value = next_ordinal
+        next_ordinal += 1
+
+        return value
+
+    def recover(item: EvidenceItem) -> bool:
+        subtype = evidence_subtype(item)
+
+        if (
+            item.evidence_id
+            in recovered_evidence_ids
+        ):
+            return False
+
+        maximum = subtype_limits.get(
+            subtype,
+            0,
+        )
+
+        if (
+            recovered_counts[subtype]
+            >= maximum
+        ):
+            return False
+
+        fact = deterministic_fact_from_evidence(
+            item=item,
+            ordinal=next_fact_id_ordinal(),
+        )
+
+        recovered.append(fact)
+        recovered_counts[subtype] += 1
+        recovered_evidence_ids.add(
+            item.evidence_id
+        )
+
+        recovery_notes.append(
+            "Recovered writer-ready fact "
+            f"`{fact.fact_id}` from deterministic "
+            f"evidence `{item.evidence_id}` for "
+            f"subtype `{subtype}`."
+        )
+
+        return True
+
+    def recover_best(
+        subtype: str,
+    ) -> bool:
+        for item in candidates:
+            if (
+                evidence_subtype(item)
+                == subtype
+                and item.evidence_id
+                not in recovered_evidence_ids
+            ):
+                if recover(item):
+                    return True
+
+        return False
+
+    if (
+        ReportComponent.DATASET_OVERVIEW
+        in required_components
+    ):
+        while (
+            existing_counts["dataset_overview"]
+            + recovered_counts[
+                "dataset_overview"
+            ]
+            < settings.minimum_overview_fact_count
+        ):
+            if not recover_best(
+                "dataset_overview"
+            ):
+                break
+
+    if (
+        ReportComponent.DATA_QUALITY
+        in required_components
+    ):
+        while (
+            existing_counts["data_quality"]
+            + recovered_counts["data_quality"]
+            < settings.minimum_data_quality_fact_count
+        ):
+            if not recover_best("data_quality"):
+                break
+
+    if (
+        ReportComponent.STRONGEST_RELATIONSHIPS
+        in required_components
+    ):
+        # Prefer subtype diversity when both forms are available.
+        if (
+            existing_counts["correlation"] == 0
+            and any(
+                evidence_subtype(item)
+                == "correlation"
+                for item in candidates
+            )
+        ):
+            recover_best("correlation")
+
+        if (
+            existing_counts["group_comparison"]
+            == 0
+            and any(
+                evidence_subtype(item)
+                == "group_comparison"
+                for item in candidates
+            )
+        ):
+            recover_best("group_comparison")
+
+        def relationship_count() -> int:
+            return sum(
+                existing_counts[subtype]
+                + recovered_counts[subtype]
+                for subtype in {
+                    "correlation",
+                    "group_comparison",
+                    "association_other",
+                }
+            )
+
+        while (
+            relationship_count()
+            < settings.minimum_relationship_fact_count
+        ):
+            recovered_one = (
+                recover_best("correlation")
+                or recover_best(
+                    "group_comparison"
+                )
+            )
+
+            if not recovered_one:
+                break
+
+    # Fill a thin ledger only with remaining eligible evidence.
+    for item in candidates:
+        if (
+            len(
+                fact_ledger.writer_ready_facts
+            )
+            + len(recovered)
+            >= settings.minimum_writer_ready_fact_count
+        ):
+            break
+
+        recover(item)
+
+    if not recovered:
+        return fact_ledger
+
+    return fact_ledger.model_copy(
+        update={
+            "writer_ready_facts": [
+                *fact_ledger.writer_ready_facts,
+                *recovered,
+            ],
+            "deterministically_recovered_fact_ids": [
+                *fact_ledger
+                .deterministically_recovered_fact_ids,
+                *[
+                    fact.fact_id
+                    for fact in recovered
+                ],
+            ],
+            "coverage_recovery_notes": [
+                *fact_ledger.coverage_recovery_notes,
+                *recovery_notes,
+            ],
+        }
+    )
 
 def select_balanced_priority_facts(
     *,
@@ -855,80 +1477,258 @@ def select_balanced_priority_facts(
     required_components: list[ReportComponent],
     settings: Settings,
 ) -> list[VerifiedFact]:
+    """
+    Select facts by coverage and analytical strength.
+
+    There is deliberately no unrestricted final fill stage. Weak or
+    small facts remain available in supporting_facts but are not
+    promoted simply because unused capacity remains.
+    """
+
     lookup = build_evidence_lookup(evidence)
+
     ranked = sorted(
         facts,
-        key=lambda fact: fact_priority_score(fact, lookup),
+        key=lambda fact: fact_priority_score(
+            fact,
+            lookup,
+        ),
         reverse=True,
     )
 
     selected: list[VerifiedFact] = []
     selected_ids: set[str] = set()
     subtype_counts: Counter[str] = Counter()
-    component_counts: Counter[ReportComponent] = Counter()
 
     subtype_limits = {
-        "dataset_overview": settings.max_priority_dataset_overview_facts,
-        "data_quality": settings.max_priority_data_quality_facts,
-        "correlation": settings.max_priority_correlation_facts,
-        "group_comparison": settings.max_priority_group_comparison_facts,
-        "predictive_validation": settings.max_priority_predictive_facts,
-        "forecast_validation": settings.max_priority_forecast_facts,
-        "causal_feasibility": settings.max_priority_limitation_facts,
-    }
-    component_minimums = {
-        ReportComponent.DATASET_OVERVIEW: 1,
-        ReportComponent.DATA_QUALITY: 1,
-        ReportComponent.STRONGEST_RELATIONSHIPS: 2,
-        ReportComponent.MODELLING_VALIDATION: 1,
-        ReportComponent.LIMITATIONS_NEXT_STEPS: 1,
+        "dataset_overview": (
+            settings
+            .max_priority_dataset_overview_facts
+        ),
+        "data_quality": (
+            settings
+            .max_priority_data_quality_facts
+        ),
+        "correlation": (
+            settings
+            .max_priority_correlation_facts
+        ),
+        "group_comparison": (
+            settings
+            .max_priority_group_comparison_facts
+        ),
+        "predictive_validation": (
+            settings
+            .max_priority_predictive_facts
+        ),
+        "forecast_validation": (
+            settings
+            .max_priority_forecast_facts
+        ),
+        "causal_feasibility": (
+            settings
+            .max_priority_limitation_facts
+        ),
+        "association_other": 1,
+        "descriptive_detail": 1,
+        "other": 1,
     }
 
-    def add_fact(fact: VerifiedFact) -> bool:
+    def primary_subtype(
+        fact: VerifiedFact,
+    ) -> str:
+        subtypes = [
+            evidence_subtype(item)
+            for item
+            in evidence_for_fact(
+                fact,
+                lookup,
+            )
+        ]
+
+        return (
+            subtypes[0]
+            if subtypes
+            else "other"
+        )
+
+    def priority_eligible(
+        fact: VerifiedFact,
+    ) -> bool:
+        return (
+            eligible_fact_as_priority(
+                fact,
+                lookup,
+            )
+            and fact_priority_score(
+                fact,
+                lookup,
+            )
+            >= settings.minimum_main_finding_score
+        )
+
+    def add_fact(
+        fact: VerifiedFact,
+        *,
+        require_priority_eligibility: bool,
+    ) -> bool:
         if fact.fact_id in selected_ids:
             return False
 
-        items = evidence_for_fact(fact, lookup)
-        subtypes = [evidence_subtype(item) for item in items]
-        primary_subtype = subtypes[0] if subtypes else "other"
-        limit = subtype_limits.get(primary_subtype, settings.writer_priority_fact_limit)
+        subtype = primary_subtype(fact)
 
-        if subtype_counts[primary_subtype] >= limit:
+        if (
+            subtype_counts[subtype]
+            >= subtype_limits.get(subtype, 1)
+        ):
+            return False
+
+        if (
+            require_priority_eligibility
+            and not priority_eligible(fact)
+        ):
             return False
 
         selected.append(fact)
         selected_ids.add(fact.fact_id)
-        subtype_counts[primary_subtype] += 1
-        component_counts[classify_fact_component(fact, lookup)] += 1
+        subtype_counts[subtype] += 1
+
         return True
 
-    for component in required_components:
-        required_count = component_minimums.get(component, 1)
-        component_facts = [
-            fact
-            for fact in ranked
-            if classify_fact_component(fact, lookup) == component
-        ]
+    def add_best_for_subtype(
+        subtype: str,
+        *,
+        require_priority_eligibility: bool,
+    ) -> bool:
+        for fact in ranked:
+            if primary_subtype(fact) != subtype:
+                continue
 
-        for fact in component_facts:
-            if component_counts[component] >= required_count:
+            if add_fact(
+                fact,
+                require_priority_eligibility=(
+                    require_priority_eligibility
+                ),
+            ):
+                return True
+
+        return False
+
+    if (
+        ReportComponent.DATASET_OVERVIEW
+        in required_components
+    ):
+        add_best_for_subtype(
+            "dataset_overview",
+            require_priority_eligibility=False,
+        )
+
+    if (
+        ReportComponent.DATA_QUALITY
+        in required_components
+    ):
+        add_best_for_subtype(
+            "data_quality",
+            require_priority_eligibility=False,
+        )
+
+    if (
+        ReportComponent.STRONGEST_RELATIONSHIPS
+        in required_components
+    ):
+        # Prefer one strong correlation and one strong group comparison.
+        add_best_for_subtype(
+            "correlation",
+            require_priority_eligibility=True,
+        )
+
+        add_best_for_subtype(
+            "group_comparison",
+            require_priority_eligibility=True,
+        )
+
+        def selected_relationship_count() -> int:
+            return sum(
+                subtype_counts[subtype]
+                for subtype in {
+                    "correlation",
+                    "group_comparison",
+                    "association_other",
+                }
+            )
+
+        for fact in ranked:
+            if (
+                selected_relationship_count()
+                >= settings.minimum_relationship_fact_count
+            ):
                 break
-            add_fact(fact)
 
-    for fact in ranked:
-        if len(selected) >= settings.writer_priority_fact_limit:
-            break
-        if not eligible_fact_as_priority(fact, lookup):
-            continue
-        add_fact(fact)
+            if primary_subtype(fact) not in {
+                "correlation",
+                "group_comparison",
+                "association_other",
+            }:
+                continue
 
+            add_fact(
+                fact,
+                require_priority_eligibility=True,
+            )
+
+    if (
+        ReportComponent.MODELLING_VALIDATION
+        in required_components
+    ):
+        add_best_for_subtype(
+            "predictive_validation",
+            require_priority_eligibility=False,
+        )
+
+        if not any(
+            primary_subtype(fact)
+            in {
+                "predictive_validation",
+                "forecast_validation",
+            }
+            for fact in selected
+        ):
+            add_best_for_subtype(
+                "forecast_validation",
+                require_priority_eligibility=False,
+            )
+
+    if (
+        ReportComponent.LIMITATIONS_NEXT_STEPS
+        in required_components
+    ):
+        for fact in ranked:
+            if (
+                fact.recommended_use
+                == RecommendedUse.LIMITATION
+                or ClaimPermission.INSUFFICIENCY
+                in fact.claim_permissions
+            ):
+                if add_fact(
+                    fact,
+                    require_priority_eligibility=False,
+                ):
+                    break
+
+    # Add only high-quality eligible facts. Do not fill with weak facts.
     for fact in ranked:
-        if len(selected) >= settings.writer_priority_fact_limit:
+        if (
+            len(selected)
+            >= settings.writer_priority_fact_limit
+        ):
             break
-        add_fact(fact)
+
+        add_fact(
+            fact,
+            require_priority_eligibility=True,
+        )
 
     return selected
-
 
 def select_priority_facts(
     facts: list[VerifiedFact],
@@ -1193,10 +1993,324 @@ def validate_writer_output(
     return errors
 
 
+def materialise_writer_output(
+    draft: WriterAgentDraft,
+    fact_ledger: FactLedger,
+    *,
+    writer_mode: str = "llm_writer",
+    eligible_for_primary_evaluation: bool = True,
+    quality_revision_round: int = 0,
+    quality_revision_summary: str | None = None,
+) -> WriterOutput:
+    fact_lookup = {
+        fact.fact_id: fact
+        for fact in fact_ledger.writer_ready_facts
+    }
+
+    lines: list[str] = [
+        f"# {draft.title.strip()}",
+        "",
+    ]
+
+    sentence_support: list[SentenceSupport] = []
+    selected_fact_ids: list[str] = []
+    sentence_number = 1
+
+    for section in draft.sections:
+        heading = section.heading.strip()
+        heading = re.sub(
+            r"^#+\s*",
+            "",
+            heading,
+        )
+
+        if not heading:
+            continue
+
+        lines.extend(
+            [
+                f"## {heading}",
+                "",
+            ]
+        )
+
+        for sentence_draft in section.sentences:
+            sentence_text = re.sub(
+                r"\s+",
+                " ",
+                sentence_draft.text,
+            ).strip()
+
+            if not sentence_text:
+                continue
+
+            if sentence_text[-1] not in ".!?":
+                sentence_text += "."
+
+            unknown_fact_ids = [
+                fact_id
+                for fact_id in sentence_draft.fact_ids
+                if fact_id not in fact_lookup
+            ]
+
+            if unknown_fact_ids:
+                raise ValueError(
+                    "Writer draft contains unknown "
+                    f"fact IDs: {unknown_fact_ids}"
+                )
+
+            if (
+                sentence_draft.support_type
+                != SupportType.NON_FACTUAL
+                and not sentence_draft.fact_ids
+            ):
+                raise ValueError(
+                    "A factual Writer sentence has no "
+                    "supporting fact IDs."
+                )
+
+            evidence_ids = list(
+                dict.fromkeys(
+                    evidence_id
+                    for fact_id in sentence_draft.fact_ids
+                    for evidence_id in fact_lookup[
+                        fact_id
+                    ].evidence_ids
+                )
+            )
+
+            rendered_sentences = (
+                split_markdown_sentences(sentence_text)
+                or [sentence_text]
+            )
+
+            for rendered_sentence in rendered_sentences:
+                lines.append(rendered_sentence)
+
+                sentence_support.append(
+                    SentenceSupport(
+                        sentence_id=(
+                            f"SENT_{sentence_number:04d}"
+                        ),
+                        sentence_text=rendered_sentence,
+                        fact_ids=list(
+                            dict.fromkeys(
+                                sentence_draft.fact_ids
+                            )
+                        ),
+                        evidence_ids=evidence_ids,
+                        support_type=(
+                            sentence_draft.support_type
+                        ),
+                    )
+                )
+
+                selected_fact_ids.extend(
+                    sentence_draft.fact_ids
+                )
+
+                sentence_number += 1
+
+        lines.append("")
+
+    selected_fact_ids = list(
+        dict.fromkeys(selected_fact_ids)
+    )
+
+    all_fact_ids = [
+        fact.fact_id
+        for fact in fact_ledger.writer_ready_facts
+    ]
+
+    output = WriterOutput(
+        title=draft.title.strip(),
+        markdown=(
+            "\n".join(lines).strip()
+            + "\n"
+        ),
+        sentence_support=sentence_support,
+        selected_fact_ids=selected_fact_ids,
+        omitted_fact_ids=[
+            fact_id
+            for fact_id in all_fact_ids
+            if fact_id not in selected_fact_ids
+        ],
+        writer_notes=draft.writer_notes,
+        writer_mode=writer_mode,
+        eligible_for_primary_evaluation=(
+            eligible_for_primary_evaluation
+        ),
+        quality_revision_round=(
+            quality_revision_round
+        ),
+        quality_revision_summary=(
+            quality_revision_summary
+        ),
+    )
+
+    errors = validate_writer_output(
+        output,
+        fact_ledger,
+    )
+
+    if errors:
+        raise ValueError(
+            "Controller-generated WriterOutput "
+            "failed validation:\n- "
+            + "\n- ".join(errors)
+        )
+
+    return output
+
+
+
+def writer_output_word_count(
+    output: WriterOutput,
+) -> int:
+    return len(
+        re.findall(
+            r"\b[\w'-]+\b",
+            output.markdown,
+        )
+    )
+
+
+def accept_writer_quality_revision(
+    *,
+    before: WriterOutput,
+    after: WriterOutput,
+    before_audit: AuditReport,
+    after_audit: AuditReport,
+    validation_errors: list[str],
+    report_specification: Any,
+    settings: Settings,
+) -> tuple[bool, list[str]]:
+    """
+    Accept a whole-report quality revision only when it is valid and
+    measurably improves the incomplete draft.
+    """
+
+    reasons: list[str] = list(
+        validation_errors
+    )
+
+    before_missing = sum(
+        not assessment.covered
+        for assessment
+        in before_audit.component_assessments
+    )
+
+    after_missing = sum(
+        not assessment.covered
+        for assessment
+        in after_audit.component_assessments
+    )
+
+    before_words = writer_output_word_count(
+        before
+    )
+    after_words = writer_output_word_count(
+        after
+    )
+
+    minimum_words = minimum_useful_report_words(
+        target_words=(
+            report_specification
+            .target_length_words
+        ),
+        required_component_count=len(
+            report_specification
+            .required_components
+        ),
+        settings=settings,
+    )
+
+    if (
+        before_missing > 0
+        and after_missing >= before_missing
+    ):
+        reasons.append(
+            "The revision did not reduce the number "
+            "of missing required components."
+        )
+
+    if (
+        before_words < minimum_words
+        and after_words <= before_words
+    ):
+        reasons.append(
+            "The revision did not improve the "
+            "under-length report."
+        )
+
+    if (
+        before_missing > 0
+        and len(after.sentence_support)
+        < len(before.sentence_support)
+    ):
+        reasons.append(
+            "The revision reduced supported sentence "
+            "coverage while the report was incomplete."
+        )
+
+    serious_after = {
+        (
+            annotation.sentence,
+            annotation.subtype,
+        )
+        for annotation
+        in after_audit.annotations
+        if annotation.severity
+        in {
+            Severity.HIGH,
+            Severity.CRITICAL,
+        }
+    }
+
+    serious_before = {
+        (
+            annotation.sentence,
+            annotation.subtype,
+        )
+        for annotation
+        in before_audit.annotations
+        if annotation.severity
+        in {
+            Severity.HIGH,
+            Severity.CRITICAL,
+        }
+    }
+
+    introduced_serious = (
+        serious_after - serious_before
+    )
+
+    if introduced_serious:
+        reasons.append(
+            "The revision introduced a new serious "
+            "factual or contextual annotation."
+        )
+
+    return (
+        not reasons,
+        list(dict.fromkeys(reasons)),
+    )
+
 def fallback_writer(
     pack: WriterEvidencePack,
 ) -> WriterOutput:
-    maximum = pack.report_specification.maximum_main_findings
+    """
+    Safe deterministic fallback.
+
+    It is deliberately richer than a two-sentence renderer, but remains
+    ineligible for primary evaluation because it is not the natural LLM
+    Writer.
+    """
+
+    maximum = (
+        pack.report_specification
+        .maximum_main_findings
+    )
 
     selected = list(
         {
@@ -1208,79 +2322,304 @@ def fallback_writer(
         }.values()
     )
 
-    sections: dict[str, list[VerifiedFact]] = {
-        "Overview and data quality": [],
-        "Strongest observed relationships": [],
-        "Modelling and validation": [],
-        "Limitations and next steps": [],
+    evidence_by_id = build_evidence_lookup(
+        pack.evidence_ledger
+    )
+
+    sections: dict[
+        ReportComponent,
+        list[VerifiedFact],
+    ] = {
+        ReportComponent.DATASET_OVERVIEW: [],
+        ReportComponent.DATA_QUALITY: [],
+        ReportComponent.STRONGEST_RELATIONSHIPS: [],
+        ReportComponent.MODELLING_VALIDATION: [],
+        ReportComponent.LIMITATIONS_NEXT_STEPS: [],
     }
 
     for fact in selected:
-        permissions = set(fact.claim_permissions)
+        component = classify_fact_component(
+            fact,
+            evidence_by_id,
+        )
 
-        if ClaimPermission.PREDICTIVE in permissions or ClaimPermission.FORECAST in permissions:
-            sections["Modelling and validation"].append(fact)
-        elif ClaimPermission.INSUFFICIENCY in permissions:
-            sections["Limitations and next steps"].append(fact)
-        elif any(
-            phrase in fact.fact_summary.lower()
-            for phrase in ["constant", "missing", "zero", "rows", "columns"]
-        ):
-            sections["Overview and data quality"].append(fact)
-        else:
-            sections["Strongest observed relationships"].append(fact)
+        sections.setdefault(
+            component,
+            [],
+        ).append(fact)
 
-    lines = ["# Evidence-grounded data-science report", ""]
+    headings = {
+        ReportComponent.DATASET_OVERVIEW: (
+            "Dataset overview"
+        ),
+        ReportComponent.DATA_QUALITY: (
+            "Data quality"
+        ),
+        ReportComponent.STRONGEST_RELATIONSHIPS: (
+            "Strongest observed relationships"
+        ),
+        ReportComponent.MODELLING_VALIDATION: (
+            "Modelling and validation"
+        ),
+        ReportComponent.LIMITATIONS_NEXT_STEPS: (
+            "Limitations and next steps"
+        ),
+    }
+
+    lines = [
+        "# Evidence-grounded data-science report",
+        "",
+    ]
+
     support_map: list[SentenceSupport] = []
-
     sentence_counter = 1
+    rendered_recommendations: set[str] = set()
 
-    for heading, facts in sections.items():
-        if not facts:
+    def add_supported_sentence(
+        sentence: str,
+        facts: list[VerifiedFact],
+        support_type: SupportType,
+    ) -> None:
+        nonlocal sentence_counter
+
+        cleaned = sentence.strip()
+
+        if not cleaned:
+            return
+
+        if cleaned[-1] not in ".!?":
+            cleaned += "."
+
+        lines.append(cleaned)
+
+        fact_ids = list(
+            dict.fromkeys(
+                fact.fact_id
+                for fact in facts
+            )
+        )
+
+        evidence_ids = list(
+            dict.fromkeys(
+                evidence_id
+                for fact in facts
+                for evidence_id in fact.evidence_ids
+            )
+        )
+
+        support_map.append(
+            SentenceSupport(
+                sentence_id=(
+                    f"SENT_{sentence_counter:04d}"
+                ),
+                sentence_text=cleaned,
+                fact_ids=fact_ids,
+                evidence_ids=evidence_ids,
+                support_type=support_type,
+            )
+        )
+
+        sentence_counter += 1
+
+    for component in [
+        ReportComponent.DATASET_OVERVIEW,
+        ReportComponent.DATA_QUALITY,
+        ReportComponent.STRONGEST_RELATIONSHIPS,
+        ReportComponent.MODELLING_VALIDATION,
+    ]:
+        component_facts = sections.get(
+            component,
+            [],
+        )
+
+        if not component_facts:
             continue
 
-        lines.extend([f"## {heading}", ""])
+        lines.extend(
+            [
+                f"## {headings[component]}",
+                "",
+            ]
+        )
 
-        for fact in facts:
-            sentence = reader_facing_caveat(fact.fact_summary) or fact.fact_summary
-            lines.append(sentence)
-
-            support_map.append(
-                SentenceSupport(
-                    sentence_id=f"SENT_{sentence_counter:04d}",
-                    sentence_text=sentence,
-                    fact_ids=[fact.fact_id],
-                    evidence_ids=fact.evidence_ids,
-                    support_type=SupportType.DIRECT,
+        for fact in component_facts:
+            sentence = (
+                reader_facing_caveat(
+                    fact.fact_summary
                 )
+                or fact.fact_summary
             )
-            sentence_counter += 1
+
+            add_supported_sentence(
+                sentence,
+                [fact],
+                SupportType.DIRECT,
+            )
+
+            if (
+                component
+                == ReportComponent.DATA_QUALITY
+            ):
+                for evidence_id in fact.evidence_ids:
+                    item = evidence_by_id.get(
+                        evidence_id
+                    )
+
+                    if item is None:
+                        continue
+
+                    for recommendation in (
+                        item.recommendations
+                    ):
+                        if (
+                            recommendation.priority
+                            not in {"high", "medium"}
+                        ):
+                            continue
+
+                        action = (
+                            recommendation.action.strip()
+                        )
+
+                        if (
+                            action
+                            in rendered_recommendations
+                        ):
+                            continue
+
+                        rendered_recommendations.add(
+                            action
+                        )
+
+                        add_supported_sentence(
+                            action,
+                            [fact],
+                            SupportType.PARAPHRASE,
+                        )
 
         lines.append("")
 
-    return WriterOutput(
-        title="Evidence-grounded data-science report",
-        markdown="\n".join(lines).strip() + "\n",
-        sentence_support=support_map,
-        selected_fact_ids=[
-            fact.fact_id
-            for fact in selected
-        ],
-        omitted_fact_ids=[
-            fact.fact_id
-            for fact in pack.priority_facts
-            + pack.supporting_facts
-            + pack.limitation_facts
-            if fact.fact_id
-            not in {selected_fact.fact_id for selected_fact in selected}
-        ],
-        writer_notes=[
-            "Deterministic writer fallback was used."
-        ],
-        writer_mode="deterministic_fallback",
-        eligible_for_primary_evaluation=False,
+    limitation_facts = list(
+        {
+            fact.fact_id: fact
+            for fact in (
+                sections.get(
+                    ReportComponent
+                    .LIMITATIONS_NEXT_STEPS,
+                    [],
+                )
+                + [
+                    fact
+                    for fact in selected
+                    if (
+                        fact.required_caveats
+                        or ClaimPermission.COMPARATIVE
+                        in fact.claim_permissions
+                        or ClaimPermission.ASSOCIATIONAL
+                        in fact.claim_permissions
+                    )
+                ]
+            )
+        }.values()
     )
 
+    if (
+        pack.reader_facing_limitations
+        or limitation_facts
+        or rendered_recommendations
+    ):
+        lines.extend(
+            [
+                "## Limitations and next steps",
+                "",
+            ]
+        )
+
+        for fact in sections.get(
+            ReportComponent
+            .LIMITATIONS_NEXT_STEPS,
+            [],
+        ):
+            add_supported_sentence(
+                fact.fact_summary,
+                [fact],
+                SupportType.DIRECT,
+            )
+
+        relationship_facts = [
+            fact
+            for fact in selected
+            if (
+                ClaimPermission.COMPARATIVE
+                in fact.claim_permissions
+                or ClaimPermission.ASSOCIATIONAL
+                in fact.claim_permissions
+            )
+        ]
+
+        for limitation in (
+            pack.reader_facing_limitations
+        ):
+            supporting = (
+                relationship_facts
+                or limitation_facts
+            )
+
+            if supporting:
+                add_supported_sentence(
+                    limitation,
+                    supporting,
+                    SupportType.MULTI_FACT_SYNTHESIS,
+                )
+
+        lines.append("")
+
+    used_fact_ids = list(
+        dict.fromkeys(
+            fact_id
+            for support in support_map
+            for fact_id in support.fact_ids
+        )
+    )
+
+    available_facts = list(
+        {
+            fact.fact_id: fact
+            for fact in (
+                pack.priority_facts
+                + pack.supporting_facts
+                + pack.limitation_facts
+            )
+        }.values()
+    )
+
+    return WriterOutput(
+        title=(
+            "Evidence-grounded "
+            "data-science report"
+        ),
+        markdown=(
+            "\n".join(lines).strip()
+            + "\n"
+        ),
+        sentence_support=support_map,
+        selected_fact_ids=used_fact_ids,
+        omitted_fact_ids=[
+            fact.fact_id
+            for fact in available_facts
+            if fact.fact_id
+            not in set(used_fact_ids)
+        ],
+        writer_notes=[
+            "Deterministic writer fallback was used.",
+            "This output is preserved for debugging "
+            "and is not eligible for primary evaluation.",
+        ],
+        writer_mode=(
+            "deterministic_fallback"
+        ),
+        eligible_for_primary_evaluation=False,
+    )
 
 def default_quality_assessment() -> ReportQualityAssessment:
     return ReportQualityAssessment(
@@ -1303,47 +2642,116 @@ def assess_report_component_coverage(
     evidence: EvidenceLedger,
     required_components: list[ReportComponent],
 ) -> list[ReportComponentAssessment]:
+    """
+    Assess coverage using the sentence support map.
+
+    Limitations and next steps may be supported by the same verified
+    relationship or quality fact used elsewhere, so they are not
+    restricted to facts whose primary component is LIMITATIONS.
+    """
+
     fact_lookup = {
         fact.fact_id: fact
-        for fact in fact_ledger.writer_ready_facts
+        for fact
+        in fact_ledger.writer_ready_facts
     }
-    evidence_lookup = {
-        item.evidence_id: item
-        for item in evidence.items
-    }
-    selected_facts = [
-        fact_lookup[fact_id]
-        for fact_id in writer_output.selected_fact_ids
-        if fact_id in fact_lookup
-    ]
 
-    selected_by_component: defaultdict[ReportComponent, list[str]] = defaultdict(list)
+    evidence_by_id = build_evidence_lookup(
+        evidence
+    )
+
+    support_by_component: defaultdict[
+        ReportComponent,
+        list[str],
+    ] = defaultdict(list)
+
     for component in required_components:
-        selected_by_component[component]
+        support_by_component[component]
 
-    for fact in selected_facts:
-        component = classify_fact_component(
-            fact,
-            evidence_lookup,
+    limitation_language = re.compile(
+        r"\b("
+        r"limitation|"
+        r"unadjusted|"
+        r"causal|causation|"
+        r"confound|"
+        r"precision|stability|"
+        r"validate|verify|inspect|investigate|"
+        r"remove|exclude|check|"
+        r"next step|further analysis|"
+        r"deployment|backtest"
+        r")\b",
+        re.IGNORECASE,
+    )
+
+    for support in writer_output.sentence_support:
+        supported_facts = [
+            fact_lookup[fact_id]
+            for fact_id in support.fact_ids
+            if fact_id in fact_lookup
+        ]
+
+        for fact in supported_facts:
+            component = classify_fact_component(
+                fact,
+                evidence_by_id,
+            )
+
+            if (
+                component
+                in required_components
+            ):
+                support_by_component[
+                    component
+                ].append(fact.fact_id)
+
+        if (
+            ReportComponent
+            .LIMITATIONS_NEXT_STEPS
+            in required_components
+            and supported_facts
+            and limitation_language.search(
+                support.sentence_text
+            )
+        ):
+            support_by_component[
+                ReportComponent
+                .LIMITATIONS_NEXT_STEPS
+            ].extend(
+                fact.fact_id
+                for fact in supported_facts
+            )
+
+    assessments: list[
+        ReportComponentAssessment
+    ] = []
+
+    for component in required_components:
+        fact_ids = list(
+            dict.fromkeys(
+                support_by_component[component]
+            )
         )
 
-        if component in selected_by_component:
-            selected_by_component[component].append(fact.fact_id)
-
-    return [
+        assessments.append(
             ReportComponentAssessment(
                 component=component,
-                covered=bool(selected_by_component[component]),
-                supporting_fact_ids=selected_by_component[component],
+                covered=bool(fact_ids),
+                supporting_fact_ids=fact_ids,
                 explanation=(
-                    "The report uses at least one verified fact for this component."
-                    if selected_by_component[component]
-                    else "No selected fact covers this required component."
+                    "At least one report sentence is "
+                    "mapped to verified support for "
+                    "this component."
+                    if fact_ids
+                    else (
+                        "No supported report sentence "
+                        "clearly covers this required "
+                        "component."
+                    )
                 ),
             )
-        for component in required_components
-    ]
+        )
 
+    return assessments
 
 def assess_report_components(
     writer_output: WriterOutput,
@@ -1973,8 +3381,6 @@ def merge_audit_proposal(
 
     if deterministic.mode == AuditMode.ANNOTATION_ONLY:
         decision = AuditDecision.PASS
-    elif proposal.recommended_decision == AuditDecision.BLOCK:
-        decision = AuditDecision.BLOCK
     elif serious:
         decision = AuditDecision.REVISE
     else:
@@ -1988,8 +3394,6 @@ def merge_audit_proposal(
         audit_mode=deterministic.mode,
     )
 
-    if decision == AuditDecision.BLOCK:
-        release_status = ReleaseStatus.HUMAN_REVIEW_REQUIRED
 
     return deterministic.model_copy(
         update={

@@ -10,8 +10,9 @@ from pydantic_ai.output import NativeOutput, PromptedOutput
 from pydantic_ai.providers.ollama import OllamaProvider
 
 from .audit import (
+    FIELD_LABEL_PATTERN,
+    INTERNAL_CONTROL_PATTERN,
     validate_fact_candidates,
-    validate_writer_output,
 )
 from .config import Settings
 from .schemas import (
@@ -29,11 +30,12 @@ from .schemas import (
     InvestigationTask,
     ReportComponent,
     ReportSpecification,
+    SupportType,
     TableUnderstanding,
     TargetStatus,
     ValidationStrategy,
     VerificationResult,
-    WriterOutput,
+    WriterAgentDraft,
 )
 
 
@@ -416,6 +418,17 @@ Reject:
 - predictive or forecast interpretations without validation;
 - causal wording without a verified causal design.
 
+Judge every candidate independently.
+
+A direct deterministic fact such as a row count, column count,
+missing-value count, constant-field finding, correlation, or validated
+group comparison can be fully valid even when it is simple or less
+narratively interesting than another candidate.
+
+Do not reject overview or data-quality facts merely to keep the ledger
+concise. Reject them only when they are unsupported, numerically
+inconsistent, semantically escalated, or methodologically invalid.
+
 Do not rewrite candidates into final report prose.
 """
 
@@ -560,16 +573,32 @@ A generic dataset-understanding report should normally include:
 Small or weak effects should normally be omitted unless they materially
 qualify a stronger finding or the user requested completeness.
 
+Deterministically recovered facts are direct representations of trusted
+calculated evidence. They are as grounded as LLM-verified facts and may be
+used normally, while their recovery method remains recorded internally.
+
+When sufficient verified material exists, do not return only a heading and
+one or two factual sentences. Cover every required report component using
+the strongest available facts.
+
+Prefer relationship diversity. When both are available, normally include a
+strong or moderate correlation and a large or moderate group comparison
+rather than several similar comparisons.
+
+Do not use a small relationship merely to increase the number of findings.
+
 Every factual sentence must be represented in the hidden sentence support
 map.
 
-Return:
-1. natural Markdown;
-2. a hidden sentence support map;
-3. selected and omitted fact IDs.
+Return structured sections and sentences only.
+Do not return Markdown.
+Do not construct a separate support map.
+The controller will materialise Markdown and sentence support
+deterministically.
 
-Every factual sentence must occur verbatim in sentence_support.
-Non-factual transitions may be marked non_factual_transition.
+Each factual sentence must list its supporting fact IDs.
+Non-factual transitions may be marked non_factual_transition and must not
+cite fact IDs.
 """
 
 
@@ -582,12 +611,12 @@ def build_writer_agent(settings: Settings) -> Agent:
         name="natural_data_science_writer_agent",
         deps_type=AgentDependencies,
         output_type=output_schema(
-            WriterOutput,
+            WriterAgentDraft,
             settings,
         ),
         instructions=WRITER_INSTRUCTIONS,
         model_settings=ModelSettings(
-            temperature=0.35,
+            temperature=0.15,
             max_tokens=11_000,
         ),
         retries={"output": 3},
@@ -596,29 +625,103 @@ def build_writer_agent(settings: Settings) -> Agent:
     @agent.output_validator
     def validate_output(
         context: RunContext[AgentDependencies],
-        output: WriterOutput,
-    ) -> WriterOutput:
+        output: WriterAgentDraft,
+    ) -> WriterAgentDraft:
         ledger = FactLedger.model_validate(
             context.deps.payload["fact_ledger"]
         )
 
-        errors = validate_writer_output(
-            output,
-            ledger,
-        )
+        valid_fact_ids = {
+            fact.fact_id
+            for fact in ledger.writer_ready_facts
+        }
+
+        errors: list[str] = []
+
+        if not output.sections:
+            errors.append(
+                "Return at least one report section."
+            )
+
+        for section_index, section in enumerate(
+            output.sections,
+            start=1,
+        ):
+            if not section.sentences:
+                errors.append(
+                    f"Section {section_index} contains no sentences."
+                )
+
+            for sentence_index, sentence in enumerate(
+                section.sentences,
+                start=1,
+            ):
+                unknown = (
+                    set(sentence.fact_ids)
+                    - valid_fact_ids
+                )
+
+                if unknown:
+                    errors.append(
+                        "Sentence "
+                        f"{section_index}.{sentence_index} "
+                        "uses unknown fact IDs: "
+                        f"{sorted(unknown)}"
+                    )
+
+                if (
+                    sentence.support_type
+                    != SupportType.NON_FACTUAL
+                    and not sentence.fact_ids
+                ):
+                    errors.append(
+                        "Sentence "
+                        f"{section_index}.{sentence_index} "
+                        "is factual but has no supporting facts."
+                    )
+
+                if (
+                    sentence.support_type
+                    == SupportType.NON_FACTUAL
+                    and sentence.fact_ids
+                ):
+                    errors.append(
+                        "A non-factual transition must not "
+                        "cite fact IDs."
+                    )
+
+                if re.search(
+                    r"\[(?:CLM|FACT)_\d+",
+                    sentence.text,
+                ):
+                    errors.append(
+                        "Internal fact IDs must not appear "
+                        "in visible sentence text."
+                    )
+
+                if INTERNAL_CONTROL_PATTERN.search(
+                    sentence.text
+                ):
+                    errors.append(
+                        "Visible sentence text exposes an "
+                        "internal control."
+                    )
+
+                if FIELD_LABEL_PATTERN.search(
+                    sentence.text
+                ):
+                    errors.append(
+                        "Visible sentence text renders an "
+                        "internal evidence field."
+                    )
 
         if errors:
             raise ModelRetry(
-                "Writer output validation failed:\n- "
+                "Writer draft validation failed:\n- "
                 + "\n- ".join(errors)
             )
 
-        return output.model_copy(
-            update={
-                "writer_mode": "llm_writer",
-                "eligible_for_primary_evaluation": True,
-            }
-        )
+        return output
 
     return agent
 

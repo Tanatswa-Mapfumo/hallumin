@@ -22,8 +22,10 @@ from .agents import (
 )
 from .analytics import execute_plan
 from .audit import (
+    accept_writer_quality_revision,
     apply_repair_proposal,
     assess_report_component_coverage,
+    augment_fact_ledger_for_report_coverage,
     assess_report_components,
     build_writer_evidence_pack,
     compact_json,
@@ -35,7 +37,9 @@ from .audit import (
     fallback_writer,
     finalise_fact_ledger,
     json_safe,
+    materialise_writer_output,
     merge_audit_proposal,
+    validate_writer_output,
 )
 from .config import Settings
 from .data import load_data, profile_data
@@ -54,6 +58,7 @@ from .schemas import (
     ReleaseStatus,
     RunManifest,
     VerificationResult,
+    WriterAgentDraft,
     WriterEvidencePack,
     WriterOutput,
 )
@@ -89,44 +94,182 @@ def infer_required_report_components(
     return []
 
 
+def exception_cause_chain(
+    error: BaseException,
+) -> list[str]:
+    chain: list[str] = []
+    current: BaseException | None = error
+    seen: set[int] = set()
+
+    while (
+        current is not None
+        and id(current) not in seen
+    ):
+        seen.add(id(current))
+
+        message = getattr(
+            current,
+            "message",
+            str(current),
+        )
+
+        chain.append(
+            f"{type(current).__name__}: "
+            f"{message}"
+        )
+
+        current = current.__cause__
+
+    return chain
+
+
+def build_compact_writer_payload(
+    pack: WriterEvidencePack,
+) -> dict[str, Any]:
+    tables = [
+        {
+            "table_name": table.table_name,
+            "unit_of_observation": (
+                table.unit_of_observation
+            ),
+            "summary": table.summary,
+        }
+        for table
+        in pack.dataset_understanding.tables
+    ]
+
+    return {
+        "user_request": pack.user_request,
+        "report_specification": (
+            pack.report_specification
+        ),
+        "dataset_summary": (
+            pack.dataset_understanding
+            .dataset_summary
+        ),
+        "table_context": tables,
+        "priority_facts": (
+            pack.priority_facts
+        ),
+        "supporting_facts": (
+            pack.supporting_facts
+        ),
+        "limitation_facts": (
+            pack.limitation_facts
+        ),
+        "analytical_recommendations": (
+            pack.analytical_recommendations
+        ),
+        "reader_facing_limitations": (
+            pack.reader_facing_limitations
+        ),
+        "internal_prohibited_interpretations": (
+            pack
+            .internal_prohibited_interpretations
+        ),
+    }
+
+
 def build_writer_quality_revision_prompt(
     *,
     writer_pack: WriterEvidencePack,
     current_output: WriterOutput,
     missing_components: list[ReportComponent],
     quality_findings: list[str],
+    settings: Settings,
 ) -> str:
+    used_fact_ids = set(
+        current_output.selected_fact_ids
+    )
+
+    unused_priority_facts = [
+        fact
+        for fact in writer_pack.priority_facts
+        if fact.fact_id not in used_fact_ids
+    ]
+
+    current_word_count = len(
+        re.findall(
+            r"\\b[\\w'-]+\\b",
+            current_output.markdown,
+        )
+    )
+
+    target_words = (
+        writer_pack.report_specification
+        .target_length_words
+    )
+
+    minimum_words = min(
+        target_words,
+        max(
+            settings.minimum_report_word_floor,
+            int(
+                target_words
+                * settings.minimum_report_word_ratio
+            ),
+            len(
+                writer_pack
+                .report_specification
+                .required_components
+            )
+            * 45,
+        ),
+    )
+
     return (
-        "Revise the whole report once for reader-facing quality before factual "
-        "audit. Preserve every supported factual claim unless you remove it for "
-        "selection or clarity.\n\n"
+        "Revise the complete report once for task fulfilment and natural "
+        "data-science writing before factual audit.\n\n"
+        "This is a Writer quality revision, not a factual repair.\n\n"
+        "Do not merely rephrase the existing short report.\n"
+        "Use the unused verified priority facts to cover missing sections.\n"
         "Do not invent calculations or facts.\n"
         "Do not calculate statistics.\n"
+        "Do not introduce new numbers, entities, categories, metadata, "
+        "causal claims, prediction claims, forecast claims, or deployment "
+        "claims.\n"
         "Do not expose internal control fields such as Finding:, Strength:, "
         "Important Note:, Interpretation Notes:, Recommended Use:, or Global "
         "Prohibited Interpretations.\n"
-        "Do not open with generic boilerplate such as 'This report provides'.\n"
-        "Use natural data-science prose and keep caveats consolidated.\n"
-        "You may reorganise, expand, combine, or omit supported content.\n"
-        "Return the same WriterOutput schema with an updated hidden support map.\n\n"
+        "Use natural data-science prose and consolidate shared caveats.\n"
+        "Prefer strong and moderate evidence over small effects.\n"
+        "Return structured sections and sentences only. Do not return "
+        "Markdown or a separate support map; the controller will create both "
+        "deterministically.\n"
+        "Every factual sentence must list its supporting fact IDs.\n\n"
+        f"Current word count: {current_word_count}\n"
+        f"Minimum useful word count: {minimum_words}\n"
+        f"Available priority facts: {len(writer_pack.priority_facts)}\n"
+        f"Unused priority facts: {len(unused_priority_facts)}\n\n"
         "Missing components:\n"
         + (
-            "\n".join(f"- {component.value}" for component in missing_components)
+            "\n".join(
+                f"- {component.value}"
+                for component in missing_components
+            )
             if missing_components
             else "- None"
         )
         + "\n\nQuality findings:\n"
         + (
-            "\n".join(f"- {finding}" for finding in quality_findings)
+            "\n".join(
+                f"- {finding}"
+                for finding in quality_findings
+            )
             if quality_findings
             else "- None"
         )
-        + "\n\nEvidence pack:\n"
-        + compact_json(writer_pack)
-        + "\n\nCurrent output:\n"
+        + "\n\nUnused verified priority facts:\n"
+        + compact_json(unused_priority_facts)
+        + "\n\nCompact Writer evidence pack:\n"
+        + compact_json(
+            build_compact_writer_payload(
+                writer_pack
+            )
+        )
+        + "\n\nCurrent Writer output:\n"
         + compact_json(current_output)
     )
-
 
 class ArtifactStore:
     def __init__(self, base_directory: Path, run_id: str):
@@ -251,7 +394,12 @@ class Table2TextWorkflow:
                 {
                     "reason": (
                         f"{type(error).__name__}: {error}"
-                    )
+                    ),
+                    "cause_chain": (
+                        exception_cause_chain(
+                            error
+                        )
+                    ),
                 },
             )
             return fallback()
@@ -554,7 +702,53 @@ class Table2TextWorkflow:
             store.save_json("05_fact_candidates_recovered.json", fact_candidates)
             store.save_json("06_verification_recovered.json", verification)
             store.save_json("07_fact_ledger_recovered.json", fact_ledger)
-        store.save_json("07_fact_ledger.json", fact_ledger)
+        store.save_json(
+            "07_fact_ledger_pre_coverage_recovery.json",
+            fact_ledger,
+        )
+
+        fact_count_before_recovery = len(
+            fact_ledger.writer_ready_facts
+        )
+
+        fact_ledger = (
+            augment_fact_ledger_for_report_coverage(
+                fact_ledger=fact_ledger,
+                evidence=evidence_ledger,
+                required_components=(
+                    plan.report_specification
+                    .required_components
+                ),
+                settings=self.settings,
+            )
+        )
+
+        store.trace(
+            "fact_ledger_coverage_recovery",
+            "completed",
+            {
+                "facts_before": (
+                    fact_count_before_recovery
+                ),
+                "facts_after": len(
+                    fact_ledger
+                    .writer_ready_facts
+                ),
+                "recovered_fact_ids": (
+                    fact_ledger
+                    .deterministically_recovered_fact_ids
+                ),
+                "notes": (
+                    fact_ledger
+                    .coverage_recovery_notes
+                ),
+            },
+        )
+
+        store.save_json(
+            "07_fact_ledger.json",
+            fact_ledger,
+        )
 
         writer_pack = build_writer_evidence_pack(
             request=request,
@@ -566,14 +760,23 @@ class Table2TextWorkflow:
         )
         store.save_json("08_writer_evidence_pack.json", writer_pack)
 
-        raw_writer_output = await self.run_agent_or_fallback(
+        writer_prompt = (
+            "Write the final natural data-science report from the "
+            "compact verified-fact package below.\n\n"
+            "Return structured sections and sentences. Do not return "
+            "a Markdown field or construct a separate support map; the "
+            "controller will create both deterministically.\n\n"
+            + compact_json(
+                build_compact_writer_payload(
+                    writer_pack
+                )
+            )
+        )
+
+        writer_draft_or_fallback = await self.run_agent_or_fallback(
             stage="natural_writer",
             agent=self.writer_agent,
-            prompt=(
-                "Write the final natural data-science report from this "
-                "evidence package.\n\n"
-                + compact_json(writer_pack)
-            ),
+            prompt=writer_prompt,
             dependencies=AgentDependencies(
                 run_id=run_id,
                 payload={
@@ -583,7 +786,30 @@ class Table2TextWorkflow:
             fallback=lambda: fallback_writer(writer_pack),
             store=store,
         )
-        raw_writer_output = WriterOutput.model_validate(raw_writer_output)
+
+        if isinstance(
+            writer_draft_or_fallback,
+            WriterOutput,
+        ):
+            raw_writer_output = (
+                writer_draft_or_fallback
+            )
+        else:
+            writer_draft = (
+                WriterAgentDraft.model_validate(
+                    writer_draft_or_fallback
+                )
+            )
+
+            raw_writer_output = (
+                materialise_writer_output(
+                    writer_draft,
+                    fact_ledger,
+                    writer_mode="llm_writer",
+                    eligible_for_primary_evaluation=True,
+                )
+            )
+
         store.save_json(
             "09_writer_raw_output.json",
             raw_writer_output,
@@ -634,53 +860,203 @@ class Table2TextWorkflow:
 
         if (
             needs_quality_revision
-            and raw_writer_output.writer_mode == "llm_writer"
+            and self.settings.use_llm
+            and self.writer_agent is not None
             and self.settings.writer_quality_revision_rounds > 0
         ):
-            revised_writer_output = await self.run_agent_or_fallback(
+            revised_draft_or_fallback = await self.run_agent_or_fallback(
                 stage="writer_quality_revision",
                 agent=self.writer_agent,
                 prompt=build_writer_quality_revision_prompt(
                     writer_pack=writer_pack,
                     current_output=raw_writer_output,
                     missing_components=missing_components,
-                    quality_findings=initial_quality_audit.quality_assessment.findings,
+                    quality_findings=(
+                        initial_quality_audit
+                        .quality_assessment
+                        .findings
+                    ),
+                    settings=self.settings,
                 ),
                 dependencies=AgentDependencies(
                     run_id=run_id,
                     payload={
-                        "fact_ledger": fact_ledger.model_dump(mode="json")
+                        "fact_ledger": (
+                            fact_ledger.model_dump(
+                                mode="json"
+                            )
+                        )
                     },
                 ),
                 fallback=lambda: raw_writer_output,
                 store=store,
             )
-            quality_revised_writer_output = WriterOutput.model_validate(
-                revised_writer_output
-            ).model_copy(
+
+            if isinstance(
+                revised_draft_or_fallback,
+                WriterOutput,
+            ):
+                revision_candidate = (
+                    revised_draft_or_fallback
+                    .model_copy(
+                        update={
+                            "quality_revision_round": 1,
+                            "quality_revision_summary": (
+                                "Bounded whole-report "
+                                "quality-revision candidate."
+                            ),
+                        }
+                    )
+                )
+            else:
+                revised_writer_draft = (
+                    WriterAgentDraft.model_validate(
+                        revised_draft_or_fallback
+                    )
+                )
+                revision_candidate = materialise_writer_output(
+                    revised_writer_draft,
+                    fact_ledger,
+                    writer_mode="llm_writer",
+                    eligible_for_primary_evaluation=True,
+                    quality_revision_round=1,
+                    quality_revision_summary=(
+                        "Bounded whole-report "
+                        "quality-revision candidate."
+                    ),
+                )
+
+            revision_candidate = revision_candidate.model_copy(
                 update={
                     "quality_revision_round": 1,
                     "quality_revision_summary": (
-                        "Bounded whole-report quality revision before factual audit."
+                        "Bounded whole-report "
+                        "quality-revision candidate."
                     ),
                 }
             )
-            writer_output_for_audit = quality_revised_writer_output
-            revised_component_assessments = assess_report_component_coverage(
-                writer_output=writer_output_for_audit,
-                fact_ledger=fact_ledger,
-                evidence=evidence_ledger,
-                required_components=plan.report_specification.required_components,
-            )
-            store.save_json("10_writer_quality_revision.json", writer_output_for_audit)
-            store.save_text(
-                "10_writer_quality_revision.md",
-                writer_output_for_audit.markdown,
-            )
+
             store.save_json(
-                "10_writer_quality_revision_component_coverage.json",
-                revised_component_assessments,
+                "10_writer_quality_revision_candidate.json",
+                revision_candidate,
             )
+            store.save_text(
+                "10_writer_quality_revision_candidate.md",
+                revision_candidate.markdown,
+            )
+
+            revision_validation_errors = (
+                validate_writer_output(
+                    revision_candidate,
+                    fact_ledger,
+                )
+            )
+
+            revised_quality_audit = (
+                deterministic_audit(
+                    writer_output=revision_candidate,
+                    fact_ledger=fact_ledger,
+                    evidence=evidence_ledger,
+                    mode=audit_mode,
+                    external_sources=(
+                        external_truth_sources
+                    ),
+                    revision_round=0,
+                    report_specification=(
+                        plan.report_specification
+                    ),
+                    settings=self.settings,
+                )
+            )
+
+            revision_accepted, revision_reasons = (
+                accept_writer_quality_revision(
+                    before=raw_writer_output,
+                    after=revision_candidate,
+                    before_audit=(
+                        initial_quality_audit
+                    ),
+                    after_audit=(
+                        revised_quality_audit
+                    ),
+                    validation_errors=(
+                        revision_validation_errors
+                    ),
+                    report_specification=(
+                        plan.report_specification
+                    ),
+                    settings=self.settings,
+                )
+            )
+
+            store.save_json(
+                "10_writer_quality_revision_assessment.json",
+                {
+                    "attempted": True,
+                    "accepted": revision_accepted,
+                    "reasons": revision_reasons,
+                    "before_component_assessments": (
+                        initial_quality_audit
+                        .component_assessments
+                    ),
+                    "after_component_assessments": (
+                        revised_quality_audit
+                        .component_assessments
+                    ),
+                    "before_quality": (
+                        initial_quality_audit
+                        .quality_assessment
+                    ),
+                    "after_quality": (
+                        revised_quality_audit
+                        .quality_assessment
+                    ),
+                    "validation_errors": (
+                        revision_validation_errors
+                    ),
+                },
+            )
+
+            if revision_accepted:
+                quality_revised_writer_output = (
+                    revision_candidate.model_copy(
+                        update={
+                            "quality_revision_summary": (
+                                "One bounded Writer "
+                                "quality revision was "
+                                "accepted before factual "
+                                "auditing."
+                            ),
+                        }
+                    )
+                )
+
+                writer_output_for_audit = (
+                    quality_revised_writer_output
+                )
+
+                store.save_json(
+                    "10_writer_quality_revision.json",
+                    writer_output_for_audit,
+                )
+                store.save_text(
+                    "10_writer_quality_revision.md",
+                    writer_output_for_audit.markdown,
+                )
+                store.save_json(
+                    "10_writer_quality_revision_component_coverage.json",
+                    revised_quality_audit.component_assessments,
+                )
+            else:
+                store.trace(
+                    "writer_quality_revision",
+                    "rejected",
+                    {
+                        "reasons": (
+                            revision_reasons
+                        )
+                    },
+                )
 
         initial_audit, proposal = await self.audit_once(
             run_id=run_id,
@@ -828,8 +1204,20 @@ class Table2TextWorkflow:
             repair_budget_exhausted=repair_budget_exhausted,
             audit_mode=audit_mode,
         )
+
+        if (
+            release_status
+            == ReleaseStatus.HUMAN_REVIEW_REQUIRED
+        ):
+            final_decision = AuditDecision.BLOCK
+        else:
+            final_decision = AuditDecision.PASS
+
         final_audit = final_audit.model_copy(
-            update={"release_status": release_status}
+            update={
+                "decision": final_decision,
+                "release_status": release_status,
+            }
         )
 
         approved = release_status in {
