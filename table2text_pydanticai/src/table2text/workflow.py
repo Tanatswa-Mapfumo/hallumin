@@ -24,9 +24,11 @@ from .analytics import execute_plan
 from .audit import (
     accept_writer_quality_revision,
     apply_repair_proposal,
+    apply_support_map_patches,
     assess_report_component_coverage,
     augment_fact_ledger_for_report_coverage,
     assess_report_components,
+    build_profile_support_registry,
     build_writer_evidence_pack,
     compact_json,
     decide_release_status,
@@ -53,6 +55,7 @@ from .schemas import (
     ExternalTruthSource,
     FactCandidateSet,
     PipelineResult,
+    ProfileSupportRecord,
     QualityStatus,
     ReportComponent,
     ReleaseStatus,
@@ -126,28 +129,11 @@ def exception_cause_chain(
 def build_compact_writer_payload(
     pack: WriterEvidencePack,
 ) -> dict[str, Any]:
-    tables = [
-        {
-            "table_name": table.table_name,
-            "unit_of_observation": (
-                table.unit_of_observation
-            ),
-            "summary": table.summary,
-        }
-        for table
-        in pack.dataset_understanding.tables
-    ]
-
     return {
         "user_request": pack.user_request,
         "report_specification": (
             pack.report_specification
         ),
-        "dataset_summary": (
-            pack.dataset_understanding
-            .dataset_summary
-        ),
-        "table_context": tables,
         "priority_facts": (
             pack.priority_facts
         ),
@@ -190,7 +176,7 @@ def build_writer_quality_revision_prompt(
 
     current_word_count = len(
         re.findall(
-            r"\\b[\\w'-]+\\b",
+            r"\b[\w'-]+\b",
             current_output.markdown,
         )
     )
@@ -411,14 +397,17 @@ class Table2TextWorkflow:
         writer_output: WriterOutput,
         fact_ledger: Any,
         evidence_ledger: Any,
+        profile_support_records: list[
+            ProfileSupportRecord
+        ],
         plan: ExecutionPlan,
         audit_mode: AuditMode,
         external_truth_sources: list[ExternalTruthSource],
         revision_round: int,
         store: ArtifactStore,
         stage_name: str,
-    ) -> tuple[AuditReport, AuditRepairProposal]:
-        deterministic = deterministic_audit(
+    ) -> tuple[AuditReport, AuditRepairProposal, WriterOutput]:
+        deterministic_pre_patch = deterministic_audit(
             writer_output=writer_output,
             fact_ledger=fact_ledger,
             evidence=evidence_ledger,
@@ -427,7 +416,88 @@ class Table2TextWorkflow:
             revision_round=revision_round,
             report_specification=plan.report_specification,
             settings=self.settings,
+            profile_support_records=profile_support_records,
         )
+
+        if revision_round == 0:
+            pre_patch_audit_name = (
+                "10_initial_audit_pre_profile_patch.json"
+            )
+            support_patch_name = (
+                "10_initial_support_map_patches.json"
+            )
+            profile_patched_name = (
+                "10_initial_profile_patched_output.json"
+            )
+        else:
+            pre_patch_audit_name = (
+                "14_post_repair_audit_pre_profile_patch"
+                f"_round_{revision_round}.json"
+            )
+            support_patch_name = (
+                "14_post_repair_support_map_patches"
+                f"_round_{revision_round}.json"
+            )
+            profile_patched_name = (
+                "14_post_repair_profile_patched_output"
+                f"_round_{revision_round}.json"
+            )
+
+        store.save_json(
+            pre_patch_audit_name,
+            deterministic_pre_patch,
+        )
+        store.save_json(
+            support_patch_name,
+            deterministic_pre_patch.support_map_patches,
+        )
+
+        profile_patched_output = writer_output
+
+        if deterministic_pre_patch.support_map_patches:
+            profile_patched_output = apply_support_map_patches(
+                writer_output,
+                deterministic_pre_patch.support_map_patches,
+                {
+                    record.support_id
+                    for record in profile_support_records
+                },
+            )
+
+        store.save_json(
+            profile_patched_name,
+            profile_patched_output,
+        )
+
+        deterministic = deterministic_audit(
+            writer_output=profile_patched_output,
+            fact_ledger=fact_ledger,
+            evidence=evidence_ledger,
+            mode=audit_mode,
+            external_sources=external_truth_sources,
+            revision_round=revision_round,
+            report_specification=plan.report_specification,
+            settings=self.settings,
+            profile_support_records=profile_support_records,
+        ).model_copy(
+            update={
+                "support_map_patches": (
+                    deterministic_pre_patch
+                    .support_map_patches
+                )
+            }
+        )
+
+        deterministic_annotation_ids = [
+            annotation.annotation_id
+            for annotation in deterministic.annotations
+        ]
+        deterministic_serious_annotation_ids = [
+            annotation.annotation_id
+            for annotation in deterministic.annotations
+            if annotation.severity.value
+            in {"high", "critical"}
+        ]
 
         prompt = (
             "Audit this report independently and propose targeted repairs "
@@ -437,11 +507,13 @@ class Table2TextWorkflow:
             + "\n\nReport specification:\n"
             + compact_json(plan.report_specification)
             + "\n\nWriter output:\n"
-            + compact_json(writer_output)
+            + compact_json(profile_patched_output)
             + "\n\nVerified fact ledger:\n"
             + compact_json(fact_ledger)
             + "\n\nEvidence ledger:\n"
             + compact_json(evidence_ledger)
+            + "\n\nDeterministic profile support registry:\n"
+            + compact_json(profile_support_records)
             + "\n\nDeterministic pre-audit:\n"
             + compact_json(deterministic)
             + "\n\nExternal truth sources:\n"
@@ -458,10 +530,28 @@ class Table2TextWorkflow:
             dependencies=AgentDependencies(
                 run_id=run_id,
                 payload={
-                    "report_text": writer_output.markdown,
+                    "report_text": profile_patched_output.markdown,
                     "valid_fact_ids": [
                         fact.fact_id
                         for fact in fact_ledger.writer_ready_facts
+                    ],
+                    "valid_evidence_ids": [
+                        item.evidence_id
+                        for item in evidence_ledger.items
+                    ],
+                    "valid_profile_support_ids": [
+                        record.support_id
+                        for record in profile_support_records
+                    ],
+                    "deterministic_annotation_ids": (
+                        deterministic_annotation_ids
+                    ),
+                    "deterministic_serious_annotation_ids": (
+                        deterministic_serious_annotation_ids
+                    ),
+                    "deterministic_annotation_sentences": [
+                        annotation.sentence
+                        for annotation in deterministic.annotations
                     ],
                 },
             ),
@@ -474,7 +564,7 @@ class Table2TextWorkflow:
         proposal = AuditRepairProposal.model_validate(proposal)
         merged = merge_audit_proposal(deterministic, proposal)
 
-        return merged, proposal
+        return merged, proposal, profile_patched_output
 
     async def run(
         self,
@@ -488,6 +578,11 @@ class Table2TextWorkflow:
 
         data_bundle = load_data(inputs)
         profile = profile_data(data_bundle)
+        profile_support_records = (
+            build_profile_support_registry(
+                profile
+            )
+        )
 
         run_id = ArtifactStore.create_run_id(
             data_bundle.fingerprint
@@ -525,6 +620,10 @@ class Table2TextWorkflow:
 
         store.save_json("00_manifest.json", manifest)
         store.save_json("01_profile.json", profile)
+        store.save_json(
+            "02_profile_support_registry.json",
+            profile_support_records,
+        )
 
         table_names = [
             table.table_name
@@ -848,6 +947,7 @@ class Table2TextWorkflow:
             revision_round=0,
             report_specification=plan.report_specification,
             settings=self.settings,
+            profile_support_records=profile_support_records,
         )
         store.save_json("10_initial_writer_quality.json", initial_quality_audit)
 
@@ -966,6 +1066,9 @@ class Table2TextWorkflow:
                         plan.report_specification
                     ),
                     settings=self.settings,
+                    profile_support_records=(
+                        profile_support_records
+                    ),
                 )
             )
 
@@ -1058,11 +1161,16 @@ class Table2TextWorkflow:
                     },
                 )
 
-        initial_audit, proposal = await self.audit_once(
+        (
+            initial_audit,
+            proposal,
+            writer_output_for_audit,
+        ) = await self.audit_once(
             run_id=run_id,
             writer_output=writer_output_for_audit,
             fact_ledger=fact_ledger,
             evidence_ledger=evidence_ledger,
+            profile_support_records=profile_support_records,
             plan=plan,
             audit_mode=audit_mode,
             external_truth_sources=external_truth_sources,
@@ -1135,11 +1243,16 @@ class Table2TextWorkflow:
                 current_output,
             )
 
-            current_audit, proposal = await self.audit_once(
+            (
+                current_audit,
+                proposal,
+                current_output,
+            ) = await self.audit_once(
                 run_id=run_id,
                 writer_output=current_output,
                 fact_ledger=fact_ledger,
                 evidence_ledger=evidence_ledger,
+                profile_support_records=profile_support_records,
                 plan=plan,
                 audit_mode=audit_mode,
                 external_truth_sources=external_truth_sources,

@@ -278,6 +278,92 @@ def descriptive_analysis(
             recommended_use=RecommendedUse.HEADLINE,
         )
 
+        hashable_frame = frame.copy()
+
+        for column_name in hashable_frame.columns:
+            hashable_frame[column_name] = (
+                hashable_frame[column_name].map(
+                    safe_hashable
+                )
+            )
+
+        duplicate_row_count = int(
+            hashable_frame.duplicated().sum()
+        )
+
+        if duplicate_row_count > 0:
+            duplicate_row_rate = duplicate_row_count / max(
+                len(frame),
+                1,
+            )
+
+            builder.add(
+                route=AnalysisRoute.DESCRIPTIVE,
+                task_ids=task_ids,
+                finding=(
+                    f"Table `{table_name}` contains "
+                    f"{duplicate_row_count:,} exact duplicate rows "
+                    f"({duplicate_row_rate:.2%} of rows)."
+                ),
+                metrics={
+                    "duplicate_row_count": duplicate_row_count,
+                    "duplicate_row_rate": duplicate_row_rate,
+                    "row_count": len(frame),
+                },
+                source_tables=[table_name],
+                source_columns=list(frame.columns),
+                method="Exact row duplicate inspection.",
+                practical_interpretation=(
+                    "Exactly repeated rows are present, but the available "
+                    "data do not establish whether they are invalid."
+                ),
+                strength_label="duplicate_rows",
+                limitations=[
+                    "Exact duplicate rows may be genuine repeated observations "
+                    "or unintended duplicates."
+                ],
+                prohibited_interpretations=[
+                    "Do not call duplicate rows erroneous without record-level "
+                    "validation.",
+                    "Do not automatically recommend deduplication.",
+                ],
+                recommendations=[
+                    AnalyticalRecommendation(
+                        recommendation_id="REC_DUPLICATE_ROWS",
+                        action=(
+                            "Review the exact duplicate rows before deciding "
+                            "whether to remove them."
+                        ),
+                        recommendation_type="data_cleaning",
+                        priority="medium",
+                        justification=(
+                            "Exactly repeated rows can either be valid repeated "
+                            "observations or unintended duplicates."
+                        ),
+                        affected_analyses=[
+                            "descriptive analysis",
+                            "correlation analysis",
+                            "group comparison",
+                            "predictive modelling",
+                        ],
+                        consequence_if_ignored=(
+                            "Repeated rows may influence summaries or models if "
+                            "they are unintended duplicates."
+                        ),
+                        confidence=1.0,
+                    )
+                ],
+                claim_permissions=[
+                    ClaimPermission.DESCRIPTIVE,
+                    ClaimPermission.METHODOLOGICAL,
+                ],
+                factual_confidence=1.0,
+                methodological_strength=1.0,
+                user_relevance=0.75,
+                salience=0.65,
+                recommended_use=RecommendedUse.SUPPORTING_DETAIL,
+            )
+
         missing_counts = frame.isna().sum().sort_values(ascending=False)
 
         for column_name, count in missing_counts.items():

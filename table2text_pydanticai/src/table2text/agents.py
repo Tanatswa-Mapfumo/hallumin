@@ -17,6 +17,7 @@ from .audit import (
 from .config import Settings
 from .schemas import (
     AnalysisRoute,
+    AuditDecision,
     AuditMode,
     AuditRepairProposal,
     ClaimPermission,
@@ -30,6 +31,7 @@ from .schemas import (
     InvestigationTask,
     ReportComponent,
     ReportSpecification,
+    Severity,
     SupportType,
     TableUnderstanding,
     TargetStatus,
@@ -37,6 +39,25 @@ from .schemas import (
     VerificationResult,
     WriterAgentDraft,
 )
+
+REPORT_QUALITY_DEFECT_PATTERN = re.compile(
+    r"\b("
+    r"report|sentence|section|wording|phrasing|selection|structure|"
+    r"coherence|redundan|repetit|overstat|understat|omit|unclear|"
+    r"unsupported|imprecise"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def valid_quality_finding(
+    finding: str,
+) -> bool:
+    return bool(
+        REPORT_QUALITY_DEFECT_PATTERN.search(
+            finding
+        )
+    )
 
 
 @dataclass
@@ -544,10 +565,30 @@ Write naturally:
 "The groups differ substantially; the standardised mean difference is
 approximately 1.0."
 
-Use the unit of observation supplied by the Data Understanding Agent.
-Do not replace "observations", "records", "rows", "patients", "recipes",
-or other identified units with "events", "cases", "experiments", or
-"subjects" unless that terminology is explicitly supported.
+The Data Understanding output is interpretive context, not an independent
+source of factual truth.
+
+Every visible factual statement must be supported by the supplied verified
+facts.
+
+Do not introduce a factual claim solely because it appears in:
+- dataset_summary;
+- unit_of_observation;
+- table summary;
+- column interpretation;
+- quality finding;
+- usability note.
+
+In particular, do not state that observations are hourly, collected at a
+specific location, produced by a weather station, or gathered through a
+particular process unless a verified fact explicitly supports that statement.
+
+Use neutral terms such as "rows", "records", "observations" or
+"timestamped observations" when a more specific unit is not verified.
+
+Reader-facing next steps must come from supplied analytical recommendations,
+verified methodological facts or the explicit user request. Do not invent
+generic future modelling tasks.
 
 For a major group comparison, where supplied, explain:
 - the group means;
@@ -737,9 +778,24 @@ You receive:
 - the hidden sentence support map;
 - verified facts;
 - full evidence;
+- deterministic profile support records;
 - deterministic audit findings;
 - methodological limitations;
 - optional trusted external facts.
+
+Authority hierarchy:
+- The deterministic pre-audit is authoritative.
+- Verified facts, deterministic evidence, deterministic profile support and
+  properly scoped trusted external facts are factual sources.
+- Data Understanding is interpretive context only. Never validate one
+  LLM-generated claim solely because another LLM output repeats it.
+- A claim that is exactly supported by deterministic profile data but missing
+  from the sentence support map is a support-mapping defect. Do not call it a
+  visible hallucination when the visible statement is correct.
+- Do not propose a visible rewrite when a deterministic hidden support-map
+  patch fully resolves the problem.
+- The semantic Auditor may add supported annotations and repair candidates but
+  must not erase deterministic findings.
 
 Perform two responsibilities.
 
@@ -776,6 +832,37 @@ Also assess report quality separately:
 - data-science interpretation.
 
 Quality weaknesses alone should normally be warnings, not factual blocks.
+
+`quality_assessment.findings` must describe defects in the report's writing,
+selection, structure, interpretation or communication.
+
+Valid examples:
+- The report overstates the implication of a constant field.
+- The report recommends duplicate removal without sufficient justification.
+- The report repeats closely related findings.
+- The report omits a required limitation.
+
+Invalid examples:
+- The dataset contains duplicate rows.
+- Loud Cover is constant.
+- Pressure contains zero values.
+- Temperature and humidity are correlated.
+
+Dataset observations belong in evidence or facts, not report-quality findings.
+
+Apply these wording rules:
+- Do not accept hourly cadence unless regular spacing is verified.
+- Do not accept location or weather-station metadata unless verified.
+- Constant columns contain no observed variation for analyses that depend on
+  variation; they are not universally worthless.
+- Suspicious zeros may represent missingness or measurement failure, but this
+  must be validated before treating the interpretation as true.
+- Low missingness is not automatically harmless.
+- Duplicate rows should be reviewed before any decision to remove them.
+- Pearson correlation may not capture non-linear relationships and can be
+  sensitive to influential observations.
+- Reader-facing next steps must be grounded in supplied recommendations,
+  verified methodological facts or the explicit user request.
 
 Internal-control leakage is a report-quality problem.
 Unsupported claims that group-size imbalance biases group means should be
@@ -824,11 +911,49 @@ def build_auditor_agent(settings: Settings) -> Agent:
         valid_fact_ids = set(
             context.deps.payload["valid_fact_ids"]
         )
+        valid_evidence_ids = set(
+            context.deps.payload.get(
+                "valid_evidence_ids",
+                [],
+            )
+        )
+        valid_profile_support_ids = set(
+            context.deps.payload.get(
+                "valid_profile_support_ids",
+                [],
+            )
+        )
+        deterministic_annotation_ids = set(
+            context.deps.payload.get(
+                "deterministic_annotation_ids",
+                [],
+            )
+        )
+        deterministic_serious_annotation_ids = set(
+            context.deps.payload.get(
+                "deterministic_serious_annotation_ids",
+                [],
+            )
+        )
+        deterministic_annotation_sentences = set(
+            context.deps.payload.get(
+                "deterministic_annotation_sentences",
+                [],
+            )
+        )
 
         annotation_ids = {
             annotation.annotation_id
             for annotation in output.annotations
         }
+        all_annotation_ids = (
+            annotation_ids
+            | deterministic_annotation_ids
+        )
+        annotated_sentences = {
+            annotation.sentence
+            for annotation in output.annotations
+        } | deterministic_annotation_sentences
 
         for annotation in output.annotations:
             if annotation.sentence not in report_text:
@@ -851,6 +976,28 @@ def build_auditor_agent(settings: Settings) -> Agent:
                     f"Unknown annotation fact IDs: {sorted(unknown)}"
                 )
 
+            unknown_evidence = (
+                set(annotation.evidence_ids)
+                - valid_evidence_ids
+            )
+
+            if unknown_evidence:
+                raise ModelRetry(
+                    "Unknown annotation evidence IDs: "
+                    f"{sorted(unknown_evidence)}"
+                )
+
+            unknown_profile_support = (
+                set(annotation.profile_support_ids)
+                - valid_profile_support_ids
+            )
+
+            if unknown_profile_support:
+                raise ModelRetry(
+                    "Unknown annotation profile support IDs: "
+                    f"{sorted(unknown_profile_support)}"
+                )
+
         for repair in output.repairs:
             if repair.original_sentence not in report_text:
                 raise ModelRetry(
@@ -858,12 +1005,18 @@ def build_auditor_agent(settings: Settings) -> Agent:
                 )
 
             unknown_annotations = (
-                set(repair.annotation_ids) - annotation_ids
+                set(repair.annotation_ids)
+                - all_annotation_ids
             )
 
             if unknown_annotations:
                 raise ModelRetry(
                     "Repair references unknown annotation IDs."
+                )
+
+            if repair.original_sentence not in annotated_sentences:
+                raise ModelRetry(
+                    "A repair may target only a sentence with an annotation."
                 )
 
             for candidate in repair.candidates:
@@ -876,6 +1029,49 @@ def build_auditor_agent(settings: Settings) -> Agent:
                     raise ModelRetry(
                         f"Unknown repair fact IDs: {sorted(unknown)}"
                     )
+
+                unknown_evidence = (
+                    set(candidate.supporting_evidence_ids)
+                    - valid_evidence_ids
+                )
+
+                if unknown_evidence:
+                    raise ModelRetry(
+                        "Unknown repair evidence IDs: "
+                        f"{sorted(unknown_evidence)}"
+                    )
+
+        if output.recommended_decision == AuditDecision.BLOCK:
+            semantic_serious = any(
+                annotation.severity
+                in {
+                    Severity.HIGH,
+                    Severity.CRITICAL,
+                }
+                for annotation in output.annotations
+            )
+
+            if (
+                not semantic_serious
+                and not deterministic_serious_annotation_ids
+            ):
+                raise ModelRetry(
+                    "recommended_decision=BLOCK requires at least one "
+                    "high or critical deterministic or semantic annotation."
+                )
+
+        invalid_quality_findings = [
+            finding
+            for finding in output.quality_assessment.findings
+            if not valid_quality_finding(finding)
+        ]
+
+        if invalid_quality_findings:
+            raise ModelRetry(
+                "Quality findings must describe report defects, not plain "
+                "dataset observations: "
+                + "; ".join(invalid_quality_findings)
+            )
 
         return output
 

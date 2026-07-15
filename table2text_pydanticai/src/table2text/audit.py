@@ -17,6 +17,8 @@ from .schemas import (
     AuditRepairProposal,
     AuditReport,
     ClaimPermission,
+    ColumnProfile,
+    DataProfile,
     ErrorType,
     EvidenceItem,
     EvidenceLedger,
@@ -26,6 +28,7 @@ from .schemas import (
     FactLedger,
     FactReview,
     QualityStatus,
+    ProfileSupportRecord,
     RecommendedUse,
     RejectedFact,
     ReleaseStatus,
@@ -38,6 +41,7 @@ from .schemas import (
     ReviewDecision,
     SentenceSupport,
     Severity,
+    SupportMapPatch,
     SupportType,
     VerificationMethod,
     VerificationResult,
@@ -127,6 +131,99 @@ UNSANCTIONED_UNIT_TERMS = {
     "experiments",
     "subject",
     "subjects",
+}
+
+HOURLY_CADENCE_PATTERN = re.compile(
+    r"\b(hourly observations?|hourly measurements?|every hour|"
+    r"one-hour intervals?)\b",
+    re.IGNORECASE,
+)
+
+LOCATION_METADATA_PATTERN = re.compile(
+    r"\b(specific location|weather station|recorded at a location)\b",
+    re.IGNORECASE,
+)
+
+CONSTANT_OVERSTATEMENT_PATTERN = re.compile(
+    r"\b(no analytical value|useless|worthless|has no value)\b",
+    re.IGNORECASE,
+)
+
+ZERO_OVERCONFIDENCE_PATTERN = re.compile(
+    r"\b(likely represents encoded missingness|definitely represents|"
+    r"is measurement failure|must be erroneous)\b",
+    re.IGNORECASE,
+)
+
+MISSINGNESS_HARMLESS_PATTERN = re.compile(
+    r"\b(unlikely to cause major issues|can be safely ignored|"
+    r"will not affect the analysis|has no material effect)\b",
+    re.IGNORECASE,
+)
+
+DUPLICATE_REMOVAL_PATTERN = re.compile(
+    r"\b(duplicates?(?: rows?)? should be removed|"
+    r"duplicates?(?: rows?)? should likely be removed|"
+    r"likely removed|must be removed|automatically deduplicate)\b",
+    re.IGNORECASE,
+)
+
+PEARSON_IMPRECISE_PATTERN = re.compile(
+    r"\bpearson correlation\b[^.!?]{0,100}\b"
+    r"(?:is|may be)?\s*influenced by non-linear patterns\b",
+    re.IGNORECASE,
+)
+
+FUTURE_ANALYSIS_PATTERN = re.compile(
+    r"\b(future work should|next analyses should|could model|"
+    r"multivariate model|explore temporal trends|"
+    r"investigate the relationship)\b",
+    re.IGNORECASE,
+)
+
+PROFILE_FACT_KIND_TERMS = {
+    "table_dimensions": re.compile(
+        r"\b(rows?|columns?|observations?|records?)\b",
+        re.IGNORECASE,
+    ),
+    "duplicate_rows": re.compile(
+        r"\b(duplicate|duplicates|duplicate rows?)\b",
+        re.IGNORECASE,
+    ),
+    "column_missingness": re.compile(
+        r"\b(missing|missingness)\b",
+        re.IGNORECASE,
+    ),
+    "constant_column": re.compile(
+        r"\b(constant|all zeros?|no observed variation)\b",
+        re.IGNORECASE,
+    ),
+    "near_constant_column": re.compile(
+        r"\b(near-constant|near constant|dominant value)\b",
+        re.IGNORECASE,
+    ),
+    "numeric_summary": re.compile(
+        r"\b(mean|median|minimum|maximum|standard deviation)\b",
+        re.IGNORECASE,
+    ),
+    "zero_diagnostic": re.compile(
+        r"\b(zero|zeros|sentinel)\b",
+        re.IGNORECASE,
+    ),
+    "datetime_presence": re.compile(
+        r"\b(date|datetime|timestamp|time column)\b",
+        re.IGNORECASE,
+    ),
+    "candidate_key": re.compile(
+        r"\b(candidate key|unique identifier)\b",
+        re.IGNORECASE,
+    ),
+}
+
+QUALITY_STATUS_ORDER = {
+    QualityStatus.PASS: 0,
+    QualityStatus.WARNING: 1,
+    QualityStatus.REVISE: 2,
 }
 
 
@@ -385,8 +482,10 @@ def looks_factual(sentence: str) -> bool:
         extract_number_tokens(sentence)
         or re.search(
             r"\b(dataset|table|rows?|columns?|mean|median|correlation|"
-            r"model|forecast|missing|temperature|humidity|visibility|"
-            r"higher|lower|increase|decrease|associated|observed)\b",
+            r"model|forecast|missing|missingness|temperature|humidity|visibility|"
+            r"higher|lower|increase|decrease|associated|observed|"
+            r"duplicate|constant|zeros?|sentinel|timestamp|hourly|"
+            r"location|station|pearson|future work|next analyses)\b",
             sentence,
             re.IGNORECASE,
         )
@@ -462,6 +561,465 @@ def fact_support_text(
         )
 
     return " ".join(parts)
+
+
+def _normalise_entity_text(value: str) -> str:
+    return re.sub(
+        r"\s+",
+        " ",
+        value.replace("`", "").strip().lower(),
+    )
+
+
+def _entity_in_sentence(
+    entity: str,
+    sentence: str,
+) -> bool:
+    entity_text = _normalise_entity_text(entity)
+    sentence_text = _normalise_entity_text(sentence)
+
+    return bool(
+        entity_text
+        and re.search(
+            rf"(?<!\w){re.escape(entity_text)}(?!\w)",
+            sentence_text,
+        )
+    )
+
+
+def _profile_support_id(
+    *parts: str,
+) -> str:
+    return "PROFILE::" + "::".join(parts)
+
+
+def _profile_record(
+    *,
+    support_id: str,
+    fact_kind: str,
+    table_name: str,
+    column_name: str | None,
+    statement: str,
+    structured_values: dict[str, Any],
+    entities: list[str],
+    provenance: str,
+    claim_permissions: list[ClaimPermission] | None = None,
+) -> ProfileSupportRecord:
+    return ProfileSupportRecord(
+        support_id=support_id,
+        fact_kind=fact_kind,
+        table_name=table_name,
+        column_name=column_name,
+        statement=statement,
+        structured_values=structured_values,
+        entities=list(dict.fromkeys(entities)),
+        claim_permissions=(
+            claim_permissions
+            or [ClaimPermission.DESCRIPTIVE]
+        ),
+        provenance=provenance,
+    )
+
+
+def _column_numeric_summary_values(
+    column: ColumnProfile,
+) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in column.numeric_summary.items()
+        if isinstance(value, (int, float, np.integer, np.floating))
+        and math.isfinite(float(value))
+    }
+
+
+def build_profile_support_registry(
+    profile: DataProfile,
+) -> list[ProfileSupportRecord]:
+    records: list[ProfileSupportRecord] = []
+
+    for table in profile.tables:
+        records.append(
+            _profile_record(
+                support_id=_profile_support_id(
+                    table.table_name,
+                    "dimensions",
+                ),
+                fact_kind="table_dimensions",
+                table_name=table.table_name,
+                column_name=None,
+                statement=(
+                    f"Table `{table.table_name}` contains "
+                    f"{table.row_count:,} rows and "
+                    f"{table.column_count:,} columns."
+                ),
+                structured_values={
+                    "row_count": table.row_count,
+                    "column_count": table.column_count,
+                },
+                entities=[table.table_name],
+                provenance="deterministic_data_profile",
+            )
+        )
+
+        duplicate_rate = (
+            table.duplicate_row_count
+            / max(table.row_count, 1)
+        )
+        records.append(
+            _profile_record(
+                support_id=_profile_support_id(
+                    table.table_name,
+                    "duplicates",
+                ),
+                fact_kind="duplicate_rows",
+                table_name=table.table_name,
+                column_name=None,
+                statement=(
+                    f"Table `{table.table_name}` contains "
+                    f"{table.duplicate_row_count:,} exact duplicate rows "
+                    f"({duplicate_rate:.2%} of rows)."
+                ),
+                structured_values={
+                    "duplicate_row_count": table.duplicate_row_count,
+                    "duplicate_row_rate": duplicate_rate,
+                    "row_count": table.row_count,
+                },
+                entities=[table.table_name],
+                claim_permissions=[
+                    ClaimPermission.DESCRIPTIVE,
+                    ClaimPermission.METHODOLOGICAL,
+                ],
+                provenance="deterministic_data_profile",
+            )
+        )
+
+        for column in table.columns:
+            entities = [
+                table.table_name,
+                column.name,
+            ]
+            records.append(
+                _profile_record(
+                    support_id=_profile_support_id(
+                        table.table_name,
+                        column.name,
+                        "missingness",
+                    ),
+                    fact_kind="column_missingness",
+                    table_name=table.table_name,
+                    column_name=column.name,
+                    statement=(
+                        f"`{column.name}` has {column.missing_count:,} "
+                        f"missing values ({column.missing_rate:.2%} "
+                        "of rows)."
+                    ),
+                    structured_values={
+                        "missing_count": column.missing_count,
+                        "missing_rate": column.missing_rate,
+                        "row_count": table.row_count,
+                    },
+                    entities=entities,
+                    provenance="deterministic_data_profile",
+                )
+            )
+
+            if column.constant:
+                values = {
+                    "constant": True,
+                    "unique_count": column.unique_count,
+                    "sample_values": column.sample_values,
+                    **_column_numeric_summary_values(column),
+                }
+                records.append(
+                    _profile_record(
+                        support_id=_profile_support_id(
+                            table.table_name,
+                            column.name,
+                            "constant",
+                        ),
+                        fact_kind="constant_column",
+                        table_name=table.table_name,
+                        column_name=column.name,
+                        statement=(
+                            f"`{column.name}` contains no observed "
+                            "variation in the profiled data."
+                        ),
+                        structured_values=values,
+                        entities=entities,
+                        claim_permissions=[
+                            ClaimPermission.DESCRIPTIVE,
+                            ClaimPermission.METHODOLOGICAL,
+                        ],
+                        provenance="deterministic_data_profile",
+                    )
+                )
+
+            if column.near_constant:
+                records.append(
+                    _profile_record(
+                        support_id=_profile_support_id(
+                            table.table_name,
+                            column.name,
+                            "near_constant",
+                        ),
+                        fact_kind="near_constant_column",
+                        table_name=table.table_name,
+                        column_name=column.name,
+                        statement=(
+                            f"`{column.name}` is near-constant with a "
+                            "dominant observed value."
+                        ),
+                        structured_values={
+                            "near_constant": True,
+                            "dominant_value_rate": (
+                                column.dominant_value_rate
+                            ),
+                            "unique_count": column.unique_count,
+                        },
+                        entities=entities,
+                        claim_permissions=[
+                            ClaimPermission.DESCRIPTIVE,
+                            ClaimPermission.METHODOLOGICAL,
+                        ],
+                        provenance="deterministic_data_profile",
+                    )
+                )
+
+            if column.numeric_summary:
+                records.append(
+                    _profile_record(
+                        support_id=_profile_support_id(
+                            table.table_name,
+                            column.name,
+                            "numeric_summary",
+                        ),
+                        fact_kind="numeric_summary",
+                        table_name=table.table_name,
+                        column_name=column.name,
+                        statement=(
+                            f"`{column.name}` has deterministic numeric "
+                            "summary statistics in the profile."
+                        ),
+                        structured_values=_column_numeric_summary_values(
+                            column
+                        ),
+                        entities=entities,
+                        provenance="deterministic_data_profile",
+                    )
+                )
+
+            if (
+                column.suspicious_zero_values
+                or column.possible_sentinel_values
+                or column.zero_risk.value != "none"
+            ):
+                zero_values = {
+                    **_column_numeric_summary_values(column),
+                    "zero_risk": column.zero_risk.value,
+                    "zero_risk_reason": column.zero_risk_reason,
+                    "suspicious_zero_values": (
+                        column.suspicious_zero_values
+                    ),
+                    "possible_sentinel_values": (
+                        column.possible_sentinel_values
+                    ),
+                }
+                records.append(
+                    _profile_record(
+                        support_id=_profile_support_id(
+                            table.table_name,
+                            column.name,
+                            "zero_diagnostic",
+                        ),
+                        fact_kind="zero_diagnostic",
+                        table_name=table.table_name,
+                        column_name=column.name,
+                        statement=(
+                            f"`{column.name}` has deterministic zero-value "
+                            "diagnostics in the profile."
+                        ),
+                        structured_values=zero_values,
+                        entities=entities,
+                        claim_permissions=[
+                            ClaimPermission.DESCRIPTIVE,
+                            ClaimPermission.METHODOLOGICAL,
+                        ],
+                        provenance="deterministic_data_profile",
+                    )
+                )
+
+            if column.datetime_parse_rate > 0:
+                records.append(
+                    _profile_record(
+                        support_id=_profile_support_id(
+                            table.table_name,
+                            column.name,
+                            "datetime_presence",
+                        ),
+                        fact_kind="datetime_presence",
+                        table_name=table.table_name,
+                        column_name=column.name,
+                        statement=(
+                            f"`{column.name}` is date/time-like with "
+                            f"parse rate {column.datetime_parse_rate:.2%}."
+                        ),
+                        structured_values={
+                            "datetime_parse_rate": (
+                                column.datetime_parse_rate
+                            ),
+                            "row_count": table.row_count,
+                        },
+                        entities=entities,
+                        provenance="deterministic_data_profile",
+                    )
+                )
+
+            if column.candidate_key:
+                records.append(
+                    _profile_record(
+                        support_id=_profile_support_id(
+                            table.table_name,
+                            column.name,
+                            "candidate_key",
+                        ),
+                        fact_kind="candidate_key",
+                        table_name=table.table_name,
+                        column_name=column.name,
+                        statement=(
+                            f"`{column.name}` is a deterministic candidate "
+                            "key in the profile."
+                        ),
+                        structured_values={
+                            "candidate_key": True,
+                            "unique_count": column.unique_count,
+                            "row_count": table.row_count,
+                        },
+                        entities=entities,
+                        provenance="deterministic_data_profile",
+                    )
+                )
+
+    return records
+
+
+def profile_record_numbers(
+    record: ProfileSupportRecord,
+) -> list[float]:
+    return flatten_numbers(record.structured_values)
+
+
+def _profile_entity_aligned(
+    sentence: str,
+    record: ProfileSupportRecord,
+    records: list[ProfileSupportRecord],
+) -> bool:
+    if record.column_name is not None:
+        return _entity_in_sentence(
+            record.column_name,
+            sentence,
+        )
+
+    if _entity_in_sentence(record.table_name, sentence):
+        return True
+
+    table_count = len(
+        {
+            candidate.table_name
+            for candidate in records
+        }
+    )
+
+    return (
+        table_count == 1
+        and re.search(
+            r"\b(dataset|table|rows?|records?|observations?)\b",
+            sentence,
+            re.IGNORECASE,
+        )
+        is not None
+    )
+
+
+def _profile_fact_kind_aligned(
+    sentence: str,
+    record: ProfileSupportRecord,
+) -> bool:
+    pattern = PROFILE_FACT_KIND_TERMS.get(
+        record.fact_kind
+    )
+
+    return bool(pattern and pattern.search(sentence))
+
+
+def _profile_semantic_escalation(
+    sentence: str,
+) -> bool:
+    return bool(
+        HOURLY_CADENCE_PATTERN.search(sentence)
+        or LOCATION_METADATA_PATTERN.search(sentence)
+        or CONSTANT_OVERSTATEMENT_PATTERN.search(sentence)
+        or ZERO_OVERCONFIDENCE_PATTERN.search(sentence)
+        or MISSINGNESS_HARMLESS_PATTERN.search(sentence)
+        or DUPLICATE_REMOVAL_PATTERN.search(sentence)
+        or PEARSON_IMPRECISE_PATTERN.search(sentence)
+    )
+
+
+def matching_profile_support_records(
+    *,
+    sentence: str,
+    records: list[ProfileSupportRecord],
+) -> list[ProfileSupportRecord]:
+    if _profile_semantic_escalation(sentence):
+        return []
+
+    matches: list[ProfileSupportRecord] = []
+
+    for record in records:
+        if not _profile_entity_aligned(
+            sentence,
+            record,
+            records,
+        ):
+            continue
+
+        if not _profile_fact_kind_aligned(
+            sentence,
+            record,
+        ):
+            continue
+
+        if not numbers_supported(
+            sentence,
+            profile_record_numbers(record),
+        ):
+            continue
+
+        matches.append(record)
+
+    return matches
+
+
+def _profile_records_support_sentence(
+    *,
+    sentence: str,
+    support_ids: list[str],
+    records_by_id: dict[str, ProfileSupportRecord],
+) -> bool:
+    selected = [
+        records_by_id[support_id]
+        for support_id in support_ids
+        if support_id in records_by_id
+    ]
+    if not selected:
+        return False
+
+    return bool(
+        matching_profile_support_records(
+            sentence=sentence,
+            records=selected,
+        )
+    )
 
 
 def candidate_support(
@@ -794,6 +1352,7 @@ RECOVERABLE_MODELLING_LABELS = {
 
 RECOVERABLE_DATA_QUALITY_LABELS = {
     "constant_column",
+    "duplicate_rows",
     "possible_sentinel_zero",
     "possible_data_quality_issue",
     "material_missingness",
@@ -820,9 +1379,11 @@ def evidence_subtype(
             metrics.get("constant") is True
             or "missing_count" in metrics
             or "missing_rate" in metrics
+            or "duplicate_row_count" in metrics
             or label
             in {
                 "constant_column",
+                "duplicate_rows",
                 "possible_sentinel_zero",
                 "possible_data_quality_issue",
                 "material_missingness",
@@ -1993,6 +2554,76 @@ def validate_writer_output(
     return errors
 
 
+def apply_support_map_patches(
+    writer_output: WriterOutput,
+    patches: list[SupportMapPatch],
+    valid_profile_support_ids: set[str],
+) -> WriterOutput:
+    original_markdown = writer_output.markdown
+    support_map = [
+        support.model_copy()
+        for support in writer_output.sentence_support
+    ]
+    support_by_id = {
+        support.sentence_id: support
+        for support in support_map
+    }
+
+    for patch in patches:
+        unknown = [
+            support_id
+            for support_id in patch.added_profile_support_ids
+            if support_id not in valid_profile_support_ids
+        ]
+
+        if unknown:
+            raise ValueError(
+                "Support-map patch references unknown profile support "
+                f"IDs: {unknown}"
+            )
+
+        support = support_by_id.get(patch.sentence_id)
+
+        if support is None:
+            raise ValueError(
+                "Support-map patch references unknown sentence ID: "
+                f"{patch.sentence_id}"
+            )
+
+        if support.sentence_text != patch.sentence_text:
+            raise ValueError(
+                "Support-map patch sentence text does not exactly match "
+                "the hidden support entry."
+            )
+
+        merged_profile_ids = list(
+            dict.fromkeys(
+                [
+                    *support.profile_support_ids,
+                    *patch.added_profile_support_ids,
+                ]
+            )
+        )
+
+        replacement = support.model_copy(
+            update={
+                "profile_support_ids": merged_profile_ids
+            }
+        )
+        support_index = support_map.index(support)
+        support_map[support_index] = replacement
+        support_by_id[patch.sentence_id] = replacement
+
+    patched = writer_output.model_copy(
+        update={
+            "sentence_support": support_map
+        }
+    )
+
+    assert patched.markdown == original_markdown
+    return patched
+
+
 def materialise_writer_output(
     draft: WriterAgentDraft,
     fact_ledger: FactLedger,
@@ -2824,6 +3455,7 @@ def add_annotation(
     correction_goal: str,
     fact_ids: list[str] | None = None,
     evidence_ids: list[str] | None = None,
+    profile_support_ids: list[str] | None = None,
     confidence: float = 1.0,
 ) -> None:
     key = (
@@ -2857,6 +3489,7 @@ def add_annotation(
             correction_goal=correction_goal,
             fact_ids=fact_ids or [],
             evidence_ids=evidence_ids or [],
+            profile_support_ids=profile_support_ids or [],
             confidence=confidence,
         )
     )
@@ -2895,6 +3528,272 @@ def negative_forecast(sentence: str) -> bool:
     )
 
 
+def _support_text_for_facts(
+    facts: list[VerifiedFact],
+    evidence: EvidenceLedger,
+) -> str:
+    return " ".join(
+        fact_support_text(fact, evidence)
+        for fact in facts
+    ).lower()
+
+
+def _mapped_facts_semantically_support_profile_match(
+    *,
+    support_text: str,
+    matches: list[ProfileSupportRecord],
+) -> bool:
+    for record in matches:
+        pattern = PROFILE_FACT_KIND_TERMS.get(
+            record.fact_kind
+        )
+        if (
+            pattern is not None
+            and pattern.search(support_text)
+        ):
+            return True
+
+    return False
+
+
+def _recommendation_supported_by_evidence(
+    sentence: str,
+    facts: list[VerifiedFact],
+    evidence_lookup_by_id: dict[str, EvidenceItem],
+) -> bool:
+    sentence_text = sentence.lower()
+
+    for fact in facts:
+        for item in evidence_for_fact(
+            fact,
+            evidence_lookup_by_id,
+        ):
+            for recommendation in item.recommendations:
+                action = recommendation.action.lower()
+                if action and (
+                    action in sentence_text
+                    or sentence_text in action
+                ):
+                    return True
+
+    return False
+
+
+def add_wording_guardrail_annotations(
+    *,
+    annotations: list[AuditAnnotation],
+    sentence: str,
+    support: SentenceSupport,
+    supporting_facts: list[VerifiedFact],
+    evidence: EvidenceLedger,
+    report_specification: Any,
+) -> None:
+    support_text = _support_text_for_facts(
+        supporting_facts,
+        evidence,
+    )
+    evidence_lookup_by_id = build_evidence_lookup(evidence)
+    request_text = (
+        getattr(
+            report_specification,
+            "report_purpose",
+            "",
+        )
+        or ""
+    ).lower()
+
+    hourly_match = HOURLY_CADENCE_PATTERN.search(sentence)
+    if hourly_match and not HOURLY_CADENCE_PATTERN.search(support_text):
+        add_annotation(
+            annotations,
+            sentence=sentence,
+            text_span=hourly_match.group(0),
+            error_type=ErrorType.CONTEXT_ERROR,
+            subtype="unsupported_temporal_cadence",
+            severity=Severity.HIGH,
+            explanation=(
+                "A date/time-like field or parse rate does not establish "
+                "regular hourly spacing."
+            ),
+            correction_goal=(
+                "Use neutral wording such as timestamped weather observations."
+            ),
+            fact_ids=support.fact_ids,
+            evidence_ids=support.evidence_ids,
+            profile_support_ids=support.profile_support_ids,
+        )
+
+    location_match = LOCATION_METADATA_PATTERN.search(sentence)
+    if location_match and not LOCATION_METADATA_PATTERN.search(support_text):
+        add_annotation(
+            annotations,
+            sentence=sentence,
+            text_span=location_match.group(0),
+            error_type=ErrorType.CONTEXT_ERROR,
+            subtype="unsupported_location_metadata",
+            severity=Severity.HIGH,
+            explanation=(
+                "The supplied facts do not establish collection at a "
+                "specific location or weather station."
+            ),
+            correction_goal="Remove unsupported location metadata.",
+            fact_ids=support.fact_ids,
+            evidence_ids=support.evidence_ids,
+            profile_support_ids=support.profile_support_ids,
+        )
+
+    constant_match = CONSTANT_OVERSTATEMENT_PATTERN.search(sentence)
+    if constant_match:
+        add_annotation(
+            annotations,
+            sentence=sentence,
+            text_span=constant_match.group(0),
+            error_type=ErrorType.CONTEXT_ERROR,
+            subtype="overbroad_constant_interpretation",
+            severity=Severity.HIGH,
+            explanation=(
+                "A constant field should not be described as universally "
+                "worthless or valueless."
+            ),
+            correction_goal=(
+                "Say it contains no observed variation for analyses that "
+                "depend on variation."
+            ),
+            fact_ids=support.fact_ids,
+            evidence_ids=support.evidence_ids,
+            profile_support_ids=support.profile_support_ids,
+        )
+
+    zero_match = ZERO_OVERCONFIDENCE_PATTERN.search(sentence)
+    if zero_match:
+        add_annotation(
+            annotations,
+            sentence=sentence,
+            text_span=zero_match.group(0),
+            error_type=ErrorType.CONTEXT_ERROR,
+            subtype="overconfident_zero_interpretation",
+            severity=Severity.HIGH,
+            explanation=(
+                "Suspicious zero diagnostics do not establish what the zero "
+                "values actually mean."
+            ),
+            correction_goal=(
+                "Use cautious wording such as may represent encoded "
+                "missingness or measurement failure and should be validated."
+            ),
+            fact_ids=support.fact_ids,
+            evidence_ids=support.evidence_ids,
+            profile_support_ids=support.profile_support_ids,
+        )
+
+    missingness_match = MISSINGNESS_HARMLESS_PATTERN.search(sentence)
+    if missingness_match:
+        add_annotation(
+            annotations,
+            sentence=sentence,
+            text_span=missingness_match.group(0),
+            error_type=ErrorType.CONTEXT_ERROR,
+            subtype="unsupported_missingness_impact",
+            severity=Severity.HIGH,
+            explanation=(
+                "A missingness rate alone does not establish that the "
+                "missingness is harmless."
+            ),
+            correction_goal=(
+                "Report the rate and recommend examining the missingness "
+                "pattern."
+            ),
+            fact_ids=support.fact_ids,
+            evidence_ids=support.evidence_ids,
+            profile_support_ids=support.profile_support_ids,
+        )
+
+    duplicate_match = DUPLICATE_REMOVAL_PATTERN.search(sentence)
+    if duplicate_match:
+        add_annotation(
+            annotations,
+            sentence=sentence,
+            text_span=duplicate_match.group(0),
+            error_type=ErrorType.CONTEXT_ERROR,
+            subtype="unsupported_duplicate_removal",
+            severity=Severity.HIGH,
+            explanation=(
+                "Exact duplicate rows may be valid repeated observations or "
+                "unintended duplicates."
+            ),
+            correction_goal=(
+                "Say duplicate rows should be reviewed before any decision "
+                "to remove them."
+            ),
+            fact_ids=support.fact_ids,
+            evidence_ids=support.evidence_ids,
+            profile_support_ids=support.profile_support_ids,
+        )
+
+    pearson_match = PEARSON_IMPRECISE_PATTERN.search(sentence)
+    if pearson_match:
+        add_annotation(
+            annotations,
+            sentence=sentence,
+            text_span=pearson_match.group(0),
+            error_type=ErrorType.CONTEXT_ERROR,
+            subtype="imprecise_pearson_limitation",
+            severity=Severity.MEDIUM,
+            explanation=(
+                "Pearson correlation may not capture non-linear relationships; "
+                "it is not literally influenced by a pattern it does not measure."
+            ),
+            correction_goal=(
+                "Say Pearson correlation may not capture non-linear "
+                "relationships and can be sensitive to influential observations."
+            ),
+            fact_ids=support.fact_ids,
+            evidence_ids=support.evidence_ids,
+            profile_support_ids=support.profile_support_ids,
+            confidence=0.9,
+        )
+
+    future_match = FUTURE_ANALYSIS_PATTERN.search(sentence)
+    if future_match:
+        requested = bool(
+            re.search(
+                r"\b(model|modelling|modeling|temporal|trend|future|"
+                r"relationship|multivariate)\b",
+                request_text,
+            )
+        )
+        supported_recommendation = (
+            _recommendation_supported_by_evidence(
+                sentence,
+                supporting_facts,
+                evidence_lookup_by_id,
+            )
+        )
+
+        if not requested and not supported_recommendation:
+            add_annotation(
+                annotations,
+                sentence=sentence,
+                text_span=future_match.group(0),
+                error_type=ErrorType.CONTEXT_ERROR,
+                subtype="unsupported_analytical_recommendation",
+                severity=Severity.MEDIUM,
+                explanation=(
+                    "Reader-facing next steps must come from supplied "
+                    "recommendations, verified methodological facts, or the "
+                    "explicit user request."
+                ),
+                correction_goal=(
+                    "Remove the unsupported recommendation or ground it in a "
+                    "supplied analytical recommendation."
+                ),
+                fact_ids=support.fact_ids,
+                evidence_ids=support.evidence_ids,
+                profile_support_ids=support.profile_support_ids,
+                confidence=0.9,
+            )
+
+
 def deterministic_audit(
     writer_output: WriterOutput,
     fact_ledger: FactLedger,
@@ -2904,8 +3803,16 @@ def deterministic_audit(
     revision_round: int,
     report_specification: Any,
     settings: Settings | None = None,
+    profile_support_records: list[
+        ProfileSupportRecord
+    ] | None = None,
 ) -> AuditReport:
     settings = settings or Settings()
+    profile_support_records = profile_support_records or []
+    profile_records_by_id = {
+        record.support_id: record
+        for record in profile_support_records
+    }
     facts = {
         fact.fact_id: fact
         for fact in fact_ledger.writer_ready_facts
@@ -2917,6 +3824,7 @@ def deterministic_audit(
     }
 
     annotations: list[AuditAnnotation] = []
+    support_map_patches: list[SupportMapPatch] = []
     sentences = split_markdown_sentences(writer_output.markdown)
     evidence_lookup_by_id = build_evidence_lookup(evidence)
 
@@ -2976,28 +3884,172 @@ def deterministic_audit(
             for fact_id in support.fact_ids
         ]
 
-        support_numbers = [
+        unknown_profile_ids = [
+            support_id
+            for support_id in support.profile_support_ids
+            if support_id not in profile_records_by_id
+        ]
+
+        if unknown_profile_ids:
+            add_annotation(
+                annotations,
+                sentence=sentence,
+                text_span=sentence,
+                error_type=ErrorType.NOT_CHECKABLE,
+                subtype="unknown_profile_support_id",
+                severity=Severity.HIGH,
+                explanation=(
+                    "The support map references deterministic profile support "
+                    "not present in the profile registry."
+                ),
+                correction_goal="Use valid deterministic profile support IDs.",
+                fact_ids=support.fact_ids,
+                evidence_ids=support.evidence_ids,
+                profile_support_ids=unknown_profile_ids,
+            )
+            continue
+
+        attached_profile_supports = _profile_records_support_sentence(
+            sentence=sentence,
+            support_ids=support.profile_support_ids,
+            records_by_id=profile_records_by_id,
+        )
+
+        fact_numbers = [
             number
             for fact in supporting_facts
             for number in fact_support_numbers(fact, evidence)
         ]
 
-        if not numbers_supported(sentence, support_numbers):
+        attached_profile_numbers = [
+            number
+            for support_id in support.profile_support_ids
+            if support_id in profile_records_by_id
+            for number in profile_record_numbers(
+                profile_records_by_id[support_id]
+            )
+        ]
+
+        combined_numbers = [
+            *fact_numbers,
+            *(
+                attached_profile_numbers
+                if attached_profile_supports
+                else []
+            ),
+        ]
+
+        profile_matches = matching_profile_support_records(
+            sentence=sentence,
+            records=profile_support_records,
+        )
+
+        if not numbers_supported(sentence, combined_numbers):
+            if profile_matches:
+                matched_ids = [
+                    record.support_id
+                    for record in profile_matches
+                ]
+                add_annotation(
+                    annotations,
+                    sentence=sentence,
+                    text_span=sentence,
+                    error_type=ErrorType.SUPPORT_MAPPING_ERROR,
+                    subtype=(
+                        "deterministic_profile_support_missing_from_map"
+                    ),
+                    severity=Severity.MEDIUM,
+                    explanation=(
+                        "The visible statement is supported by deterministic "
+                        "profile data, but that support is missing from the "
+                        "hidden sentence support map."
+                    ),
+                    correction_goal=(
+                        "Attach the relevant deterministic profile support "
+                        "IDs to the hidden sentence support map."
+                    ),
+                    fact_ids=support.fact_ids,
+                    evidence_ids=support.evidence_ids,
+                    profile_support_ids=matched_ids,
+                    confidence=1.0,
+                )
+                support_map_patches.append(
+                    SupportMapPatch(
+                        sentence_id=support.sentence_id,
+                        sentence_text=support.sentence_text,
+                        added_profile_support_ids=matched_ids,
+                        reason=(
+                            "Deterministic profile data exactly supports "
+                            "the visible structural statement."
+                        ),
+                    )
+                )
+            else:
+                add_annotation(
+                    annotations,
+                    sentence=sentence,
+                    text_span=sentence,
+                    error_type=ErrorType.INCORRECT_NUMBER,
+                    subtype="unsupported_number",
+                    severity=Severity.HIGH,
+                    explanation=(
+                        "One or more numbers are not supported by the mapped "
+                        "verified facts or deterministic profile support."
+                    ),
+                    correction_goal=(
+                        "Use a supported exact or appropriately qualified "
+                        "rounded value."
+                    ),
+                    fact_ids=support.fact_ids,
+                    evidence_ids=support.evidence_ids,
+                    profile_support_ids=support.profile_support_ids,
+                )
+        elif (
+            profile_matches
+            and not attached_profile_supports
+            and not _mapped_facts_semantically_support_profile_match(
+                support_text=_support_text_for_facts(
+                    supporting_facts,
+                    evidence,
+                ),
+                matches=profile_matches,
+            )
+        ):
+            matched_ids = [
+                record.support_id
+                for record in profile_matches
+            ]
             add_annotation(
                 annotations,
                 sentence=sentence,
                 text_span=sentence,
-                error_type=ErrorType.INCORRECT_NUMBER,
-                subtype="unsupported_number",
-                severity=Severity.HIGH,
+                error_type=ErrorType.SUPPORT_MAPPING_ERROR,
+                subtype="deterministic_profile_support_missing_from_map",
+                severity=Severity.MEDIUM,
                 explanation=(
-                    "One or more numbers are not supported by the mapped verified facts."
+                    "The visible structural statement is supported by "
+                    "deterministic profile data, but the mapped verified facts "
+                    "do not provide that provenance."
                 ),
                 correction_goal=(
-                    "Use a supported exact or appropriately qualified rounded value."
+                    "Attach the relevant deterministic profile support IDs "
+                    "to the hidden sentence support map."
                 ),
                 fact_ids=support.fact_ids,
                 evidence_ids=support.evidence_ids,
+                profile_support_ids=matched_ids,
+                confidence=1.0,
+            )
+            support_map_patches.append(
+                SupportMapPatch(
+                    sentence_id=support.sentence_id,
+                    sentence_text=support.sentence_text,
+                    added_profile_support_ids=matched_ids,
+                    reason=(
+                        "Deterministic profile data exactly supports the "
+                        "visible structural statement."
+                    ),
+                )
             )
 
         permissions = {
@@ -3121,11 +4173,28 @@ def deterministic_audit(
                 evidence_ids=support.evidence_ids,
             )
 
+        add_wording_guardrail_annotations(
+            annotations=annotations,
+            sentence=sentence,
+            support=support,
+            supporting_facts=supporting_facts,
+            evidence=evidence,
+            report_specification=report_specification,
+        )
+
         known_entities = {
             entity
             for fact in supporting_facts
             for entity in fact.entities
         }
+        known_entities.update(
+            entity
+            for support_id in support.profile_support_ids
+            if support_id in profile_records_by_id
+            for entity in profile_records_by_id[
+                support_id
+            ].entities
+        )
 
         for backtick_entity in re.findall(r"`([^`]+)`", sentence):
             if backtick_entity not in known_entities:
@@ -3258,7 +4327,8 @@ def deterministic_audit(
             + "."
         )
         quality_recommendations.append(
-            "Use the unit of observation supplied by dataset understanding or verified facts."
+            "Use neutral unit wording unless verified facts or deterministic "
+            "profile support establish a more specific unit."
         )
 
     for annotation in annotations:
@@ -3318,6 +4388,7 @@ def deterministic_audit(
         release_status=release_status,
         annotations=annotations,
         applied_patches=[],
+        support_map_patches=support_map_patches,
         factual_sentence_count=factual_count,
         supported_sentence_count=supported_count,
         support_rate=(
@@ -3346,6 +4417,64 @@ def deterministic_audit(
     )
 
 
+def _ordered_dedupe(
+    values: list[str],
+) -> list[str]:
+    return list(
+        dict.fromkeys(
+            value
+            for value in values
+            if value
+        )
+    )
+
+
+def merge_quality_assessments(
+    deterministic: ReportQualityAssessment,
+    semantic: ReportQualityAssessment,
+) -> ReportQualityAssessment:
+    status = max(
+        [deterministic.status, semantic.status],
+        key=lambda item: QUALITY_STATUS_ORDER[item],
+    )
+
+    return ReportQualityAssessment(
+        status=status,
+        request_responsiveness=min(
+            deterministic.request_responsiveness,
+            semantic.request_responsiveness,
+        ),
+        finding_selection=min(
+            deterministic.finding_selection,
+            semantic.finding_selection,
+        ),
+        coherence=min(
+            deterministic.coherence,
+            semantic.coherence,
+        ),
+        concision=min(
+            deterministic.concision,
+            semantic.concision,
+        ),
+        caveat_integration=min(
+            deterministic.caveat_integration,
+            semantic.caveat_integration,
+        ),
+        data_science_interpretation=min(
+            deterministic.data_science_interpretation,
+            semantic.data_science_interpretation,
+        ),
+        findings=_ordered_dedupe(
+            deterministic.findings
+            + semantic.findings
+        ),
+        recommendations=_ordered_dedupe(
+            deterministic.recommendations
+            + semantic.recommendations
+        ),
+    )
+
+
 def merge_audit_proposal(
     deterministic: AuditReport,
     proposal: AuditRepairProposal,
@@ -3371,6 +4500,11 @@ def merge_audit_proposal(
             )
         )
 
+    merged_quality = merge_quality_assessments(
+        deterministic.quality_assessment,
+        proposal.quality_assessment,
+    )
+
     serious = any(
         annotation.severity in {
             Severity.HIGH,
@@ -3388,7 +4522,7 @@ def merge_audit_proposal(
 
     release_status = decide_release_status(
         annotations=annotations,
-        quality=proposal.quality_assessment,
+        quality=merged_quality,
         methodological_warnings=deterministic.methodological_warnings,
         repair_budget_exhausted=False,
         audit_mode=deterministic.mode,
@@ -3400,15 +4534,22 @@ def merge_audit_proposal(
             "annotations": annotations,
             "decision": decision,
             "release_status": release_status,
-            "residual_risk": proposal.residual_risk,
-            "revision_instructions": list(
-                dict.fromkeys(
-                    deterministic.revision_instructions
-                    + proposal.revision_instructions
+            "residual_risk": " ".join(
+                _ordered_dedupe(
+                    [
+                        deterministic.residual_risk,
+                        proposal.residual_risk,
+                    ]
                 )
             ),
-            "quality_assessment": proposal.quality_assessment,
+            "revision_instructions": _ordered_dedupe(
+                deterministic.revision_instructions
+                + proposal.revision_instructions
+            ),
+            "quality_assessment": merged_quality,
             "methodological_warnings": deterministic.methodological_warnings,
+            "component_assessments": deterministic.component_assessments,
+            "support_map_patches": deterministic.support_map_patches,
         }
     )
 

@@ -65,6 +65,7 @@ class ErrorType(str, Enum):
     INCORRECT_NUMBER = "incorrect_number"
     INCORRECT_WORD = "incorrect_word"
     CONTEXT_ERROR = "context_error"
+    SUPPORT_MAPPING_ERROR = "support_mapping_error"
     NOT_CHECKABLE = "not_checkable"
     OTHER = "other"
 
@@ -452,6 +453,26 @@ class WriterEvidencePack(StrictModel):
     internal_prohibited_interpretations: list[str] = Field(default_factory=list)
 
 
+class ProfileSupportRecord(StrictModel):
+    support_id: str
+    fact_kind: str
+
+    table_name: str
+    column_name: str | None = None
+
+    statement: str
+    structured_values: dict[str, Any] = Field(default_factory=dict)
+    entities: list[str] = Field(default_factory=list)
+
+    claim_permissions: list[ClaimPermission] = Field(
+        default_factory=lambda: [
+            ClaimPermission.DESCRIPTIVE
+        ]
+    )
+
+    provenance: str
+
+
 class ReportComponentAssessment(StrictModel):
     component: ReportComponent
     covered: bool
@@ -465,6 +486,7 @@ class SentenceSupport(StrictModel):
 
     fact_ids: list[str] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
+    profile_support_ids: list[str] = Field(default_factory=list)
 
     support_type: SupportType
 
@@ -558,6 +580,7 @@ class AuditAnnotation(StrictModel):
     fact_ids: list[str] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
     external_fact_ids: list[str] = Field(default_factory=list)
+    profile_support_ids: list[str] = Field(default_factory=list)
 
     confidence: float = Field(ge=0.0, le=1.0)
 
@@ -620,6 +643,13 @@ class ReportPatch(StrictModel):
     selected_repair_id: str
 
 
+class SupportMapPatch(StrictModel):
+    sentence_id: str
+    sentence_text: str
+    added_profile_support_ids: list[str]
+    reason: str
+
+
 class AuditReport(StrictModel):
     mode: AuditMode
     decision: AuditDecision
@@ -627,6 +657,7 @@ class AuditReport(StrictModel):
 
     annotations: list[AuditAnnotation] = Field(default_factory=list)
     applied_patches: list[ReportPatch] = Field(default_factory=list)
+    support_map_patches: list[SupportMapPatch] = Field(default_factory=list)
 
     factual_sentence_count: int
     supported_sentence_count: int

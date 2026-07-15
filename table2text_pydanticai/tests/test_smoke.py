@@ -9,30 +9,38 @@ from table2text import Settings, Table2TextWorkflow
 from table2text.analytics import execute_plan
 from table2text.audit import (
     apply_repair_proposal,
+    apply_support_map_patches,
+    build_profile_support_registry,
     build_writer_evidence_pack,
     decide_release_status,
     deterministic_audit,
     fallback_writer,
     materialise_writer_output,
+    merge_quality_assessments,
     merge_audit_proposal,
     validate_repair_candidate,
     validate_writer_output,
 )
+from table2text.workflow import build_compact_writer_payload
 from table2text.data import load_data, profile_data
 from table2text.schemas import (
     AnalysisRoute,
+    AnalyticalRecommendation,
     AuditAnnotation,
     AuditDecision,
     AuditMode,
     AuditRepairProposal,
     AuditReport,
     ClaimPermission,
+    ColumnProfile,
     DataUnderstanding,
+    DataProfile,
     ErrorType,
     EvidenceItem,
     EvidenceLedger,
     ExecutionPlan,
     FactLedger,
+    InvestigationTask,
     QualityStatus,
     RecommendedUse,
     ReleaseStatus,
@@ -45,6 +53,8 @@ from table2text.schemas import (
     SentenceSupport,
     Severity,
     SupportType,
+    TableProfile,
+    TableUnderstanding,
     TargetStatus,
     ValidationStrategy,
     VerifiedFact,
@@ -56,6 +66,7 @@ from table2text.schemas import (
 )
 from table2text.agents import (
     fallback_execution_plan,
+    valid_quality_finding,
 )
 
 
@@ -577,6 +588,10 @@ def test_full_workflow_without_llm(tmp_path):
     assert (run_directory / "09_writer_raw_report.md").exists()
     assert (run_directory / "final_report.md").exists()
     assert (run_directory / "final_result.json").exists()
+    assert (
+        run_directory
+        / "02_profile_support_registry.json"
+    ).exists()
 
     assert result.release_status in {
         ReleaseStatus.APPROVED,
@@ -1561,3 +1576,533 @@ def test_recovered_balanced_fallback_is_not_two_sentence_report():
         == "deterministic_fallback"
     )
     assert not output.eligible_for_primary_evaluation
+
+
+# ============================================================
+# PROFILE-SUPPORT AND AUDIT-AUTHORITY REGRESSION TESTS
+# ============================================================
+
+
+def _profile_authority_fixture() -> DataProfile:
+    return DataProfile(
+        fingerprint="profile-authority",
+        source_paths=["memory.csv"],
+        tables=[
+            TableProfile(
+                table_name="weather",
+                source_path="memory.csv",
+                row_count=4,
+                column_count=4,
+                duplicate_row_count=1,
+                candidate_keys=["Timestamp"],
+                columns=[
+                    ColumnProfile(
+                        name="Timestamp",
+                        dtype="object",
+                        semantic_type="datetime",
+                        missing_count=0,
+                        missing_rate=0.0,
+                        unique_count=4,
+                        sample_values=[
+                            "2020-01-01 00:00",
+                            "2020-01-01 01:00",
+                        ],
+                        datetime_parse_rate=1.0,
+                        candidate_key=True,
+                    ),
+                    ColumnProfile(
+                        name="Constant",
+                        dtype="int64",
+                        semantic_type="numeric",
+                        missing_count=0,
+                        missing_rate=0.0,
+                        unique_count=1,
+                        sample_values=["0"],
+                        numeric_summary={
+                            "count": 4,
+                            "mean": 0.0,
+                            "minimum": 0.0,
+                            "maximum": 0.0,
+                        },
+                        constant=True,
+                    ),
+                    ColumnProfile(
+                        name="Pressure",
+                        dtype="float64",
+                        semantic_type="numeric",
+                        missing_count=0,
+                        missing_rate=0.0,
+                        unique_count=3,
+                        numeric_summary={
+                            "count": 4,
+                            "mean": 750.0,
+                            "median": 1000.0,
+                            "minimum": 0.0,
+                            "maximum": 1010.0,
+                            "zero_count": 1,
+                            "zero_rate": 0.25,
+                        },
+                        suspicious_zero_values=True,
+                        possible_sentinel_values=True,
+                        zero_risk=ZeroRisk.POSSIBLE_SENTINEL,
+                        zero_risk_reason=(
+                            "Zero is separated from positive pressure values."
+                        ),
+                    ),
+                    ColumnProfile(
+                        name="Precip Type",
+                        dtype="object",
+                        semantic_type="categorical",
+                        missing_count=1,
+                        missing_rate=0.25,
+                        unique_count=2,
+                    ),
+                ],
+            )
+        ],
+    )
+
+
+def _basic_spec() -> ReportSpecification:
+    return ReportSpecification(
+        report_purpose="Understand the dataset.",
+        target_length_words=300,
+        maximum_main_findings=5,
+        prioritisation_rule="Use supported facts.",
+    )
+
+
+def _audit_sentence(
+    sentence: str,
+    *,
+    support: SentenceSupport | None = None,
+    profile_records=None,
+    ledger: FactLedger | None = None,
+    evidence: EvidenceLedger | None = None,
+):
+    ledger = ledger or make_fact_fixture()[0]
+    evidence = evidence or make_fact_fixture()[1]
+    support = support or SentenceSupport(
+        sentence_id="SENT_0001",
+        sentence_text=sentence,
+        fact_ids=["FACT_0001"],
+        evidence_ids=["EVD_0001"],
+        support_type=SupportType.PARAPHRASE,
+    )
+    output = WriterOutput(
+        title="Audit",
+        markdown=f"# Audit\n\n{sentence}\n",
+        sentence_support=[support],
+        selected_fact_ids=support.fact_ids,
+    )
+    return deterministic_audit(
+        output,
+        ledger,
+        evidence,
+        AuditMode.INTERNAL,
+        [],
+        0,
+        _basic_spec(),
+        Settings(),
+        profile_support_records=profile_records or [],
+    ), output
+
+
+def test_profile_support_registry_contains_structural_records():
+    records = build_profile_support_registry(
+        _profile_authority_fixture()
+    )
+    by_kind = {record.fact_kind for record in records}
+
+    assert "table_dimensions" in by_kind
+    assert "duplicate_rows" in by_kind
+    assert "constant_column" in by_kind
+    assert "column_missingness" in by_kind
+    assert "numeric_summary" in by_kind
+    assert "zero_diagnostic" in by_kind
+    assert "datetime_presence" in by_kind
+    assert "candidate_key" in by_kind
+
+
+def test_execute_plan_emits_duplicate_row_evidence(tmp_path):
+    path = tmp_path / "dupes.csv"
+    pd.DataFrame(
+        {
+            "a": [1, 1, 2],
+            "b": ["x", "x", "y"],
+        }
+    ).to_csv(path, index=False)
+    bundle = load_data([path])
+    plan = ExecutionPlan(
+        objective="Describe duplicates.",
+        tasks=[
+            InvestigationTask(
+                task_id="TASK_DUP",
+                question="Check duplicate rows.",
+                route=AnalysisRoute.DESCRIPTIVE,
+                priority=1,
+                table_name="dupes",
+                claim_permissions=[
+                    ClaimPermission.DESCRIPTIVE
+                ],
+                answerability_note="Deterministic profile.",
+            )
+        ],
+        route_order=[AnalysisRoute.DESCRIPTIVE],
+        report_specification=_basic_spec(),
+        audit_mode=AuditMode.INTERNAL,
+        revision_limit=1,
+        maximum_facts=20,
+        rationale="Test.",
+    )
+
+    evidence = execute_plan(bundle, plan, Settings())
+    duplicate_items = [
+        item
+        for item in evidence.items
+        if item.strength_label == "duplicate_rows"
+    ]
+
+    assert len(duplicate_items) == 1
+    assert (
+        duplicate_items[0]
+        .metrics["duplicate_row_count"]
+        == 1
+    )
+
+
+def test_profile_supported_unmapped_number_creates_hidden_patch():
+    records = build_profile_support_registry(
+        _profile_authority_fixture()
+    )
+    sentence = "The dataset contains 1 exact duplicate row."
+    audit, output = _audit_sentence(
+        sentence,
+        profile_records=records,
+    )
+
+    assert any(
+        annotation.error_type
+        == ErrorType.SUPPORT_MAPPING_ERROR
+        and annotation.severity == Severity.MEDIUM
+        for annotation in audit.annotations
+    )
+    assert not any(
+        annotation.subtype == "unsupported_number"
+        and annotation.severity == Severity.HIGH
+        for annotation in audit.annotations
+    )
+    assert audit.support_map_patches
+
+    patched = apply_support_map_patches(
+        output,
+        audit.support_map_patches,
+        {record.support_id for record in records},
+    )
+
+    assert patched.markdown == output.markdown
+    assert (
+        patched.sentence_support[0].sentence_text
+        == sentence
+    )
+    assert patched.sentence_support[0].profile_support_ids
+
+    post_audit = deterministic_audit(
+        patched,
+        make_fact_fixture()[0],
+        make_fact_fixture()[1],
+        AuditMode.INTERNAL,
+        [],
+        0,
+        _basic_spec(),
+        Settings(),
+        profile_support_records=records,
+    )
+
+    assert not any(
+        annotation.error_type
+        == ErrorType.SUPPORT_MAPPING_ERROR
+        for annotation in post_audit.annotations
+    )
+
+
+def test_wrong_profile_number_remains_high_error():
+    records = build_profile_support_registry(
+        _profile_authority_fixture()
+    )
+    audit, _ = _audit_sentence(
+        "The dataset contains 2 exact duplicate rows.",
+        profile_records=records,
+    )
+
+    assert not audit.support_map_patches
+    assert any(
+        annotation.subtype == "unsupported_number"
+        and annotation.severity == Severity.HIGH
+        for annotation in audit.annotations
+    )
+
+
+def test_data_understanding_is_not_factual_authority_for_metadata():
+    audit, _ = _audit_sentence(
+        "The dataset contains hourly observations at a specific location."
+    )
+
+    subtypes = {
+        annotation.subtype
+        for annotation in audit.annotations
+    }
+    assert "unsupported_temporal_cadence" in subtypes
+    assert "unsupported_location_metadata" in subtypes
+
+
+def test_datetime_parse_rate_does_not_prove_hourly_cadence():
+    records = build_profile_support_registry(
+        _profile_authority_fixture()
+    )
+    audit, _ = _audit_sentence(
+        "The dataset contains hourly observations.",
+        profile_records=records,
+    )
+
+    assert any(
+        annotation.subtype
+        == "unsupported_temporal_cadence"
+        for annotation in audit.annotations
+    )
+
+
+def test_wording_guardrails_for_constant_zero_missing_duplicate_and_pearson():
+    examples = {
+        "The Constant column provides no analytical value.": (
+            "overbroad_constant_interpretation"
+        ),
+        "Pressure zeros likely represents encoded missingness.": (
+            "overconfident_zero_interpretation"
+        ),
+        "The missingness is unlikely to cause major issues.": (
+            "unsupported_missingness_impact"
+        ),
+        "Duplicate rows should likely be removed.": (
+            "unsupported_duplicate_removal"
+        ),
+        "Pearson correlation may be influenced by non-linear patterns.": (
+            "imprecise_pearson_limitation"
+        ),
+    }
+
+    for sentence, subtype in examples.items():
+        audit, _ = _audit_sentence(sentence)
+        assert any(
+            annotation.subtype == subtype
+            for annotation in audit.annotations
+        )
+
+
+def test_safe_profile_supported_wording_is_allowed_after_hidden_patch():
+    records = build_profile_support_registry(
+        _profile_authority_fixture()
+    )
+    constant_id = next(
+        record.support_id
+        for record in records
+        if record.fact_kind == "constant_column"
+    )
+    sentence = (
+        "The Constant column contains no observed variation for analyses "
+        "that depend on variation."
+    )
+    support = SentenceSupport(
+        sentence_id="SENT_0001",
+        sentence_text=sentence,
+        fact_ids=[],
+        evidence_ids=[],
+        profile_support_ids=[constant_id],
+        support_type=SupportType.PARAPHRASE,
+    )
+    audit, _ = _audit_sentence(
+        sentence,
+        support=support,
+        profile_records=records,
+    )
+
+    assert not audit.annotations
+
+
+def test_unsupported_and_supported_future_recommendations():
+    unsupported, _ = _audit_sentence(
+        "Future work should explore temporal trends."
+    )
+    assert any(
+        annotation.subtype
+        == "unsupported_analytical_recommendation"
+        for annotation in unsupported.annotations
+    )
+
+    evidence = EvidenceLedger(
+        fingerprint="recommendation",
+        items=[
+            EvidenceItem(
+                evidence_id="EVD_REC",
+                route=AnalysisRoute.DESCRIPTIVE,
+                task_ids=["TASK_REC"],
+                finding="The table contains 4 rows.",
+                metrics={"row_count": 4},
+                source_tables=["weather"],
+                source_columns=[],
+                method="Direct count.",
+                validation_strategy=ValidationStrategy.NONE,
+                practical_interpretation="Small table.",
+                strength_label="dataset_overview",
+                limitations=[],
+                prohibited_interpretations=[],
+                recommendations=[
+                    AnalyticalRecommendation(
+                        recommendation_id="REC_TEMPORAL",
+                        action=(
+                            "Future work should explore temporal trends."
+                        ),
+                        recommendation_type="additional_analysis",
+                        priority="low",
+                        justification=(
+                            "The source includes a timestamp field."
+                        ),
+                    )
+                ],
+                claim_permissions=[
+                    ClaimPermission.DESCRIPTIVE
+                ],
+                factual_confidence=1.0,
+                methodological_strength=1.0,
+                user_relevance=0.8,
+                salience=0.7,
+                recommended_use=RecommendedUse.SUPPORTING_DETAIL,
+            )
+        ],
+    )
+    ledger = FactLedger(
+        writer_ready_facts=[
+            VerifiedFact(
+                fact_id="FACT_REC",
+                source_candidate_id="CAN_REC",
+                fact_summary="The table contains 4 rows.",
+                evidence_ids=["EVD_REC"],
+                structured_values={
+                    "EVD_REC": {"row_count": 4}
+                },
+                entities=["weather"],
+                claim_permissions=[
+                    ClaimPermission.DESCRIPTIVE
+                ],
+                factual_confidence=1.0,
+                methodological_strength=1.0,
+                user_relevance=0.8,
+                salience=0.7,
+                recommended_use=RecommendedUse.SUPPORTING_DETAIL,
+            )
+        ]
+    )
+    sentence = "Future work should explore temporal trends."
+    support = SentenceSupport(
+        sentence_id="SENT_0001",
+        sentence_text=sentence,
+        fact_ids=["FACT_REC"],
+        evidence_ids=["EVD_REC"],
+        support_type=SupportType.PARAPHRASE,
+    )
+    supported, _ = _audit_sentence(
+        sentence,
+        support=support,
+        ledger=ledger,
+        evidence=evidence,
+    )
+
+    assert not any(
+        annotation.subtype
+        == "unsupported_analytical_recommendation"
+        for annotation in supported.annotations
+    )
+
+
+def test_quality_finding_validation_and_conservative_merge():
+    assert not valid_quality_finding(
+        "The dataset contains 24 duplicate rows."
+    )
+    assert valid_quality_finding(
+        "The report recommends duplicate removal without sufficient justification."
+    )
+
+    deterministic = ReportQualityAssessment(
+        status=QualityStatus.REVISE,
+        request_responsiveness=0.9,
+        finding_selection=0.8,
+        coherence=0.7,
+        concision=0.8,
+        caveat_integration=0.9,
+        data_science_interpretation=0.8,
+        findings=["The report omits a required limitation."],
+        recommendations=["Add the missing limitation."],
+    )
+    semantic = ReportQualityAssessment(
+        status=QualityStatus.PASS,
+        request_responsiveness=1.0,
+        finding_selection=0.6,
+        coherence=0.9,
+        concision=0.9,
+        caveat_integration=1.0,
+        data_science_interpretation=0.9,
+        findings=["The report repeats closely related findings."],
+        recommendations=["Consolidate repeated findings."],
+    )
+
+    merged = merge_quality_assessments(
+        deterministic,
+        semantic,
+    )
+
+    assert merged.status == QualityStatus.REVISE
+    assert "The report omits a required limitation." in merged.findings
+    assert "The report repeats closely related findings." in merged.findings
+    assert merged.finding_selection == 0.6
+
+
+def test_writer_payload_removes_data_understanding_factual_prose():
+    ledger, evidence = make_fact_fixture()
+    understanding = DataUnderstanding(
+        profile_fingerprint="payload",
+        dataset_summary=(
+            "The data are hourly and collected at a specific location."
+        ),
+        tables=[
+            TableUnderstanding(
+                table_name="weather",
+                unit_of_observation="hourly weather station measurement",
+                summary="Location-specific hourly weather station data.",
+            )
+        ],
+    )
+    plan = ExecutionPlan(
+        objective="Understand the data.",
+        tasks=[],
+        route_order=[],
+        report_specification=_basic_spec(),
+        audit_mode=AuditMode.INTERNAL,
+        revision_limit=1,
+        maximum_facts=20,
+        rationale="Test.",
+    )
+    pack = build_writer_evidence_pack(
+        request=plan.objective,
+        understanding=understanding,
+        plan=plan,
+        evidence=evidence,
+        fact_ledger=ledger,
+        settings=Settings(),
+    )
+
+    payload = build_compact_writer_payload(pack)
+
+    assert "dataset_summary" not in payload
+    assert "table_context" not in payload
+    assert payload["priority_facts"]
+    assert "analytical_recommendations" in payload
