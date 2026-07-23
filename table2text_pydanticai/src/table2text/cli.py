@@ -6,7 +6,12 @@ from dataclasses import replace
 from pathlib import Path
 
 from .config import Settings
-from .schemas import AuditMode, ExternalTruthSource
+from .schemas import (
+    AuditMode,
+    EvaluationFieldPolicy,
+    ExternalTruthSource,
+    ReportGenre,
+)
 from .workflow import Table2TextWorkflow
 
 
@@ -95,6 +100,30 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    run_parser.add_argument(
+        "--report-genre",
+        choices=[genre.value for genre in ReportGenre],
+        help="Set an experiment-level report-genre contract.",
+    )
+    run_parser.add_argument(
+        "--operational-input-path",
+        action="append",
+        default=[],
+        help="Declare an operational JSON path; repeat for multiple paths.",
+    )
+    run_parser.add_argument(
+        "--held-out-reference-path",
+        action="append",
+        default=[],
+        help="Declare a held-out evaluation-reference JSON path.",
+    )
+    run_parser.add_argument(
+        "--metadata-path",
+        action="append",
+        default=[],
+        help="Declare a metadata-only JSON path.",
+    )
+
     return parser
 
 
@@ -128,6 +157,16 @@ def main() -> None:
         audit_mode=AuditMode(arguments.audit_mode),
         external_truth_sources=load_external_truth(
             arguments.external_truth
+        ),
+        evaluation_field_policy=EvaluationFieldPolicy(
+            operational_input_paths=arguments.operational_input_path,
+            held_out_reference_paths=arguments.held_out_reference_path,
+            metadata_paths=arguments.metadata_path,
+        ),
+        report_genre=(
+            ReportGenre(arguments.report_genre)
+            if arguments.report_genre
+            else None
         ),
     )
 

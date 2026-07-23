@@ -20,6 +20,7 @@ from .schemas import (
     ColumnProfile,
     DataProfile,
     ErrorType,
+    EvidenceCapability,
     EvidenceItem,
     EvidenceLedger,
     ExternalTruthSource,
@@ -27,6 +28,12 @@ from .schemas import (
     FactCandidateSet,
     FactLedger,
     FactReview,
+    GenreQualityAssessment,
+    InsightLedger,
+    InsightType,
+    InsightVerificationStatus,
+    InputStructureProfile,
+    InterpretationLevel,
     QualityStatus,
     ProfileSupportRecord,
     RecommendedUse,
@@ -36,6 +43,7 @@ from .schemas import (
     RepairStrategy,
     ReportComponent,
     ReportComponentAssessment,
+    ReportGenre,
     ReportPatch,
     ReportQualityAssessment,
     ReviewDecision,
@@ -46,6 +54,7 @@ from .schemas import (
     VerificationMethod,
     VerificationResult,
     VerifiedFact,
+    VerifiedInsight,
     WriterAgentDraft,
     WriterEvidencePack,
     WriterOutput,
@@ -58,8 +67,8 @@ NUMBER_PATTERN = re.compile(
 )
 
 CAUSAL_PATTERN = re.compile(
-    r"\b(caused|causes|causing|led to|effect of|responsible for|"
-    r"results? in|because of|due to)\b",
+    r"\b(caused|causes|causing|drives?|drove|led to|effect of|"
+    r"responsible for|results? in|because of|due to|explains?)\b",
     re.IGNORECASE,
 )
 
@@ -180,6 +189,111 @@ FUTURE_ANALYSIS_PATTERN = re.compile(
     r"investigate the relationship)\b",
     re.IGNORECASE,
 )
+
+DATASET_GENERALISATION_PATTERN = re.compile(
+    r"\b(always|in general|universally|proves that|demonstrates that all)\b",
+    re.IGNORECASE,
+)
+
+UNSUPPORTED_SPORTS_NARRATIVE_PATTERN = re.compile(
+    r"\b(dominated throughout|single-handedly|comeback|turning point|"
+    r"all-time classic|historic victory|upset|cruised to victory)\b",
+    re.IGNORECASE,
+)
+
+INSIGHT_OVERSTATEMENT_PATTERN = re.compile(
+    r"\b(completely redundant|universally redundant|should always be removed|"
+    r"must always be removed|proves that)\b",
+    re.IGNORECASE,
+)
+
+HYPOTHESIS_WORDING_PATTERN = re.compile(
+    r"\b(hypothesis|hypothesise|hypothesize|question for further "
+    r"investigation)\b",
+    re.IGNORECASE,
+)
+
+UNLABELLED_HYPOTHESIS_PATTERN = re.compile(
+    r"\b(may|might|could|likely)\b[^.!?]{0,100}\b"
+    r"(because|reflects?|indicates?|explains?|due to)\b",
+    re.IGNORECASE,
+)
+
+EXPLANATORY_HYPOTHESIS_PATTERN = re.compile(
+    r"(?:"
+    r"\b(?:may|might|could|possibly|potentially|whether)\b"
+    r"[^.!?]{0,180}\b(?:"
+    r"reflect(?:s|ed|ing)?|"
+    r"result(?:s|ed|ing)?\s+from|"
+    r"stems?|stemmed|stemming|"
+    r"arises?|arose|arisen|"
+    r"be\s+due\s+to|"
+    r"be\s+explained\s+by"
+    r")\b|"
+    r"\b(?:possible|plausible|potential)\s+"
+    r"(?:explanation|reason)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+ASSOCIATION_STRENGTH_PATTERN = re.compile(
+    r"\b(?P<label>very strong|strong|moderate|weak|negligible)\b"
+    r"(?:\s+(?:positive|negative))?"
+    r"(?:\s+(?:pearson|spearman|rank-based|linear))?"
+    r"\s+(?:correlations?|associations?|relationships?)\b",
+    re.IGNORECASE,
+)
+
+GROUP_STRENGTH_PATTERN = re.compile(
+    r"\b(?P<label>large|moderate|small|negligible)\b"
+    r"(?:\s+standard(?:ised|ized))?"
+    r"\s+(?:group\s+)?(?:differences?|effect sizes?)\b",
+    re.IGNORECASE,
+)
+
+INTERPRETIVE_SYNTHESIS_PATTERN = re.compile(
+    r"\b(overlapping information|taken together|together suggest|"
+    r"combined with|overall pattern|this indicates|this suggests|therefore)\b",
+    re.IGNORECASE,
+)
+
+
+def materially_same_report_text(
+    left: str,
+    right: str,
+) -> bool:
+    left_normalised = re.sub(
+        r"[^a-z0-9]+",
+        " ",
+        left.lower(),
+    ).strip()
+    right_normalised = re.sub(
+        r"[^a-z0-9]+",
+        " ",
+        right.lower(),
+    ).strip()
+
+    if left_normalised == right_normalised:
+        return True
+
+    left_tokens = {
+        token
+        for token in left_normalised.split()
+        if len(token) > 2
+    }
+    right_tokens = {
+        token
+        for token in right_normalised.split()
+        if len(token) > 2
+    }
+    if not left_tokens or not right_tokens:
+        return False
+
+    return (
+        len(left_tokens & right_tokens)
+        / len(left_tokens | right_tokens)
+        >= 0.8
+    )
 
 PROFILE_FACT_KIND_TERMS = {
     "table_dimensions": re.compile(
@@ -481,11 +595,14 @@ def looks_factual(sentence: str) -> bool:
     return bool(
         extract_number_tokens(sentence)
         or re.search(
-            r"\b(dataset|table|rows?|columns?|mean|median|correlation|"
+            r"\b(dataset|table|rows?|columns?|mean|median|correlations?|"
+            r"associations?|relationships?|"
             r"model|forecast|missing|missingness|temperature|humidity|visibility|"
             r"higher|lower|increase|decrease|associated|observed|"
             r"duplicate|constant|zeros?|sentinel|timestamp|hourly|"
-            r"location|station|pearson|future work|next analyses)\b",
+            r"location|station|pearson|future work|next analyses|"
+            r"team|player|game|match|won|scored|points?|rebounds?|"
+            r"turnovers?|comeback|dominated|historic|upset)\b",
             sentence,
             re.IGNORECASE,
         )
@@ -567,7 +684,27 @@ def _normalise_entity_text(value: str) -> str:
     return re.sub(
         r"\s+",
         " ",
-        value.replace("`", "").strip().lower(),
+        value.replace("`", "").strip().casefold(),
+    )
+
+
+def unsupported_backtick_entities(
+    text: str,
+    supported_entities: set[str],
+) -> list[str]:
+    normalised_supported = {
+        _normalise_entity_text(entity)
+        for entity in supported_entities
+        if _normalise_entity_text(entity)
+    }
+
+    return list(
+        dict.fromkeys(
+            entity
+            for entity in re.findall(r"`([^`]+)`", text)
+            if _normalise_entity_text(entity)
+            not in normalised_supported
+        )
     )
 
 
@@ -1257,12 +1394,15 @@ def finalise_fact_ledger(
 
         structured_values: dict[str, Any] = {}
         entities: set[str] = set()
+        source_capabilities = []
 
         for evidence_id in candidate.evidence_ids:
             item = lookup[evidence_id]
             structured_values[evidence_id] = item.metrics
             entities.update(item.source_tables)
             entities.update(item.source_columns)
+            entities.update(item.entity_scope)
+            source_capabilities.append(item.capability)
 
             entities.update(collect_entity_strings(item.metrics))
 
@@ -1272,6 +1412,9 @@ def finalise_fact_ledger(
                 source_candidate_id=candidate.candidate_id,
                 fact_summary=candidate.fact_summary,
                 evidence_ids=candidate.evidence_ids,
+                source_capabilities=list(
+                    dict.fromkeys(source_capabilities)
+                ),
                 structured_values=structured_values,
                 entities=sorted(entities),
                 claim_permissions=candidate.claim_permissions,
@@ -1322,6 +1465,59 @@ def normalise_strength_label(
 
     return mapping.get(label, label)
 
+
+ASSOCIATION_STRENGTH_TERMS = {
+    "very strong": "very_strong_association",
+    "strong": "strong_association",
+    "moderate": "moderate_association",
+    "weak": "weak_but_reportable_association",
+    "negligible": "negligible_association",
+}
+
+GROUP_STRENGTH_TERMS = {
+    "large": "large_group_difference",
+    "moderate": "moderate_group_difference",
+    "small": "small_group_difference",
+    "negligible": "negligible_group_difference",
+}
+
+
+def qualitative_strength_conflicts(
+    sentence: str,
+    evidence_items: list[EvidenceItem],
+) -> list[str]:
+    normalised_labels = {
+        normalise_strength_label(item.strength_label)
+        for item in evidence_items
+    }
+    association_labels = normalised_labels & set(
+        ASSOCIATION_STRENGTH_TERMS.values()
+    )
+    group_labels = normalised_labels & set(
+        GROUP_STRENGTH_TERMS.values()
+    )
+    conflicts: list[str] = []
+
+    for match in ASSOCIATION_STRENGTH_PATTERN.finditer(sentence):
+        visible_label = match.group("label").lower()
+        expected_label = ASSOCIATION_STRENGTH_TERMS[visible_label]
+        if association_labels and expected_label not in association_labels:
+            conflicts.append(
+                f"{visible_label} association conflicts with "
+                f"{sorted(association_labels)}"
+            )
+
+    for match in GROUP_STRENGTH_PATTERN.finditer(sentence):
+        visible_label = match.group("label").lower()
+        expected_label = GROUP_STRENGTH_TERMS[visible_label]
+        if group_labels and expected_label not in group_labels:
+            conflicts.append(
+                f"{visible_label} group difference conflicts with "
+                f"{sorted(group_labels)}"
+            )
+
+    return list(dict.fromkeys(conflicts))
+
 LOW_PRIORITY_STRENGTH_LABELS = {
     "negligible",
     "negligible_association",
@@ -1367,6 +1563,21 @@ def evidence_subtype(
     label = normalise_strength_label(
         item.strength_label
     )
+
+    if item.capability == EvidenceCapability.EVENT_OUTCOME:
+        return "event_outcome"
+
+    if item.capability in {
+        EvidenceCapability.ENTITY_PERFORMANCE,
+        EvidenceCapability.RANKING,
+    }:
+        return "entity_performance"
+
+    if (
+        item.capability == EvidenceCapability.GROUP_COMPARISON
+        and item.evidence_type == "participant_comparison"
+    ):
+        return "group_comparison"
 
     if item.route == AnalysisRoute.DESCRIPTIVE:
         if (
@@ -1519,6 +1730,9 @@ def classify_fact_component(
     if "data_quality" in subtypes:
         return ReportComponent.DATA_QUALITY
 
+    if subtypes & {"event_outcome", "entity_performance"}:
+        return ReportComponent.DATASET_OVERVIEW
+
     if (
         "predictive_validation" in subtypes
         or "forecast_validation" in subtypes
@@ -1647,6 +1861,9 @@ def eligible_for_deterministic_fact_recovery(
     if subtype == "dataset_overview":
         return True
 
+    if subtype in {"event_outcome", "entity_performance"}:
+        return True
+
     if subtype == "data_quality":
         return (
             label
@@ -1660,6 +1877,8 @@ def eligible_for_deterministic_fact_recovery(
         )
 
     if subtype == "group_comparison":
+        if item.capability == EvidenceCapability.GROUP_COMPARISON:
+            return True
         return (
             label in RECOVERABLE_GROUP_LABELS
         )
@@ -1699,6 +1918,7 @@ def deterministic_fact_from_evidence(
     entities.update(
         collect_entity_strings(item.metrics)
     )
+    entities.update(item.entity_scope)
 
     return VerifiedFact(
         fact_id=f"FACT_REC_{ordinal:04d}",
@@ -1711,6 +1931,7 @@ def deterministic_fact_from_evidence(
         ),
         fact_summary=item.finding,
         evidence_ids=[item.evidence_id],
+        source_capabilities=[item.capability],
         structured_values={
             item.evidence_id: item.metrics
         },
@@ -1831,6 +2052,8 @@ def augment_fact_ledger_for_report_coverage(
             .maximum_recovered_modelling_facts
         ),
         "causal_feasibility": 1,
+        "event_outcome": 2,
+        "entity_performance": 4,
     }
 
     recovered: list[VerifiedFact] = []
@@ -2090,6 +2313,8 @@ def select_balanced_priority_facts(
             settings
             .max_priority_limitation_facts
         ),
+        "event_outcome": 2,
+        "entity_performance": 4,
         "association_other": 1,
         "descriptive_detail": 1,
         "other": 1,
@@ -2175,6 +2400,15 @@ def select_balanced_priority_facts(
 
         return False
 
+    add_best_for_subtype(
+        "event_outcome",
+        require_priority_eligibility=False,
+    )
+    add_best_for_subtype(
+        "entity_performance",
+        require_priority_eligibility=False,
+    )
+
     if (
         ReportComponent.DATASET_OVERVIEW
         in required_components
@@ -2203,9 +2437,17 @@ def select_balanced_priority_facts(
             require_priority_eligibility=True,
         )
 
+        event_facts_present = any(
+            EvidenceCapability.EVENT_OUTCOME
+            in fact.source_capabilities
+            for fact in facts
+        )
+
         add_best_for_subtype(
             "group_comparison",
-            require_priority_eligibility=True,
+            require_priority_eligibility=(
+                not event_facts_present
+            ),
         )
 
         def selected_relationship_count() -> int:
@@ -2378,6 +2620,61 @@ def build_reader_facing_limitations(
     return list(dict.fromkeys(limitations))
 
 
+def select_priority_verified_insights(
+    *,
+    insight_ledger: InsightLedger,
+    maximum: int,
+) -> tuple[list[VerifiedInsight], list[VerifiedInsight]]:
+    eligible = [
+        insight
+        for insight in insight_ledger.verified_insights
+        if insight.verification_status
+        in {
+            InsightVerificationStatus.VERIFIED,
+            InsightVerificationStatus.VERIFIED_WITH_CAVEAT,
+        }
+        and insight.interpretation_level
+        == InterpretationLevel.BOUNDED_INSIGHT
+    ]
+    ranked = sorted(
+        enumerate(eligible),
+        key=lambda item: (
+            -item[1].salience,
+            -item[1].confidence,
+            item[0],
+        ),
+    )
+
+    priority: list[VerifiedInsight] = []
+    selected_ids: set[str] = set()
+    selected_types: set[InsightType] = set()
+
+    for _, insight in ranked:
+        if len(priority) >= maximum:
+            break
+        if insight.insight_type in selected_types:
+            continue
+        priority.append(insight)
+        selected_ids.add(insight.insight_id)
+        selected_types.add(insight.insight_type)
+
+    for _, insight in ranked:
+        if len(priority) >= maximum:
+            break
+        if insight.insight_id in selected_ids:
+            continue
+        priority.append(insight)
+        selected_ids.add(insight.insight_id)
+
+    supporting = [
+        insight
+        for _, insight in ranked
+        if insight.insight_id not in selected_ids
+    ]
+
+    return priority, supporting
+
+
 def build_writer_evidence_pack(
     request: str,
     understanding: Any,
@@ -2385,7 +2682,14 @@ def build_writer_evidence_pack(
     evidence: EvidenceLedger,
     fact_ledger: FactLedger,
     settings: Settings,
+    insight_ledger: InsightLedger | None = None,
+    input_structure: InputStructureProfile | None = None,
+    available_capabilities: list[EvidenceCapability] | None = None,
 ) -> WriterEvidencePack:
+    insight_ledger = insight_ledger or InsightLedger(
+        synthesis_enabled=False,
+        fallback_reason="No Insight Ledger was supplied.",
+    )
     facts = fact_ledger.writer_ready_facts
     evidence_lookup = {
         item.evidence_id: item
@@ -2449,15 +2753,26 @@ def build_writer_evidence_pack(
             for interpretation in fact.prohibited_interpretations
         )
     )
+    priority_insights, supporting_insights = (
+        select_priority_verified_insights(
+            insight_ledger=insight_ledger,
+            maximum=settings.max_verified_main_insights,
+        )
+    )
 
     return WriterEvidencePack(
         user_request=request,
         report_specification=plan.report_specification,
         dataset_understanding=understanding,
+        input_structure=input_structure,
+        available_capabilities=available_capabilities or [],
         priority_facts=priority,
         supporting_facts=supporting,
         limitation_facts=limitations,
         evidence_ledger=evidence,
+        insight_ledger=insight_ledger,
+        priority_verified_insights=priority_insights,
+        supporting_verified_insights=supporting_insights,
         analytical_recommendations=recommendations,
         reader_facing_limitations=build_reader_facing_limitations(
             priority + limitations
@@ -2466,15 +2781,56 @@ def build_writer_evidence_pack(
     )
 
 
+def _sentence_section_headings(
+    markdown: str,
+) -> dict[str, str]:
+    headings: dict[str, str] = {}
+    current_heading = ""
+
+    for raw_line in markdown.splitlines():
+        line = raw_line.strip()
+
+        if line.startswith("## "):
+            current_heading = line[3:].strip()
+            continue
+
+        for sentence in split_markdown_sentences(line):
+            headings[sentence] = current_heading
+
+    return headings
+
+
 def validate_writer_output(
     output: WriterOutput,
     fact_ledger: FactLedger,
+    insight_ledger: InsightLedger | None = None,
+    allow_hypotheses_in_report: bool = False,
 ) -> list[str]:
     errors: list[str] = []
+    insight_ledger = insight_ledger or InsightLedger(
+        synthesis_enabled=False
+    )
     valid_fact_ids = {
         fact.fact_id
         for fact in fact_ledger.writer_ready_facts
     }
+    fact_lookup = {
+        fact.fact_id: fact
+        for fact in fact_ledger.writer_ready_facts
+    }
+    verified_insights = {
+        insight.insight_id: insight
+        for insight in insight_ledger.verified_insights
+    }
+    hypothesis_insights = {
+        insight.insight_id: insight
+        for insight in insight_ledger.hypothesis_only_insights
+    }
+    all_insight_ids = {
+        *verified_insights,
+        *hypothesis_insights,
+    }
+    section_headings = _sentence_section_headings(output.markdown)
 
     if re.search(r"\[(?:CLM|FACT)_\d+", output.markdown):
         errors.append(
@@ -2531,12 +2887,164 @@ def validate_writer_output(
                 f"{support.sentence_id} cites unknown fact IDs: {sorted(unknown)}"
             )
 
+        unknown_insights = (
+            set(support.insight_ids)
+            - all_insight_ids
+        )
+        if unknown_insights:
+            errors.append(
+                f"{support.sentence_id} cites unknown insight IDs: "
+                f"{sorted(unknown_insights)}"
+            )
+
+        if (
+            EXPLANATORY_HYPOTHESIS_PATTERN.search(
+                support.sentence_text
+            )
+            and support.interpretation_level
+            != InterpretationLevel.HYPOTHESIS
+        ):
+            errors.append(
+                f"{support.sentence_id} presents a possible explanation "
+                "without classifying it as a hypothesis."
+            )
+
+        if (
+            support.interpretation_level
+            == InterpretationLevel.BOUNDED_INSIGHT
+        ):
+            if not support.insight_ids:
+                errors.append(
+                    f"{support.sentence_id} is a bounded insight but has no "
+                    "insight ID."
+                )
+            elif not set(support.insight_ids).issubset(
+                set(verified_insights)
+            ):
+                errors.append(
+                    f"{support.sentence_id} cites an insight that is not a "
+                    "verified main insight."
+                )
+            else:
+                required_fact_ids = {
+                    fact_id
+                    for insight_id in support.insight_ids
+                    for fact_id in verified_insights[
+                        insight_id
+                    ].source_fact_ids
+                }
+                required_evidence_ids = {
+                    evidence_id
+                    for insight_id in support.insight_ids
+                    for evidence_id in verified_insights[
+                        insight_id
+                    ].source_evidence_ids
+                }
+                if not required_fact_ids.issubset(
+                    set(support.fact_ids)
+                ):
+                    errors.append(
+                        f"{support.sentence_id} omits source facts for its "
+                        "verified insight."
+                    )
+                if not required_evidence_ids.issubset(
+                    set(support.evidence_ids)
+                ):
+                    errors.append(
+                        f"{support.sentence_id} omits source evidence for its "
+                        "verified insight."
+                    )
+
+        if (
+            support.interpretation_level
+            == InterpretationLevel.HYPOTHESIS
+        ):
+            if not allow_hypotheses_in_report:
+                errors.append(
+                    f"{support.sentence_id} is a hypothesis while hypotheses "
+                    "are disabled."
+                )
+            if not support.insight_ids or not set(
+                support.insight_ids
+            ).issubset(set(hypothesis_insights)):
+                errors.append(
+                    f"{support.sentence_id} lacks valid hypothesis-only "
+                    "provenance."
+                )
+            if section_headings.get(support.sentence_text, "").lower() != (
+                "questions for further investigation"
+            ):
+                errors.append(
+                    f"{support.sentence_id} places a hypothesis outside the "
+                    "allowed section."
+                )
+            if (
+                not HYPOTHESIS_WORDING_PATTERN.search(
+                    support.sentence_text
+                )
+                and not support.sentence_text.strip().endswith("?")
+            ):
+                errors.append(
+                    f"{support.sentence_id} does not explicitly label the "
+                    "hypothesis or frame it as a question."
+                )
+
+        if (
+            support.interpretation_level
+            == InterpretationLevel.FINDING
+            and support.insight_ids
+        ):
+            errors.append(
+                f"{support.sentence_id} is a finding but cites insight IDs."
+            )
+
         if (
             support.support_type != SupportType.NON_FACTUAL
             and not support.fact_ids
+            and not support.profile_support_ids
+            and not support.insight_ids
         ):
             errors.append(
-                f"{support.sentence_id} is factual but has no supporting facts."
+                f"{support.sentence_id} is factual but has no supporting "
+                "provenance."
+            )
+
+        supporting_facts = [
+            fact_lookup[fact_id]
+            for fact_id in support.fact_ids
+            if fact_id in fact_lookup
+        ]
+        support_numbers = [
+            number
+            for fact in supporting_facts
+            for number in flatten_numbers(fact.structured_values)
+        ]
+        if (
+            supporting_facts
+            and not numbers_supported(
+                support.sentence_text,
+                support_numbers,
+            )
+        ):
+            errors.append(
+                f"{support.sentence_id} contains a number unsupported by its "
+                "mapped facts."
+            )
+
+        known_entities = {
+            entity
+            for fact in supporting_facts
+            for entity in fact.entities
+        }
+        unsupported_entities = unsupported_backtick_entities(
+            support.sentence_text,
+            known_entities,
+        )
+        if supporting_facts and unsupported_entities:
+            errors.append(
+                f"{support.sentence_id} contains unsupported entities "
+                f"{unsupported_entities}; mapped fact IDs: "
+                f"{support.fact_ids}."
             )
 
     declared = set(output.selected_fact_ids)
@@ -2628,14 +3136,31 @@ def materialise_writer_output(
     draft: WriterAgentDraft,
     fact_ledger: FactLedger,
     *,
+    insight_ledger: InsightLedger | None = None,
+    allow_hypotheses_in_report: bool = False,
     writer_mode: str = "llm_writer",
     eligible_for_primary_evaluation: bool = True,
     quality_revision_round: int = 0,
     quality_revision_summary: str | None = None,
 ) -> WriterOutput:
+    insight_ledger = insight_ledger or InsightLedger(
+        synthesis_enabled=False
+    )
     fact_lookup = {
         fact.fact_id: fact
         for fact in fact_ledger.writer_ready_facts
+    }
+    verified_insight_lookup = {
+        insight.insight_id: insight
+        for insight in insight_ledger.verified_insights
+    }
+    hypothesis_insight_lookup = {
+        insight.insight_id: insight
+        for insight in insight_ledger.hypothesis_only_insights
+    }
+    all_insight_lookup = {
+        **verified_insight_lookup,
+        **hypothesis_insight_lookup,
     }
 
     lines: list[str] = [
@@ -2690,10 +3215,79 @@ def materialise_writer_output(
                     f"fact IDs: {unknown_fact_ids}"
                 )
 
+            unknown_insight_ids = [
+                insight_id
+                for insight_id in sentence_draft.insight_ids
+                if insight_id not in all_insight_lookup
+            ]
+            if unknown_insight_ids:
+                raise ValueError(
+                    "Writer draft contains unknown insight IDs: "
+                    f"{unknown_insight_ids}"
+                )
+
+            if (
+                sentence_draft.interpretation_level
+                == InterpretationLevel.BOUNDED_INSIGHT
+            ):
+                if not sentence_draft.insight_ids:
+                    raise ValueError(
+                        "A bounded-insight Writer sentence has no verified "
+                        "insight ID."
+                    )
+                if not set(sentence_draft.insight_ids).issubset(
+                    set(verified_insight_lookup)
+                ):
+                    raise ValueError(
+                        "A bounded-insight Writer sentence cites an insight "
+                        "that is not verified for the main report."
+                    )
+
+            if (
+                sentence_draft.interpretation_level
+                == InterpretationLevel.HYPOTHESIS
+            ):
+                if not allow_hypotheses_in_report:
+                    raise ValueError(
+                        "Writer hypotheses are disabled by configuration."
+                    )
+                if not sentence_draft.insight_ids or not set(
+                    sentence_draft.insight_ids
+                ).issubset(set(hypothesis_insight_lookup)):
+                    raise ValueError(
+                        "A hypothesis Writer sentence must cite a valid "
+                        "hypothesis-only insight."
+                    )
+
+            if (
+                sentence_draft.interpretation_level
+                == InterpretationLevel.FINDING
+                and sentence_draft.insight_ids
+            ):
+                raise ValueError(
+                    "A direct Writer finding must not cite insight IDs."
+                )
+
+            expanded_fact_ids = list(
+                dict.fromkeys(
+                    [
+                        *sentence_draft.fact_ids,
+                        *[
+                            fact_id
+                            for insight_id in sentence_draft.insight_ids
+                            for fact_id in all_insight_lookup[
+                                insight_id
+                            ].source_fact_ids
+                            if fact_id in fact_lookup
+                        ],
+                    ]
+                )
+            )
+
             if (
                 sentence_draft.support_type
                 != SupportType.NON_FACTUAL
-                and not sentence_draft.fact_ids
+                and not expanded_fact_ids
             ):
                 raise ValueError(
                     "A factual Writer sentence has no "
@@ -2702,11 +3296,22 @@ def materialise_writer_output(
 
             evidence_ids = list(
                 dict.fromkeys(
-                    evidence_id
-                    for fact_id in sentence_draft.fact_ids
-                    for evidence_id in fact_lookup[
-                        fact_id
-                    ].evidence_ids
+                    [
+                        *[
+                            evidence_id
+                            for fact_id in expanded_fact_ids
+                            for evidence_id in fact_lookup[
+                                fact_id
+                            ].evidence_ids
+                        ],
+                        *[
+                            evidence_id
+                            for insight_id in sentence_draft.insight_ids
+                            for evidence_id in all_insight_lookup[
+                                insight_id
+                            ].source_evidence_ids
+                        ],
+                    ]
                 )
             )
 
@@ -2724,12 +3329,16 @@ def materialise_writer_output(
                             f"SENT_{sentence_number:04d}"
                         ),
                         sentence_text=rendered_sentence,
-                        fact_ids=list(
+                        fact_ids=expanded_fact_ids,
+                        evidence_ids=evidence_ids,
+                        insight_ids=list(
                             dict.fromkeys(
-                                sentence_draft.fact_ids
+                                sentence_draft.insight_ids
                             )
                         ),
-                        evidence_ids=evidence_ids,
+                        interpretation_level=(
+                            sentence_draft.interpretation_level
+                        ),
                         support_type=(
                             sentence_draft.support_type
                         ),
@@ -2737,7 +3346,7 @@ def materialise_writer_output(
                 )
 
                 selected_fact_ids.extend(
-                    sentence_draft.fact_ids
+                    expanded_fact_ids
                 )
 
                 sentence_number += 1
@@ -2782,6 +3391,8 @@ def materialise_writer_output(
     errors = validate_writer_output(
         output,
         fact_ledger,
+        insight_ledger,
+        allow_hypotheses_in_report,
     )
 
     if errors:
@@ -2938,6 +3549,14 @@ def fallback_writer(
     Writer.
     """
 
+    event_report = (
+        pack.report_specification.genre
+        in {
+            ReportGenre.EVENT_REPORT,
+            ReportGenre.SPORTS_GAME_REPORT,
+        }
+    )
+
     maximum = (
         pack.report_specification
         .maximum_main_findings
@@ -2979,26 +3598,52 @@ def fallback_writer(
             [],
         ).append(fact)
 
-    headings = {
-        ReportComponent.DATASET_OVERVIEW: (
-            "Dataset overview"
-        ),
-        ReportComponent.DATA_QUALITY: (
-            "Data quality"
-        ),
-        ReportComponent.STRONGEST_RELATIONSHIPS: (
-            "Strongest observed relationships"
-        ),
-        ReportComponent.MODELLING_VALIDATION: (
-            "Modelling and validation"
-        ),
-        ReportComponent.LIMITATIONS_NEXT_STEPS: (
-            "Limitations and next steps"
-        ),
-    }
+    headings = (
+        {
+            ReportComponent.DATASET_OVERVIEW: (
+                "Result and leading performances"
+            ),
+            ReportComponent.DATA_QUALITY: (
+                "Record quality"
+            ),
+            ReportComponent.STRONGEST_RELATIONSHIPS: (
+                "Main participant contrasts"
+            ),
+            ReportComponent.MODELLING_VALIDATION: (
+                "Supporting analysis"
+            ),
+            ReportComponent.LIMITATIONS_NEXT_STEPS: (
+                "Limitations"
+            ),
+        }
+        if event_report
+        else {
+            ReportComponent.DATASET_OVERVIEW: (
+                "Dataset overview"
+            ),
+            ReportComponent.DATA_QUALITY: (
+                "Data quality"
+            ),
+            ReportComponent.STRONGEST_RELATIONSHIPS: (
+                "Strongest observed relationships"
+            ),
+            ReportComponent.MODELLING_VALIDATION: (
+                "Modelling and validation"
+            ),
+            ReportComponent.LIMITATIONS_NEXT_STEPS: (
+                "Limitations and next steps"
+            ),
+        }
+    )
+
+    report_title = (
+        "Evidence-grounded event report"
+        if event_report
+        else "Evidence-grounded data-science report"
+    )
 
     lines = [
-        "# Evidence-grounded data-science report",
+        f"# {report_title}",
         "",
     ]
 
@@ -3038,19 +3683,24 @@ def fallback_writer(
             )
         )
 
-        support_map.append(
-            SentenceSupport(
-                sentence_id=(
-                    f"SENT_{sentence_counter:04d}"
-                ),
-                sentence_text=cleaned,
-                fact_ids=fact_ids,
-                evidence_ids=evidence_ids,
-                support_type=support_type,
-            )
+        rendered_sentences = (
+            split_markdown_sentences(cleaned)
+            or [cleaned]
         )
+        for rendered_sentence in rendered_sentences:
+            support_map.append(
+                SentenceSupport(
+                    sentence_id=(
+                        f"SENT_{sentence_counter:04d}"
+                    ),
+                    sentence_text=rendered_sentence,
+                    fact_ids=fact_ids,
+                    evidence_ids=evidence_ids,
+                    support_type=support_type,
+                )
+            )
 
-        sentence_counter += 1
+            sentence_counter += 1
 
     for component in [
         ReportComponent.DATASET_OVERVIEW,
@@ -3153,15 +3803,29 @@ def fallback_writer(
             )
         }.values()
     )
+    event_limitations = list(
+        dict.fromkeys(
+            caveat
+            for fact in selected
+            for caveat in fact.required_caveats
+        )
+    )
 
     if (
-        pack.reader_facing_limitations
+        (
+            event_limitations
+            if event_report
+            else pack.reader_facing_limitations
+        )
         or limitation_facts
         or rendered_recommendations
     ):
         lines.extend(
             [
-                "## Limitations and next steps",
+                "## "
+                + headings[
+                    ReportComponent.LIMITATIONS_NEXT_STEPS
+                ],
                 "",
             ]
         )
@@ -3177,31 +3841,45 @@ def fallback_writer(
                 SupportType.DIRECT,
             )
 
-        relationship_facts = [
-            fact
-            for fact in selected
-            if (
-                ClaimPermission.COMPARATIVE
-                in fact.claim_permissions
-                or ClaimPermission.ASSOCIATIONAL
-                in fact.claim_permissions
-            )
-        ]
-
-        for limitation in (
-            pack.reader_facing_limitations
-        ):
-            supporting = (
-                relationship_facts
-                or limitation_facts
-            )
-
-            if supporting:
-                add_supported_sentence(
-                    limitation,
-                    supporting,
-                    SupportType.MULTI_FACT_SYNTHESIS,
+        if event_report:
+            for limitation in event_limitations:
+                supporting = [
+                    fact
+                    for fact in selected
+                    if limitation in fact.required_caveats
+                ]
+                if supporting:
+                    add_supported_sentence(
+                        limitation,
+                        supporting,
+                        SupportType.PARAPHRASE,
+                    )
+        else:
+            relationship_facts = [
+                fact
+                for fact in selected
+                if (
+                    ClaimPermission.COMPARATIVE
+                    in fact.claim_permissions
+                    or ClaimPermission.ASSOCIATIONAL
+                    in fact.claim_permissions
                 )
+            ]
+
+            for limitation in (
+                pack.reader_facing_limitations
+            ):
+                supporting = (
+                    relationship_facts
+                    or limitation_facts
+                )
+
+                if supporting:
+                    add_supported_sentence(
+                        limitation,
+                        supporting,
+                        SupportType.MULTI_FACT_SYNTHESIS,
+                    )
 
         lines.append("")
 
@@ -3225,10 +3903,7 @@ def fallback_writer(
     )
 
     return WriterOutput(
-        title=(
-            "Evidence-grounded "
-            "data-science report"
-        ),
+        title=report_title,
         markdown=(
             "\n".join(lines).strip()
             + "\n"
@@ -3398,6 +4073,108 @@ def assess_report_components(
     )
 
 
+def assess_genre_quality(
+    writer_output: WriterOutput,
+    report_specification: Any,
+    evidence: EvidenceLedger,
+) -> GenreQualityAssessment:
+    evidence_lookup = {
+        item.evidence_id: item
+        for item in evidence.items
+        if item.eligible_for_writer
+    }
+    used_evidence_ids = {
+        evidence_id
+        for support in writer_output.sentence_support
+        for evidence_id in support.evidence_ids
+    }
+
+    def matching_evidence(slot: str) -> set[str]:
+        matches: set[str] = set()
+        for evidence_id, item in evidence_lookup.items():
+            if slot == "event_result" and item.evidence_type == "event_outcome":
+                matches.add(evidence_id)
+            elif slot == "leading_performance" and item.capability in {
+                EvidenceCapability.ENTITY_PERFORMANCE,
+                EvidenceCapability.RANKING,
+            }:
+                matches.add(evidence_id)
+            elif slot == "main_contrast" and item.evidence_type in {
+                "participant_comparison",
+                "group_comparison",
+            }:
+                matches.add(evidence_id)
+            elif slot == "event_status" and item.evidence_type == "event_status":
+                matches.add(evidence_id)
+            elif slot == "secondary_performance" and item.capability == (
+                EvidenceCapability.RANKING
+            ):
+                matches.add(evidence_id)
+            elif slot == "dataset_scope" and item.evidence_type in {
+                "dataset_overview",
+                "event_record_overview",
+            }:
+                matches.add(evidence_id)
+            elif slot == "material_data_quality_issue" and evidence_subtype(item) == (
+                "data_quality"
+            ):
+                matches.add(evidence_id)
+            elif slot == "strongest_analytical_finding" and item.capability in {
+                EvidenceCapability.ASSOCIATION,
+                EvidenceCapability.GROUP_COMPARISON,
+                EvidenceCapability.EVENT_OUTCOME,
+            }:
+                matches.add(evidence_id)
+        return matches
+
+    required_slots = list(report_specification.required_content_slots)
+    supported_slots: list[str] = []
+    covered_slots: list[str] = []
+
+    for slot in [
+        *required_slots,
+        *report_specification.optional_content_slots,
+    ]:
+        matching = matching_evidence(slot)
+        if matching:
+            supported_slots.append(slot)
+        if matching & used_evidence_ids:
+            covered_slots.append(slot)
+
+    if "limitation" in required_slots:
+        supported_slots.append("limitation")
+        if re.search(
+            r"\b(limitations?|caveats?|does not|cannot|uncertain|missing)\b",
+            writer_output.markdown,
+            re.IGNORECASE,
+        ):
+            covered_slots.append("limitation")
+
+    missing = [
+        slot
+        for slot in required_slots
+        if slot in supported_slots and slot not in covered_slots
+    ]
+    findings = [
+        f"Required supported content slot `{slot}` is missing from the report."
+        for slot in missing
+    ]
+    recommendations = [
+        "Use the available verified evidence to cover each missing content slot."
+    ] if missing else []
+
+    return GenreQualityAssessment(
+        status=(QualityStatus.REVISE if missing else QualityStatus.PASS),
+        genre=report_specification.genre,
+        required_slots=required_slots,
+        supported_slots=list(dict.fromkeys(supported_slots)),
+        covered_slots=list(dict.fromkeys(covered_slots)),
+        missing_supported_slots=missing,
+        findings=findings,
+        recommendations=recommendations,
+    )
+
+
 def decide_release_status(
     *,
     annotations: list[AuditAnnotation],
@@ -3456,6 +4233,7 @@ def add_annotation(
     fact_ids: list[str] | None = None,
     evidence_ids: list[str] | None = None,
     profile_support_ids: list[str] | None = None,
+    insight_ids: list[str] | None = None,
     confidence: float = 1.0,
 ) -> None:
     key = (
@@ -3490,6 +4268,7 @@ def add_annotation(
             fact_ids=fact_ids or [],
             evidence_ids=evidence_ids or [],
             profile_support_ids=profile_support_ids or [],
+            insight_ids=insight_ids or [],
             confidence=confidence,
         )
     )
@@ -3806,9 +4585,13 @@ def deterministic_audit(
     profile_support_records: list[
         ProfileSupportRecord
     ] | None = None,
+    insight_ledger: InsightLedger | None = None,
 ) -> AuditReport:
     settings = settings or Settings()
     profile_support_records = profile_support_records or []
+    insight_ledger = insight_ledger or InsightLedger(
+        synthesis_enabled=False
+    )
     profile_records_by_id = {
         record.support_id: record
         for record in profile_support_records
@@ -3816,6 +4599,18 @@ def deterministic_audit(
     facts = {
         fact.fact_id: fact
         for fact in fact_ledger.writer_ready_facts
+    }
+    verified_insights = {
+        insight.insight_id: insight
+        for insight in insight_ledger.verified_insights
+    }
+    hypothesis_insights = {
+        insight.insight_id: insight
+        for insight in insight_ledger.hypothesis_only_insights
+    }
+    all_insight_ids = {
+        *verified_insights,
+        *hypothesis_insights,
     }
 
     support_by_sentence = {
@@ -3826,6 +4621,9 @@ def deterministic_audit(
     annotations: list[AuditAnnotation] = []
     support_map_patches: list[SupportMapPatch] = []
     sentences = split_markdown_sentences(writer_output.markdown)
+    section_headings = _sentence_section_headings(
+        writer_output.markdown
+    )
     evidence_lookup_by_id = build_evidence_lookup(evidence)
 
     factual_count = 0
@@ -3834,7 +4632,14 @@ def deterministic_audit(
     for sentence in sentences:
         support = support_by_sentence.get(sentence)
 
-        if not looks_factual(sentence):
+        if (
+            not looks_factual(sentence)
+            and not (
+                support is not None
+                and support.interpretation_level
+                != InterpretationLevel.FINDING
+            )
+        ):
             continue
 
         factual_count += 1
@@ -3884,6 +4689,322 @@ def deterministic_audit(
             for fact_id in support.fact_ids
         ]
 
+        supporting_evidence_ids = {
+            *support.evidence_ids,
+            *[
+                evidence_id
+                for fact in supporting_facts
+                for evidence_id in fact.evidence_ids
+            ],
+        }
+        supporting_evidence_items = [
+            evidence_lookup_by_id[evidence_id]
+            for evidence_id in supporting_evidence_ids
+            if evidence_id in evidence_lookup_by_id
+        ]
+        for conflict in qualitative_strength_conflicts(
+            sentence,
+            supporting_evidence_items,
+        ):
+            add_annotation(
+                annotations,
+                sentence=sentence,
+                text_span=sentence,
+                error_type=ErrorType.CONTEXT_ERROR,
+                subtype="inconsistent_strength_label",
+                severity=Severity.HIGH,
+                explanation=(
+                    "The qualitative relationship strength conflicts with "
+                    f"the mapped deterministic evidence: {conflict}."
+                ),
+                correction_goal=(
+                    "Use the qualitative strength classification recorded in "
+                    "the mapped evidence."
+                ),
+                fact_ids=support.fact_ids,
+                evidence_ids=sorted(supporting_evidence_ids),
+                insight_ids=support.insight_ids,
+            )
+
+        explanatory_hypothesis = (
+            EXPLANATORY_HYPOTHESIS_PATTERN.search(sentence)
+            or UNLABELLED_HYPOTHESIS_PATTERN.search(sentence)
+        )
+        if (
+            explanatory_hypothesis
+            and support.interpretation_level
+            != InterpretationLevel.HYPOTHESIS
+        ):
+            add_annotation(
+                annotations,
+                sentence=sentence,
+                text_span=explanatory_hypothesis.group(0),
+                error_type=ErrorType.CONTEXT_ERROR,
+                subtype="unlabelled_hypothesis",
+                severity=Severity.HIGH,
+                explanation=(
+                    "The sentence proposes a possible explanation without "
+                    "verified hypothesis provenance."
+                ),
+                correction_goal=(
+                    "Remove the explanation or present it as an explicitly "
+                    "labelled hypothesis in the permitted section when enabled."
+                ),
+                fact_ids=support.fact_ids,
+                evidence_ids=support.evidence_ids,
+                insight_ids=support.insight_ids,
+            )
+
+        unknown_insight_ids = [
+            insight_id
+            for insight_id in support.insight_ids
+            if insight_id not in all_insight_ids
+        ]
+        if unknown_insight_ids:
+            add_annotation(
+                annotations,
+                sentence=sentence,
+                text_span=sentence,
+                error_type=ErrorType.NOT_CHECKABLE,
+                subtype="unsupported_insight",
+                severity=Severity.HIGH,
+                explanation=(
+                    "The support map references insight IDs that are absent "
+                    "from the verified Insight Ledger."
+                ),
+                correction_goal=(
+                    "Remove the unsupported interpretation or map it to an "
+                    "existing verified insight."
+                ),
+                fact_ids=support.fact_ids,
+                evidence_ids=support.evidence_ids,
+                insight_ids=unknown_insight_ids,
+            )
+
+        mapped_verified_insights = [
+            verified_insights[insight_id]
+            for insight_id in support.insight_ids
+            if insight_id in verified_insights
+        ]
+        mapped_hypotheses = [
+            hypothesis_insights[insight_id]
+            for insight_id in support.insight_ids
+            if insight_id in hypothesis_insights
+        ]
+
+        if (
+            support.interpretation_level
+            == InterpretationLevel.BOUNDED_INSIGHT
+        ):
+            if not support.insight_ids:
+                add_annotation(
+                    annotations,
+                    sentence=sentence,
+                    text_span=sentence,
+                    error_type=ErrorType.NOT_CHECKABLE,
+                    subtype="unsupported_insight",
+                    severity=Severity.HIGH,
+                    explanation=(
+                        "The sentence presents a bounded interpretation but "
+                        "has no verified insight provenance."
+                    ),
+                    correction_goal=(
+                        "Map the sentence to an exact verified insight or "
+                        "rewrite it as directly supported findings."
+                    ),
+                    fact_ids=support.fact_ids,
+                    evidence_ids=support.evidence_ids,
+                )
+            elif len(mapped_verified_insights) != len(
+                support.insight_ids
+            ):
+                add_annotation(
+                    annotations,
+                    sentence=sentence,
+                    text_span=sentence,
+                    error_type=ErrorType.CONTEXT_ERROR,
+                    subtype="unsupported_insight",
+                    severity=Severity.HIGH,
+                    explanation=(
+                        "A bounded-insight sentence may cite only insights "
+                        "verified for the main report."
+                    ),
+                    correction_goal=(
+                        "Use a verified main insight or remove the "
+                        "interpretive claim."
+                    ),
+                    fact_ids=support.fact_ids,
+                    evidence_ids=support.evidence_ids,
+                    insight_ids=support.insight_ids,
+                )
+
+            required_fact_ids = {
+                fact_id
+                for insight in mapped_verified_insights
+                for fact_id in insight.source_fact_ids
+            }
+            required_evidence_ids = {
+                evidence_id
+                for insight in mapped_verified_insights
+                for evidence_id in insight.source_evidence_ids
+            }
+            if (
+                mapped_verified_insights
+                and (
+                    not required_fact_ids.issubset(
+                        set(support.fact_ids)
+                    )
+                    or not required_evidence_ids.issubset(
+                        set(support.evidence_ids)
+                    )
+                )
+            ):
+                add_annotation(
+                    annotations,
+                    sentence=sentence,
+                    text_span=sentence,
+                    error_type=ErrorType.SUPPORT_MAPPING_ERROR,
+                    subtype="insight_missing_source_support",
+                    severity=Severity.HIGH,
+                    explanation=(
+                        "The bounded insight is mapped without all of its "
+                        "verified source facts and evidence."
+                    ),
+                    correction_goal=(
+                        "Restore the verified insight's source fact and "
+                        "evidence provenance in the hidden support map."
+                    ),
+                    fact_ids=support.fact_ids,
+                    evidence_ids=support.evidence_ids,
+                    insight_ids=support.insight_ids,
+                )
+
+            overstatement = INSIGHT_OVERSTATEMENT_PATTERN.search(sentence)
+            if overstatement:
+                add_annotation(
+                    annotations,
+                    sentence=sentence,
+                    text_span=overstatement.group(0),
+                    error_type=ErrorType.CONTEXT_ERROR,
+                    subtype="insight_exceeds_verified_wording",
+                    severity=Severity.HIGH,
+                    explanation=(
+                        "The report wording is stronger than the bounded "
+                        "interpretation authorised by the Insight Ledger."
+                    ),
+                    correction_goal=(
+                        "Use the verified dataset-scoped insight wording."
+                    ),
+                    fact_ids=support.fact_ids,
+                    evidence_ids=support.evidence_ids,
+                    insight_ids=support.insight_ids,
+                )
+
+        if (
+            support.interpretation_level
+            == InterpretationLevel.HYPOTHESIS
+        ):
+            if not settings.allow_hypotheses_in_report:
+                add_annotation(
+                    annotations,
+                    sentence=sentence,
+                    text_span=sentence,
+                    error_type=ErrorType.CONTEXT_ERROR,
+                    subtype="hypothesis_presented_as_conclusion",
+                    severity=Severity.HIGH,
+                    explanation=(
+                        "Hypotheses are disabled for this report."
+                    ),
+                    correction_goal="Remove the hypothesis from the report.",
+                    fact_ids=support.fact_ids,
+                    evidence_ids=support.evidence_ids,
+                    insight_ids=support.insight_ids,
+                )
+            if not mapped_hypotheses or len(mapped_hypotheses) != len(
+                support.insight_ids
+            ):
+                add_annotation(
+                    annotations,
+                    sentence=sentence,
+                    text_span=sentence,
+                    error_type=ErrorType.NOT_CHECKABLE,
+                    subtype="unlabelled_hypothesis",
+                    severity=Severity.HIGH,
+                    explanation=(
+                        "The sentence lacks valid hypothesis-only provenance."
+                    ),
+                    correction_goal=(
+                        "Map it to a hypothesis-only ledger entry or remove it."
+                    ),
+                    fact_ids=support.fact_ids,
+                    evidence_ids=support.evidence_ids,
+                    insight_ids=support.insight_ids,
+                )
+            if (
+                not HYPOTHESIS_WORDING_PATTERN.search(sentence)
+                and not sentence.strip().endswith("?")
+            ):
+                add_annotation(
+                    annotations,
+                    sentence=sentence,
+                    text_span=sentence,
+                    error_type=ErrorType.CONTEXT_ERROR,
+                    subtype="unlabelled_hypothesis",
+                    severity=Severity.HIGH,
+                    explanation=(
+                        "A hypothesis must be explicitly labelled rather than "
+                        "presented as established knowledge."
+                    ),
+                    correction_goal="Label the statement explicitly as a hypothesis.",
+                    fact_ids=support.fact_ids,
+                    evidence_ids=support.evidence_ids,
+                    insight_ids=support.insight_ids,
+                )
+            if section_headings.get(sentence, "").lower() != (
+                "questions for further investigation"
+            ):
+                add_annotation(
+                    annotations,
+                    sentence=sentence,
+                    text_span=sentence,
+                    error_type=ErrorType.CONTEXT_ERROR,
+                    subtype="hypothesis_presented_as_conclusion",
+                    severity=Severity.HIGH,
+                    explanation=(
+                        "Hypotheses may appear only in the separate Questions "
+                        "for Further Investigation section."
+                    ),
+                    correction_goal=(
+                        "Move the labelled hypothesis to the permitted section."
+                    ),
+                    fact_ids=support.fact_ids,
+                    evidence_ids=support.evidence_ids,
+                    insight_ids=support.insight_ids,
+                )
+
+        if (
+            support.interpretation_level
+            == InterpretationLevel.FINDING
+        ):
+            if support.insight_ids:
+                add_annotation(
+                    annotations,
+                    sentence=sentence,
+                    text_span=sentence,
+                    error_type=ErrorType.SUPPORT_MAPPING_ERROR,
+                    subtype="single_fact_relabelled_as_insight",
+                    severity=Severity.MEDIUM,
+                    explanation=(
+                        "A direct finding is incorrectly mapped as an insight."
+                    ),
+                    correction_goal=(
+                        "Remove the insight mapping or mark a genuinely "
+                        "verified bounded interpretation."
+                    ),
+                    fact_ids=support.fact_ids,
+                    evidence_ids=support.evidence_ids,
+                    insight_ids=support.insight_ids,
+                )
         unknown_profile_ids = [
             support_id
             for support_id in support.profile_support_ids
@@ -4057,6 +5178,14 @@ def deterministic_audit(
             for fact in supporting_facts
             for permission in fact.claim_permissions
         }
+        mapped_interpretations = [
+            *mapped_verified_insights,
+            *mapped_hypotheses,
+        ]
+        mapped_insight_text = " ".join(
+            insight.statement
+            for insight in mapped_interpretations
+        )
 
         if IMBALANCE_BIAS_PATTERN.search(sentence):
             support_text = " ".join(
@@ -4108,14 +5237,28 @@ def deterministic_audit(
         if (
             CAUSAL_PATTERN.search(sentence)
             and not negative_causal(sentence)
-            and ClaimPermission.CAUSAL not in permissions
+            and (
+                ClaimPermission.CAUSAL not in permissions
+                or (
+                    support.interpretation_level
+                    != InterpretationLevel.FINDING
+                    and not CAUSAL_PATTERN.search(
+                        mapped_insight_text
+                    )
+                )
+            )
         ):
             add_annotation(
                 annotations,
                 sentence=sentence,
                 text_span=sentence,
                 error_type=ErrorType.CONTEXT_ERROR,
-                subtype="causal_overclaim",
+                subtype=(
+                    "unsupported_causal_interpretation"
+                    if support.interpretation_level
+                    != InterpretationLevel.FINDING
+                    else "causal_overclaim"
+                ),
                 severity=Severity.CRITICAL,
                 explanation=(
                     "The sentence uses causal language without verified causal permission."
@@ -4126,12 +5269,22 @@ def deterministic_audit(
                 ),
                 fact_ids=support.fact_ids,
                 evidence_ids=support.evidence_ids,
+                insight_ids=support.insight_ids,
             )
 
         if (
             PREDICTIVE_PATTERN.search(sentence)
             and not negative_predictive(sentence)
-            and ClaimPermission.PREDICTIVE not in permissions
+            and (
+                ClaimPermission.PREDICTIVE not in permissions
+                or (
+                    support.interpretation_level
+                    != InterpretationLevel.FINDING
+                    and not PREDICTIVE_PATTERN.search(
+                        mapped_insight_text
+                    )
+                )
+            )
         ):
             add_annotation(
                 annotations,
@@ -4148,12 +5301,22 @@ def deterministic_audit(
                 ),
                 fact_ids=support.fact_ids,
                 evidence_ids=support.evidence_ids,
+                insight_ids=support.insight_ids,
             )
 
         if (
             FORECAST_PATTERN.search(sentence)
             and not negative_forecast(sentence)
-            and ClaimPermission.FORECAST not in permissions
+            and (
+                ClaimPermission.FORECAST not in permissions
+                or (
+                    support.interpretation_level
+                    != InterpretationLevel.FINDING
+                    and not FORECAST_PATTERN.search(
+                        mapped_insight_text
+                    )
+                )
+            )
         ):
             add_annotation(
                 annotations,
@@ -4171,6 +5334,75 @@ def deterministic_audit(
                 ),
                 fact_ids=support.fact_ids,
                 evidence_ids=support.evidence_ids,
+                insight_ids=support.insight_ids,
+            )
+
+        generalisation_match = DATASET_GENERALISATION_PATTERN.search(
+            sentence
+        )
+        if (
+            generalisation_match
+            and not DATASET_GENERALISATION_PATTERN.search(
+                mapped_insight_text
+            )
+        ):
+            add_annotation(
+                annotations,
+                sentence=sentence,
+                text_span=generalisation_match.group(0),
+                error_type=ErrorType.CONTEXT_ERROR,
+                subtype="insight_exceeds_verified_wording",
+                severity=Severity.HIGH,
+                explanation=(
+                    "The sentence generalises a dataset-scoped finding or "
+                    "insight beyond the analysed data."
+                ),
+                correction_goal=(
+                    "Scope the statement to this dataset and the verified "
+                    "interpretation."
+                ),
+                fact_ids=support.fact_ids,
+                evidence_ids=support.evidence_ids,
+                insight_ids=support.insight_ids,
+            )
+
+        sports_narrative_match = (
+            UNSUPPORTED_SPORTS_NARRATIVE_PATTERN.search(
+                sentence
+            )
+        )
+        support_text_for_narrative = (
+            _support_text_for_facts(
+                supporting_facts,
+                evidence,
+            )
+            + " "
+            + mapped_insight_text.lower()
+        )
+        if (
+            sports_narrative_match
+            and not UNSUPPORTED_SPORTS_NARRATIVE_PATTERN.search(
+                support_text_for_narrative
+            )
+        ):
+            add_annotation(
+                annotations,
+                sentence=sentence,
+                text_span=sports_narrative_match.group(0),
+                error_type=ErrorType.CONTEXT_ERROR,
+                subtype="unsupported_sports_narrative",
+                severity=Severity.HIGH,
+                explanation=(
+                    "The sports narrative introduces chronology, evaluation, "
+                    "or historical significance absent from verified support."
+                ),
+                correction_goal=(
+                    "Use only the supported result, performances and team "
+                    "contrasts without invented narrative context."
+                ),
+                fact_ids=support.fact_ids,
+                evidence_ids=support.evidence_ids,
+                insight_ids=support.insight_ids,
             )
 
         add_wording_guardrail_annotations(
@@ -4196,24 +5428,26 @@ def deterministic_audit(
             ].entities
         )
 
-        for backtick_entity in re.findall(r"`([^`]+)`", sentence):
-            if backtick_entity not in known_entities:
-                add_annotation(
-                    annotations,
-                    sentence=sentence,
-                    text_span=backtick_entity,
-                    error_type=ErrorType.INCORRECT_NAMED_ENTITY,
-                    subtype="unsupported_backtick_entity",
-                    severity=Severity.HIGH,
-                    explanation=(
-                        "The named entity is not present in the mapped facts."
-                    ),
-                    correction_goal=(
-                        "Use an entity present in the verified facts or remove it."
-                    ),
-                    fact_ids=support.fact_ids,
-                    evidence_ids=support.evidence_ids,
-                )
+        for backtick_entity in unsupported_backtick_entities(
+            sentence,
+            known_entities,
+        ):
+            add_annotation(
+                annotations,
+                sentence=sentence,
+                text_span=backtick_entity,
+                error_type=ErrorType.INCORRECT_NAMED_ENTITY,
+                subtype="unsupported_backtick_entity",
+                severity=Severity.HIGH,
+                explanation=(
+                    "The named entity is not present in the mapped facts."
+                ),
+                correction_goal=(
+                    "Use an entity present in the verified facts or remove it."
+                ),
+                fact_ids=support.fact_ids,
+                evidence_ids=support.evidence_ids,
+            )
 
         if not any(
             annotation.sentence == sentence
@@ -4279,6 +5513,138 @@ def deterministic_audit(
         )
         quality_recommendations.append(
             "Prioritise headline and main findings and omit weak supporting details."
+        )
+
+    used_verified_insight_ids = {
+        insight_id
+        for support in writer_output.sentence_support
+        if support.interpretation_level
+        == InterpretationLevel.BOUNDED_INSIGHT
+        for insight_id in support.insight_ids
+        if insight_id in verified_insights
+    }
+    if verified_insights and not used_verified_insight_ids:
+        quality_findings.append(
+            "The report lists findings without relating them through an "
+            "available verified insight."
+        )
+        quality_recommendations.append(
+            "Use at least one salient verified bounded insight in a main "
+            "analytical paragraph."
+        )
+
+    insights_without_implication = []
+    for insight_id in used_verified_insight_ids:
+        insight = verified_insights[insight_id]
+        mapped_sentences = [
+            support.sentence_text
+            for support in writer_output.sentence_support
+            if insight_id in support.insight_ids
+        ]
+        direct_source_texts = [
+            insight.statement,
+            *[
+                facts[fact_id].fact_summary
+                for fact_id in insight.source_fact_ids
+                if fact_id in facts
+            ],
+        ]
+        if mapped_sentences and all(
+            any(
+                materially_same_report_text(
+                    sentence,
+                    source_text,
+                )
+                for source_text in direct_source_texts
+            )
+            for sentence in mapped_sentences
+        ):
+            insights_without_implication.append(insight_id)
+
+    if insights_without_implication:
+        quality_findings.append(
+            "The report states a verified insight but does not explain its "
+            "supported analytical implication."
+        )
+        quality_recommendations.append(
+            "Use the verified `why_it_matters` content to explain why the "
+            "combined findings matter instead of restating them."
+        )
+
+    if verified_insights:
+        most_salient_insight = max(
+            verified_insights.values(),
+            key=lambda insight: (
+                insight.salience,
+                insight.confidence,
+            ),
+        )
+        if (
+            most_salient_insight.insight_id
+            not in used_verified_insight_ids
+        ):
+            quality_findings.append(
+                "The report omits the most salient verified insight."
+            )
+            quality_recommendations.append(
+                "Prioritise the most salient verified insight or explain the "
+                "selection through stronger supported content."
+            )
+
+    if (
+        len(used_verified_insight_ids)
+        > settings.max_verified_main_insights
+    ):
+        quality_findings.append(
+            "The report exceeds its configured verified insight budget."
+        )
+        quality_recommendations.append(
+            "Retain the most salient non-duplicate verified insights."
+        )
+
+    if (
+        report_specification.genre
+        in {
+            ReportGenre.EVENT_REPORT,
+            ReportGenre.SPORTS_GAME_REPORT,
+        }
+    ):
+        sports_text = writer_output.markdown.lower()
+        game_content = re.search(
+            r"\b(won|winner|score|points?|rebounds?|turnovers?|team|player)\b",
+            sports_text,
+        )
+        profile_dominant = bool(
+            re.search(
+                r"\b(columns?|schema|missingness|dtype|data type)\b",
+                sports_text,
+            )
+            and not game_content
+        )
+        if not game_content or profile_dominant:
+            quality_findings.append(
+                "The sports game report reads like a dataset profile rather "
+                "than communicating the supported result and performances."
+            )
+            quality_recommendations.append(
+                "Prioritise the supported result, salient performances and "
+                "team-level contrasts required by the selected genre."
+            )
+
+    if any(
+        annotation.subtype
+        in {
+            "unlabelled_hypothesis",
+            "hypothesis_presented_as_conclusion",
+        }
+        for annotation in annotations
+    ):
+        quality_findings.append(
+            "The report uses a hypothesis as a conclusion."
+        )
+        quality_recommendations.append(
+            "Remove the hypothesis or label it in the permitted further-"
+            "investigation section."
         )
 
     repeated_caveat_count = count_caveat_mentions(writer_output.markdown)
@@ -4583,16 +5949,71 @@ def validate_repair_candidate(
     candidate: RepairCandidate,
     fact_ledger: FactLedger,
     evidence: EvidenceLedger,
+    insight_ledger: InsightLedger | None = None,
+    allow_hypotheses_in_report: bool = False,
+    original_text: str | None = None,
 ) -> list[str]:
     errors: list[str] = []
+    insight_ledger = insight_ledger or InsightLedger(
+        synthesis_enabled=False
+    )
     facts = {
         fact.fact_id: fact
         for fact in fact_ledger.writer_ready_facts
     }
+    verified_insights = {
+        insight.insight_id: insight
+        for insight in insight_ledger.verified_insights
+    }
+    hypothesis_insights = {
+        insight.insight_id: insight
+        for insight in insight_ledger.hypothesis_only_insights
+    }
+    all_insights = {
+        **verified_insights,
+        **hypothesis_insights,
+    }
+
+    unknown_insights = [
+        insight_id
+        for insight_id in candidate.supporting_insight_ids
+        if insight_id not in all_insights
+    ]
+    if unknown_insights:
+        errors.append(
+            f"Unknown repair insight IDs: {unknown_insights}"
+        )
+        return errors
+
+    if (
+        set(candidate.supporting_insight_ids)
+        & set(hypothesis_insights)
+        and not allow_hypotheses_in_report
+    ):
+        errors.append(
+            "The replacement introduces a hypothesis while hypotheses are "
+            "disabled."
+        )
+
+    expanded_fact_ids = list(
+        dict.fromkeys(
+            [
+                *candidate.supporting_fact_ids,
+                *[
+                    fact_id
+                    for insight_id in candidate.supporting_insight_ids
+                    if insight_id in all_insights
+                    for fact_id in all_insights[
+                        insight_id
+                    ].source_fact_ids
+                ],
+            ]
+        )
+    )
 
     unknown = [
         fact_id
-        for fact_id in candidate.supporting_fact_ids
+        for fact_id in expanded_fact_ids
         if fact_id not in facts
     ]
 
@@ -4611,10 +6032,91 @@ def validate_repair_candidate(
         errors.append("Non-delete repairs require replacement text.")
         return errors
 
+    if (
+        original_text is not None
+        and " ".join(candidate.replacement_text.split())
+        == " ".join(original_text.split())
+    ):
+        errors.append(
+            "The replacement is identical to the original sentence."
+        )
+        return errors
+
     supporting_facts = [
         facts[fact_id]
-        for fact_id in candidate.supporting_fact_ids
+        for fact_id in expanded_fact_ids
     ]
+
+    replacement_hypothesis = EXPLANATORY_HYPOTHESIS_PATTERN.search(
+        candidate.replacement_text
+    )
+    supporting_hypothesis_ids = set(
+        candidate.supporting_insight_ids
+    ) & set(hypothesis_insights)
+    if replacement_hypothesis:
+        if (
+            not allow_hypotheses_in_report
+            or not supporting_hypothesis_ids
+        ):
+            errors.append(
+                "The replacement introduces an explanatory hypothesis "
+                "without permitted hypothesis-only provenance."
+            )
+        elif (
+            not HYPOTHESIS_WORDING_PATTERN.search(
+                candidate.replacement_text
+            )
+            and not candidate.replacement_text.strip().endswith("?")
+        ):
+            errors.append(
+                "The replacement does not explicitly label its hypothesis."
+            )
+
+    supporting_evidence_ids = {
+        evidence_id
+        for fact in supporting_facts
+        for evidence_id in fact.evidence_ids
+    }
+    evidence_lookup = build_evidence_lookup(evidence)
+    strength_conflicts = qualitative_strength_conflicts(
+        candidate.replacement_text,
+        [
+            evidence_lookup[evidence_id]
+            for evidence_id in supporting_evidence_ids
+            if evidence_id in evidence_lookup
+        ],
+    )
+    if strength_conflicts:
+        errors.append(
+            "The replacement uses a qualitative strength label that conflicts "
+            "with its mapped evidence: "
+            + "; ".join(strength_conflicts)
+        )
+
+    if (
+        INTERPRETIVE_SYNTHESIS_PATTERN.search(
+            candidate.replacement_text
+        )
+        and not candidate.supporting_insight_ids
+    ):
+        replacement_normalised = re.sub(
+            r"\W+",
+            " ",
+            candidate.replacement_text.lower(),
+        ).strip()
+        exact_fact_wording = {
+            re.sub(r"\W+", " ", text.lower()).strip()
+            for fact in supporting_facts
+            for text in [
+                fact.fact_summary,
+                *fact.allowed_interpretations,
+            ]
+        }
+        if replacement_normalised not in exact_fact_wording:
+            errors.append(
+                "The replacement introduces an interpretive synthesis "
+                "without a verified insight ID."
+            )
 
     support_numbers = [
         number
@@ -4639,7 +6141,19 @@ def validate_repair_candidate(
     if (
         CAUSAL_PATTERN.search(candidate.replacement_text)
         and not negative_causal(candidate.replacement_text)
-        and ClaimPermission.CAUSAL not in permissions
+        and (
+            ClaimPermission.CAUSAL not in permissions
+            or (
+                candidate.supporting_insight_ids
+                and not any(
+                    CAUSAL_PATTERN.search(
+                        all_insights[insight_id].statement
+                    )
+                    for insight_id in candidate.supporting_insight_ids
+                    if insight_id in all_insights
+                )
+            )
+        )
     ):
         errors.append(
             "The replacement introduces unsupported causal language."
@@ -4648,7 +6162,19 @@ def validate_repair_candidate(
     if (
         PREDICTIVE_PATTERN.search(candidate.replacement_text)
         and not negative_predictive(candidate.replacement_text)
-        and ClaimPermission.PREDICTIVE not in permissions
+        and (
+            ClaimPermission.PREDICTIVE not in permissions
+            or (
+                candidate.supporting_insight_ids
+                and not any(
+                    PREDICTIVE_PATTERN.search(
+                        all_insights[insight_id].statement
+                    )
+                    for insight_id in candidate.supporting_insight_ids
+                    if insight_id in all_insights
+                )
+            )
+        )
     ):
         errors.append(
             "The replacement introduces unsupported predictive language."
@@ -4657,10 +6183,54 @@ def validate_repair_candidate(
     if (
         FORECAST_PATTERN.search(candidate.replacement_text)
         and not negative_forecast(candidate.replacement_text)
-        and ClaimPermission.FORECAST not in permissions
+        and (
+            ClaimPermission.FORECAST not in permissions
+            or (
+                candidate.supporting_insight_ids
+                and not any(
+                    FORECAST_PATTERN.search(
+                        all_insights[insight_id].statement
+                    )
+                    for insight_id in candidate.supporting_insight_ids
+                    if insight_id in all_insights
+                )
+            )
+        )
     ):
         errors.append(
             "The replacement introduces unsupported forecast language."
+        )
+
+    if (
+        DATASET_GENERALISATION_PATTERN.search(
+            candidate.replacement_text
+        )
+        and not any(
+            DATASET_GENERALISATION_PATTERN.search(
+                all_insights[insight_id].statement
+            )
+            for insight_id in candidate.supporting_insight_ids
+            if insight_id in all_insights
+        )
+    ):
+        errors.append(
+            "The replacement generalises beyond its verified support."
+        )
+
+    if (
+        INSIGHT_OVERSTATEMENT_PATTERN.search(
+            candidate.replacement_text
+        )
+        and not any(
+            INSIGHT_OVERSTATEMENT_PATTERN.search(
+                all_insights[insight_id].statement
+            )
+            for insight_id in candidate.supporting_insight_ids
+            if insight_id in all_insights
+        )
+    ):
+        errors.append(
+            "The replacement is stronger than its verified insight wording."
         )
 
     known_entities = {
@@ -4669,14 +6239,15 @@ def validate_repair_candidate(
         for entity in fact.entities
     }
 
-    for entity in re.findall(
-        r"`([^`]+)`",
+    unsupported_entities = unsupported_backtick_entities(
         candidate.replacement_text,
-    ):
-        if entity not in known_entities:
-            errors.append(
-                f"Unsupported named entity in replacement: {entity}"
-            )
+        known_entities,
+    )
+    if unsupported_entities:
+        errors.append(
+            "Unsupported named entities in replacement: "
+            f"{unsupported_entities}"
+        )
 
     return errors
 
@@ -4686,7 +6257,12 @@ def apply_repair_proposal(
     proposal: AuditRepairProposal,
     fact_ledger: FactLedger,
     evidence: EvidenceLedger,
+    insight_ledger: InsightLedger | None = None,
+    allow_hypotheses_in_report: bool = False,
 ) -> tuple[WriterOutput, list[ReportPatch]]:
+    insight_ledger = insight_ledger or InsightLedger(
+        synthesis_enabled=False
+    )
     markdown = writer_output.markdown
     support_map = list(writer_output.sentence_support)
     patches: list[ReportPatch] = []
@@ -4744,6 +6320,9 @@ def apply_repair_proposal(
                 candidate,
                 fact_ledger,
                 evidence,
+                insight_ledger,
+                allow_hypotheses_in_report,
+                original_text=original,
             ):
                 selected = candidate
                 break
@@ -4768,32 +6347,131 @@ def apply_repair_proposal(
 
         if existing_support is not None:
             support_map.remove(existing_support)
+            support_by_sentence.pop(original, None)
 
         if replacement.strip():
             supporting_facts = {
                 fact.fact_id: fact
                 for fact in fact_ledger.writer_ready_facts
             }
-
-            replacement_evidence = list(
+            main_insights = {
+                insight.insight_id: insight
+                for insight in insight_ledger.verified_insights
+            }
+            hypothesis_insights = {
+                insight.insight_id: insight
+                for insight in insight_ledger.hypothesis_only_insights
+            }
+            all_insights = {
+                **main_insights,
+                **hypothesis_insights,
+            }
+            replacement_fact_ids = list(
                 dict.fromkeys(
-                    evidence_id
-                    for fact_id in selected.supporting_fact_ids
-                    if fact_id in supporting_facts
-                    for evidence_id in supporting_facts[fact_id].evidence_ids
+                    [
+                        *selected.supporting_fact_ids,
+                        *[
+                            fact_id
+                            for insight_id in selected.supporting_insight_ids
+                            if insight_id in all_insights
+                            for fact_id in all_insights[
+                                insight_id
+                            ].source_fact_ids
+                        ],
+                    ]
                 )
             )
 
-            new_support = SentenceSupport(
-                sentence_id=repair.sentence_id,
-                sentence_text=replacement,
-                fact_ids=selected.supporting_fact_ids,
-                evidence_ids=replacement_evidence,
-                support_type=SupportType.PARAPHRASE,
+            replacement_evidence = list(
+                dict.fromkeys(
+                    [
+                        *[
+                            evidence_id
+                            for fact_id in replacement_fact_ids
+                            if fact_id in supporting_facts
+                            for evidence_id in supporting_facts[
+                                fact_id
+                            ].evidence_ids
+                        ],
+                        *[
+                            evidence_id
+                            for insight_id in selected.supporting_insight_ids
+                            if insight_id in all_insights
+                            for evidence_id in all_insights[
+                                insight_id
+                            ].source_evidence_ids
+                        ],
+                    ]
+                )
             )
+            replacement_level = InterpretationLevel.FINDING
+            if set(selected.supporting_insight_ids) & set(
+                hypothesis_insights
+            ):
+                replacement_level = InterpretationLevel.HYPOTHESIS
+            elif set(selected.supporting_insight_ids) & set(
+                main_insights
+            ):
+                replacement_level = InterpretationLevel.BOUNDED_INSIGHT
 
-            support_map.append(new_support)
-            support_by_sentence[replacement] = new_support
+            replacement_sentences = (
+                split_markdown_sentences(replacement)
+                or [replacement]
+            )
+            used_sentence_ids = {
+                support.sentence_id
+                for support in support_map
+            }
+            numeric_sentence_ids = [
+                int(match.group(1))
+                for support in support_map
+                if (
+                    match := re.fullmatch(
+                        r"SENT_(\d+)",
+                        support.sentence_id,
+                    )
+                )
+            ]
+            next_sentence_number = max(
+                numeric_sentence_ids,
+                default=0,
+            ) + 1
+
+            for index, replacement_sentence in enumerate(
+                replacement_sentences
+            ):
+                sentence_id = repair.sentence_id
+                if index > 0 or sentence_id in used_sentence_ids:
+                    while (
+                        f"SENT_{next_sentence_number:04d}"
+                        in used_sentence_ids
+                    ):
+                        next_sentence_number += 1
+                    sentence_id = (
+                        f"SENT_{next_sentence_number:04d}"
+                    )
+                    next_sentence_number += 1
+
+                new_support = SentenceSupport(
+                    sentence_id=sentence_id,
+                    sentence_text=replacement_sentence,
+                    fact_ids=replacement_fact_ids,
+                    evidence_ids=replacement_evidence,
+                    insight_ids=selected.supporting_insight_ids,
+                    interpretation_level=replacement_level,
+                    support_type=(
+                        SupportType.MULTI_FACT_SYNTHESIS
+                        if replacement_level
+                        != InterpretationLevel.FINDING
+                        else SupportType.PARAPHRASE
+                    ),
+                )
+
+                support_map.append(new_support)
+                support_by_sentence[
+                    replacement_sentence
+                ] = new_support
+                used_sentence_ids.add(sentence_id)
 
         patches.append(
             ReportPatch(

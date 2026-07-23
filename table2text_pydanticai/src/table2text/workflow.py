@@ -14,18 +14,25 @@ from .agents import (
     build_auditor_agent,
     build_data_understanding_agent,
     build_evidence_agent,
+    build_insight_synthesis_agent,
+    build_insight_verifier_agent,
     build_orchestrator_agent,
     build_verifier_agent,
     build_writer_agent,
+    empty_insight_ledger,
+    event_report_requested,
     fallback_execution_plan,
     fallback_understanding,
+    materialise_insight_ledger,
 )
 from .analytics import execute_plan
+from .capabilities import available_capabilities
 from .audit import (
     accept_writer_quality_revision,
     apply_repair_proposal,
     apply_support_map_patches,
     assess_report_component_coverage,
+    assess_genre_quality,
     augment_fact_ledger_for_report_coverage,
     assess_report_components,
     build_profile_support_registry,
@@ -41,6 +48,7 @@ from .audit import (
     json_safe,
     materialise_writer_output,
     merge_audit_proposal,
+    normalise_strength_label,
     validate_writer_output,
 )
 from .config import Settings
@@ -51,13 +59,22 @@ from .schemas import (
     AuditRepairProposal,
     AuditReport,
     DataUnderstanding,
+    EvaluationFieldPolicy,
+    EvidenceCapability,
     ExecutionPlan,
     ExternalTruthSource,
     FactCandidateSet,
+    FactLedger,
+    InsightCandidateSet,
+    InsightLedger,
+    InsightVerificationResult,
     PipelineResult,
     ProfileSupportRecord,
     QualityStatus,
     ReportComponent,
+    ReportGenre,
+    ReportSelectionSource,
+    InputRepresentationStatus,
     ReleaseStatus,
     RunManifest,
     VerificationResult,
@@ -97,6 +114,190 @@ def infer_required_report_components(
     return []
 
 
+EVENT_GENRES = {
+    ReportGenre.EVENT_REPORT,
+    ReportGenre.SPORTS_GAME_REPORT,
+}
+EVENT_CAPABILITIES = {
+    EvidenceCapability.EVENT_OUTCOME,
+    EvidenceCapability.ENTITY_PERFORMANCE,
+    EvidenceCapability.RANKING,
+    EvidenceCapability.GROUP_COMPARISON,
+}
+
+
+def resolve_report_genre(
+    *,
+    request: str,
+    planned_genre: ReportGenre,
+    configured_genre: ReportGenre | None,
+) -> tuple[ReportGenre, ReportSelectionSource, float]:
+    if event_report_requested(request):
+        return (
+            ReportGenre.EVENT_REPORT,
+            ReportSelectionSource.EXPLICIT_USER_REQUEST,
+            1.0,
+        )
+    if re.search(r"\bdata[- ]science report\b", request, re.IGNORECASE):
+        return (
+            ReportGenre.DATA_SCIENCE_REPORT,
+            ReportSelectionSource.EXPLICIT_USER_REQUEST,
+            1.0,
+        )
+    if re.search(r"\bdataset overview\b", request, re.IGNORECASE):
+        return (
+            ReportGenre.DATASET_OVERVIEW,
+            ReportSelectionSource.EXPLICIT_USER_REQUEST,
+            1.0,
+        )
+    if configured_genre is not None:
+        return (
+            configured_genre,
+            ReportSelectionSource.EXPERIMENT_CONFIGURATION,
+            1.0,
+        )
+
+    if re.search(
+        r"\b(understand|explore|strongest findings|key findings|"
+        r"report (?:its |the )?findings)\b",
+        request,
+        re.IGNORECASE,
+    ):
+        return (
+            ReportGenre.DATA_SCIENCE_REPORT,
+            ReportSelectionSource.FALLBACK,
+            0.8,
+        )
+
+    if planned_genre in EVENT_GENRES:
+        return (
+            ReportGenre.DATA_SCIENCE_REPORT,
+            ReportSelectionSource.FALLBACK,
+            0.8,
+        )
+    return (
+        planned_genre,
+        ReportSelectionSource.STRUCTURED_INFERENCE,
+        0.85,
+    )
+
+
+def report_contract_fields(
+    genre: ReportGenre,
+) -> dict[str, Any]:
+    if genre in EVENT_GENRES:
+        return {
+            "communication_goal": (
+                "Communicate the verified event result, leading performances "
+                "and major participant contrasts."
+            ),
+            "preferred_sections": [
+                "Event result",
+                "Leading performances",
+                "Main contrasts",
+                "Limitations",
+            ],
+            "required_components": [
+                ReportComponent.DATASET_OVERVIEW,
+                ReportComponent.STRONGEST_RELATIONSHIPS,
+                ReportComponent.LIMITATIONS_NEXT_STEPS,
+            ],
+            "required_content_slots": [
+                "event_result",
+                "leading_performance",
+                "main_contrast",
+            ],
+            "optional_content_slots": [
+                "event_status",
+                "secondary_performance",
+            ],
+            "prohibited_claim_types": [
+                "unsupported_chronology",
+                "unsupported_milestone",
+                "unsupported_historical_significance",
+            ],
+        }
+
+    if genre == ReportGenre.DATASET_OVERVIEW:
+        return {
+            "required_content_slots": ["dataset_scope"],
+            "optional_content_slots": ["material_data_quality_issue"],
+            "prohibited_claim_types": ["unsupported_causality"],
+        }
+
+    return {
+        "required_content_slots": [
+            "dataset_scope",
+            "material_data_quality_issue",
+            "strongest_analytical_finding",
+            "limitation",
+        ],
+        "optional_content_slots": [],
+        "prohibited_claim_types": ["unsupported_causality"],
+    }
+
+
+def add_event_capability_tasks(
+    *,
+    plan: ExecutionPlan,
+    request: str,
+    profile: Any,
+    audit_mode: AuditMode,
+    settings: Settings,
+    input_structure: Any,
+    capabilities: list[EvidenceCapability],
+    genre: ReportGenre,
+) -> ExecutionPlan:
+    if genre not in EVENT_GENRES:
+        return plan
+
+    event_fallback = fallback_execution_plan(
+        request,
+        profile,
+        audit_mode,
+        settings,
+        input_structure=input_structure,
+        available_capabilities=capabilities,
+        report_genre_override=genre,
+    )
+    existing_capabilities = {
+        task.capability
+        for task in plan.tasks
+        if task.capability is not None
+    }
+    additional_tasks = [
+        task.model_copy(
+            update={
+                "task_id": (
+                    "TASK_CAPABILITY_"
+                    + task.capability.value.upper()
+                )
+            }
+        )
+        for task in event_fallback.tasks
+        if task.capability in EVENT_CAPABILITIES
+        and task.capability not in existing_capabilities
+    ]
+    tasks = [*plan.tasks, *additional_tasks]
+    route_order = list(
+        dict.fromkeys(
+            [
+                *plan.route_order,
+                *[
+                    task.route
+                    for task in additional_tasks
+                ],
+            ]
+        )
+    )
+    return plan.model_copy(
+        update={
+            "tasks": tasks,
+            "route_order": route_order,
+        }
+    )
+
+
 def exception_cause_chain(
     error: BaseException,
 ) -> list[str]:
@@ -128,11 +329,56 @@ def exception_cause_chain(
 
 def build_compact_writer_payload(
     pack: WriterEvidencePack,
+    allow_hypotheses_in_report: bool = False,
 ) -> dict[str, Any]:
+    facts_by_id = {
+        fact.fact_id: fact
+        for fact in [
+            *pack.priority_facts,
+            *pack.supporting_facts,
+            *pack.limitation_facts,
+        ]
+    }
+    evidence_by_id = {
+        item.evidence_id: item
+        for item in pack.evidence_ledger.items
+    }
+    strength_labels_by_fact_id = {
+        fact_id: list(
+            dict.fromkeys(
+                normalise_strength_label(
+                    evidence_by_id[evidence_id].strength_label
+                )
+                for evidence_id in fact.evidence_ids
+                if evidence_id in evidence_by_id
+            )
+        )
+        for fact_id, fact in facts_by_id.items()
+    }
+
     return {
         "user_request": pack.user_request,
         "report_specification": (
             pack.report_specification
+        ),
+        "genre": pack.report_specification.genre,
+        "audience": pack.report_specification.audience,
+        "perspective": pack.report_specification.perspective,
+        "communication_goal": (
+            pack.report_specification.communication_goal
+        ),
+        "input_structure": pack.input_structure,
+        "available_capabilities": pack.available_capabilities,
+        "priority_verified_insights": (
+            pack.priority_verified_insights
+        ),
+        "supporting_verified_insights": (
+            pack.supporting_verified_insights
+        ),
+        "hypothesis_only_insights": (
+            pack.insight_ledger.hypothesis_only_insights
+            if allow_hypotheses_in_report
+            else []
         ),
         "priority_facts": (
             pack.priority_facts
@@ -142,6 +388,9 @@ def build_compact_writer_payload(
         ),
         "limitation_facts": (
             pack.limitation_facts
+        ),
+        "verified_strength_labels_by_fact_id": (
+            strength_labels_by_fact_id
         ),
         "analytical_recommendations": (
             pack.analytical_recommendations
@@ -153,6 +402,60 @@ def build_compact_writer_payload(
             pack
             .internal_prohibited_interpretations
         ),
+    }
+
+
+def build_compact_insight_payload(
+    *,
+    request: str,
+    plan: ExecutionPlan,
+    fact_ledger: FactLedger,
+    evidence_ledger: Any,
+    settings: Settings,
+) -> dict[str, Any]:
+    referenced_evidence_ids = {
+        evidence_id
+        for fact in fact_ledger.writer_ready_facts
+        for evidence_id in fact.evidence_ids
+    }
+    referenced_evidence = [
+        item
+        for item in evidence_ledger.items
+        if item.evidence_id in referenced_evidence_ids
+    ]
+
+    return {
+        "user_request": request,
+        "report_specification": plan.report_specification,
+        "frozen_insight_objectives": plan.insight_objectives,
+        "writer_ready_verified_facts": fact_ledger.writer_ready_facts,
+        "referenced_deterministic_evidence": referenced_evidence,
+        "analytical_recommendations": [
+            recommendation
+            for item in referenced_evidence
+            for recommendation in item.recommendations
+        ],
+        "prohibited_interpretations": list(
+            dict.fromkeys(
+                interpretation
+                for fact in fact_ledger.writer_ready_facts
+                for interpretation in fact.prohibited_interpretations
+            )
+        ),
+        "limits": {
+            "max_insight_candidates": settings.max_insight_candidates,
+            "max_verified_main_insights": (
+                settings.max_verified_main_insights
+            ),
+            "min_facts_per_bounded_insight": (
+                settings.min_facts_per_bounded_insight
+            ),
+            "min_insight_confidence": settings.min_insight_confidence,
+            "min_insight_salience": settings.min_insight_salience,
+            "allow_hypotheses_in_report": (
+                settings.allow_hypotheses_in_report
+            ),
+        },
     }
 
 
@@ -219,6 +522,10 @@ def build_writer_quality_revision_prompt(
         "Prohibited Interpretations.\n"
         "Use natural data-science prose and consolidate shared caveats.\n"
         "Prefer strong and moderate evidence over small effects.\n"
+        "Preserve each supplied qualitative strength classification exactly "
+        "and consistently.\n"
+        "Do not turn a possible explanation into an ordinary next step; it is "
+        "a hypothesis and must follow the configured hypothesis policy.\n"
         "Return structured sections and sentences only. Do not return "
         "Markdown or a separate support map; the controller will create both "
         "deterministically.\n"
@@ -250,7 +557,8 @@ def build_writer_quality_revision_prompt(
         + "\n\nCompact Writer evidence pack:\n"
         + compact_json(
             build_compact_writer_payload(
-                writer_pack
+                writer_pack,
+                settings.allow_hypotheses_in_report,
             )
         )
         + "\n\nCurrent Writer output:\n"
@@ -319,6 +627,8 @@ class Table2TextWorkflow:
         self.orchestrator_agent = None
         self.evidence_agent = None
         self.verifier_agent = None
+        self.evidence_insight_synthesis_agent = None
+        self.verifier_insight_verification_agent = None
         self.writer_agent = None
         self.auditor_agent = None
 
@@ -329,6 +639,12 @@ class Table2TextWorkflow:
             self.orchestrator_agent = build_orchestrator_agent(self.settings)
             self.evidence_agent = build_evidence_agent(self.settings)
             self.verifier_agent = build_verifier_agent(self.settings)
+            self.evidence_insight_synthesis_agent = (
+                build_insight_synthesis_agent(self.settings)
+            )
+            self.verifier_insight_verification_agent = (
+                build_insight_verifier_agent(self.settings)
+            )
             self.writer_agent = build_writer_agent(self.settings)
             self.auditor_agent = build_auditor_agent(self.settings)
 
@@ -390,6 +706,49 @@ class Table2TextWorkflow:
             )
             return fallback()
 
+    async def run_optional_insight_agent(
+        self,
+        *,
+        stage: str,
+        agent: Any,
+        prompt: str,
+        dependencies: AgentDependencies,
+        store: ArtifactStore,
+    ) -> tuple[Any | None, str | None]:
+        if not self.settings.use_llm or agent is None:
+            reason = "LLM execution disabled"
+            store.trace(
+                stage,
+                "skipped",
+                {"reason": reason},
+            )
+            return None, reason
+
+        try:
+            result = await agent.run(
+                prompt,
+                deps=dependencies,
+                usage_limits=self.usage_limits(),
+            )
+            usage = getattr(result, "usage", None)
+            store.trace(
+                stage,
+                "completed",
+                {"usage": str(usage)},
+            )
+            return result.output, None
+        except Exception as error:
+            reason = f"{type(error).__name__}: {error}"
+            store.trace(
+                stage,
+                "fallback",
+                {
+                    "reason": reason,
+                    "cause_chain": exception_cause_chain(error),
+                },
+            )
+            return None, reason
+
     async def audit_once(
         self,
         *,
@@ -397,6 +756,7 @@ class Table2TextWorkflow:
         writer_output: WriterOutput,
         fact_ledger: Any,
         evidence_ledger: Any,
+        insight_ledger: InsightLedger,
         profile_support_records: list[
             ProfileSupportRecord
         ],
@@ -417,6 +777,7 @@ class Table2TextWorkflow:
             report_specification=plan.report_specification,
             settings=self.settings,
             profile_support_records=profile_support_records,
+            insight_ledger=insight_ledger,
         )
 
         if revision_round == 0:
@@ -479,6 +840,7 @@ class Table2TextWorkflow:
             report_specification=plan.report_specification,
             settings=self.settings,
             profile_support_records=profile_support_records,
+            insight_ledger=insight_ledger,
         ).model_copy(
             update={
                 "support_map_patches": (
@@ -512,6 +874,8 @@ class Table2TextWorkflow:
             + compact_json(fact_ledger)
             + "\n\nEvidence ledger:\n"
             + compact_json(evidence_ledger)
+            + "\n\nVerified insight ledger:\n"
+            + compact_json(insight_ledger)
             + "\n\nDeterministic profile support registry:\n"
             + compact_json(profile_support_records)
             + "\n\nDeterministic pre-audit:\n"
@@ -531,6 +895,13 @@ class Table2TextWorkflow:
                 run_id=run_id,
                 payload={
                     "report_text": profile_patched_output.markdown,
+                    "fact_ledger": fact_ledger.model_dump(mode="json"),
+                    "evidence_ledger": evidence_ledger.model_dump(
+                        mode="json"
+                    ),
+                    "insight_ledger": insight_ledger.model_dump(
+                        mode="json"
+                    ),
                     "valid_fact_ids": [
                         fact.fact_id
                         for fact in fact_ledger.writer_ready_facts
@@ -543,6 +914,52 @@ class Table2TextWorkflow:
                         record.support_id
                         for record in profile_support_records
                     ],
+                    "valid_insight_ids": [
+                        insight.insight_id
+                        for insight in insight_ledger.verified_insights
+                    ],
+                    "verified_main_insight_ids": [
+                        insight.insight_id
+                        for insight in insight_ledger.verified_insights
+                    ],
+                    "hypothesis_only_insight_ids": [
+                        insight.insight_id
+                        for insight in (
+                            insight_ledger.hypothesis_only_insights
+                        )
+                    ],
+                    "insight_statements": {
+                        insight.insight_id: insight.statement
+                        for insight in [
+                            *insight_ledger.verified_insights,
+                            *insight_ledger.hypothesis_only_insights,
+                        ]
+                    },
+                    "insight_source_fact_ids": {
+                        insight.insight_id: insight.source_fact_ids
+                        for insight in [
+                            *insight_ledger.verified_insights,
+                            *insight_ledger.hypothesis_only_insights,
+                        ]
+                    },
+                    "insight_source_evidence_ids": {
+                        insight.insight_id: insight.source_evidence_ids
+                        for insight in [
+                            *insight_ledger.verified_insights,
+                            *insight_ledger.hypothesis_only_insights,
+                        ]
+                    },
+                    "sentence_insight_ids": {
+                        support.sentence_text: support.insight_ids
+                        for support in profile_patched_output.sentence_support
+                    },
+                    "allow_hypotheses_in_report": (
+                        self.settings.allow_hypotheses_in_report
+                    ),
+                    "report_genre": plan.report_specification.genre.value,
+                    "report_perspective": (
+                        plan.report_specification.perspective.value
+                    ),
                     "deterministic_annotation_ids": (
                         deterministic_annotation_ids
                     ),
@@ -573,10 +990,25 @@ class Table2TextWorkflow:
         *,
         audit_mode: AuditMode = AuditMode.INTERNAL,
         external_truth_sources: list[ExternalTruthSource] | None = None,
+        evaluation_field_policy: EvaluationFieldPolicy | None = None,
+        report_genre: ReportGenre | None = None,
     ) -> PipelineResult:
         external_truth_sources = external_truth_sources or []
 
-        data_bundle = load_data(inputs)
+        data_bundle = load_data(
+            inputs,
+            evaluation_field_policy=evaluation_field_policy,
+        )
+        input_structure = data_bundle.input_structure
+        capabilities = available_capabilities(data_bundle)
+        representation_eligible = bool(
+            input_structure
+            and input_structure.representation_status
+            in {
+                InputRepresentationStatus.VALID,
+                InputRepresentationStatus.VALID_WITH_WARNINGS,
+            }
+        )
         profile = profile_data(data_bundle)
         profile_support_records = (
             build_profile_support_registry(
@@ -591,6 +1023,13 @@ class Table2TextWorkflow:
             self.settings.output_dir,
             run_id,
         )
+
+        store.save_json("00_input_structure.json", input_structure)
+        store.save_json(
+            "00_evaluation_field_policy.json",
+            data_bundle.evaluation_field_policy,
+        )
+        store.save_json("00_available_capabilities.json", capabilities)
 
         models = {
             role: self.settings.model_for(role)
@@ -616,6 +1055,16 @@ class Table2TextWorkflow:
             use_llm=self.settings.use_llm,
             audit_mode=audit_mode,
             models=models,
+            input_representation_status=(
+                input_structure.representation_status
+                if input_structure is not None
+                else InputRepresentationStatus.INVALID
+            ),
+            report_genre=(
+                ReportGenre.EVENT_REPORT
+                if event_report_requested(request)
+                else report_genre or ReportGenre.DATA_SCIENCE_REPORT
+            ),
         )
 
         store.save_json("00_manifest.json", manifest)
@@ -642,6 +1091,9 @@ class Table2TextWorkflow:
             agent=self.data_understanding_agent,
             prompt=(
                 "Create a data understanding and analytical-risk report.\n\n"
+                "Input structure:\n"
+                + compact_json(input_structure)
+                + "\n\nSanitized data profile:\n"
                 + compact_json(profile)
             ),
             dependencies=AgentDependencies(
@@ -650,6 +1102,11 @@ class Table2TextWorkflow:
                     "fingerprint": profile.fingerprint,
                     "table_names": table_names,
                     "columns": columns,
+                    "input_structure": (
+                        input_structure.model_dump(mode="json")
+                        if input_structure is not None
+                        else None
+                    ),
                 },
             ),
             fallback=lambda: fallback_understanding(profile),
@@ -668,6 +1125,12 @@ class Table2TextWorkflow:
                 + compact_json(profile)
                 + "\n\nData understanding:\n"
                 + compact_json(understanding)
+                + "\n\nInput structure:\n"
+                + compact_json(input_structure)
+                + "\n\nAvailable evidence capabilities:\n"
+                + compact_json(capabilities)
+                + "\n\nConfigured report genre override:\n"
+                + (report_genre.value if report_genre else "none")
                 + "\n\nAudit mode:\n"
                 + audit_mode.value
             ),
@@ -680,6 +1143,17 @@ class Table2TextWorkflow:
                     "allow_experimental_targets": (
                         self.settings.allow_experimental_targets
                     ),
+                    "available_capabilities": [
+                        capability.value
+                        for capability in capabilities
+                    ],
+                    "event_genre_allowed": (
+                        event_report_requested(request)
+                        or report_genre in EVENT_GENRES
+                    ),
+                    "enable_insight_synthesis": (
+                        self.settings.enable_insight_synthesis
+                    ),
                 },
             ),
             fallback=lambda: fallback_execution_plan(
@@ -687,15 +1161,35 @@ class Table2TextWorkflow:
                 profile,
                 audit_mode,
                 self.settings,
+                input_structure=input_structure,
+                available_capabilities=capabilities,
+                report_genre_override=report_genre,
             ),
             store=store,
         )
 
         plan = ExecutionPlan.model_validate(plan)
-        required_components = infer_required_report_components(request)
+        (
+            selected_genre,
+            selection_source,
+            selection_confidence,
+        ) = resolve_report_genre(
+            request=request,
+            planned_genre=plan.report_specification.genre,
+            configured_genre=report_genre,
+        )
+        contract_fields = report_contract_fields(selected_genre)
+        required_components = (
+            contract_fields.get("required_components", [])
+            if selected_genre in EVENT_GENRES
+            else infer_required_report_components(request)
+        )
         report_specification = plan.report_specification.model_copy(
             update={
                 "report_purpose": request,
+                "genre": selected_genre,
+                "selection_source": selection_source,
+                "selection_confidence": selection_confidence,
                 "required_components": list(
                     dict.fromkeys(
                         [
@@ -703,22 +1197,60 @@ class Table2TextWorkflow:
                             *required_components,
                         ]
                     )
-                )
+                ),
+                **contract_fields,
             }
         )
+        selected_capabilities = [
+            capability
+            for capability in capabilities
+            if (
+                selected_genre not in EVENT_GENRES
+                or capability
+                in {
+                    EvidenceCapability.DATASET_PROFILE,
+                    *EVENT_CAPABILITIES,
+                }
+            )
+        ]
         plan = plan.model_copy(
             update={
                 "objective": request,
                 "report_specification": report_specification,
+                "available_capabilities": capabilities,
+                "selected_capabilities": selected_capabilities,
                 "audit_mode": audit_mode,
                 "revision_limit": min(
                     plan.revision_limit,
                     self.settings.max_revision_rounds,
                 ),
+                "insight_objectives": (
+                    plan.insight_objectives
+                    if self.settings.enable_insight_synthesis
+                    else []
+                ),
                 "frozen": True,
             }
         )
+        plan = add_event_capability_tasks(
+            plan=plan,
+            request=request,
+            profile=profile,
+            audit_mode=audit_mode,
+            settings=self.settings,
+            input_structure=input_structure,
+            capabilities=capabilities,
+            genre=selected_genre,
+        )
+        manifest = manifest.model_copy(
+            update={"report_genre": selected_genre}
+        )
+        store.save_json("00_manifest.json", manifest)
         store.save_json("03_execution_plan.json", plan)
+        store.save_json(
+            "03_insight_objectives.json",
+            plan.insight_objectives,
+        )
 
         evidence_ledger = execute_plan(
             data_bundle,
@@ -849,6 +1381,237 @@ class Table2TextWorkflow:
             fact_ledger,
         )
 
+        insight_candidates = InsightCandidateSet()
+        insight_verification = InsightVerificationResult()
+
+        if not self.settings.enable_insight_synthesis:
+            insight_ledger = empty_insight_ledger(
+                synthesis_enabled=False,
+                fallback_reason=(
+                    "Insight synthesis disabled by configuration."
+                ),
+            )
+            store.trace(
+                "evidence.insight_synthesis",
+                "skipped",
+                {"reason": insight_ledger.fallback_reason},
+            )
+            store.trace(
+                "verifier.insight_verification",
+                "skipped",
+                {"reason": insight_ledger.fallback_reason},
+            )
+        elif not self.settings.use_llm:
+            insight_ledger = empty_insight_ledger(
+                synthesis_enabled=True,
+                fallback_reason=(
+                    "LLM execution disabled; the workflow continued through "
+                    "the existing fact-led Writer path."
+                ),
+            )
+            store.trace(
+                "evidence.insight_synthesis",
+                "skipped",
+                {"reason": "LLM execution disabled"},
+            )
+            store.trace(
+                "verifier.insight_verification",
+                "skipped",
+                {"reason": "LLM execution disabled"},
+            )
+        else:
+            insight_payload = build_compact_insight_payload(
+                request=request,
+                plan=plan,
+                fact_ledger=fact_ledger,
+                evidence_ledger=evidence_ledger,
+                settings=self.settings,
+            )
+            raw_insight_candidates, synthesis_error = (
+                await self.run_optional_insight_agent(
+                    stage="evidence.insight_synthesis",
+                    agent=self.evidence_insight_synthesis_agent,
+                    prompt=(
+                        "Perform the Evidence Analyst's second bounded "
+                        "synthesis pass. Use only this compact package and "
+                        "return structured insight candidates.\n\n"
+                        + compact_json(insight_payload)
+                    ),
+                    dependencies=AgentDependencies(
+                        run_id=run_id,
+                        payload={
+                            "fact_ledger": fact_ledger.model_dump(
+                                mode="json"
+                            ),
+                            "evidence_ledger": evidence_ledger.model_dump(
+                                mode="json"
+                            ),
+                        },
+                    ),
+                    store=store,
+                )
+            )
+
+            if synthesis_error is not None:
+                insight_ledger = empty_insight_ledger(
+                    synthesis_enabled=True,
+                    fallback_reason=(
+                        "Evidence Analyst second-pass insight synthesis "
+                        f"failed: {synthesis_error}"
+                    ),
+                )
+            else:
+                try:
+                    insight_candidates = InsightCandidateSet.model_validate(
+                        raw_insight_candidates
+                    )
+                except Exception as error:
+                    insight_ledger = empty_insight_ledger(
+                        synthesis_enabled=True,
+                        fallback_reason=(
+                            "Evidence Analyst second-pass output remained "
+                            "invalid: "
+                            f"{type(error).__name__}: {error}"
+                        ),
+                    )
+                else:
+                    if not insight_candidates.candidates:
+                        insight_ledger = empty_insight_ledger(
+                            synthesis_enabled=True,
+                            fallback_reason=(
+                                "Evidence Analyst second pass returned no "
+                                "bounded insight candidates."
+                            ),
+                        )
+                    else:
+                        referenced_evidence_ids = {
+                            evidence_id
+                            for candidate in insight_candidates.candidates
+                            for evidence_id in candidate.source_evidence_ids
+                        }
+                        referenced_evidence_ids.update(
+                            evidence_id
+                            for fact in fact_ledger.writer_ready_facts
+                            if fact.fact_id
+                            in {
+                                fact_id
+                                for candidate in insight_candidates.candidates
+                                for fact_id in candidate.source_fact_ids
+                            }
+                            for evidence_id in fact.evidence_ids
+                        )
+                        verifier_evidence = [
+                            item
+                            for item in evidence_ledger.items
+                            if item.evidence_id
+                            in referenced_evidence_ids
+                        ]
+                        raw_insight_verification, verifier_error = (
+                            await self.run_optional_insight_agent(
+                                stage="verifier.insight_verification",
+                                agent=(
+                                    self.verifier_insight_verification_agent
+                                ),
+                                prompt=(
+                                    "Perform the Fact Verifier's second-pass "
+                                    "review of every bounded insight candidate."
+                                    "\n\nCandidates:\n"
+                                    + compact_json(insight_candidates)
+                                    + "\n\nWriter-ready facts:\n"
+                                    + compact_json(
+                                        fact_ledger.writer_ready_facts
+                                    )
+                                    + "\n\nReferenced deterministic evidence:\n"
+                                    + compact_json(verifier_evidence)
+                                    + "\n\nReport specification:\n"
+                                    + compact_json(
+                                        plan.report_specification
+                                    )
+                                ),
+                                dependencies=AgentDependencies(
+                                    run_id=run_id,
+                                    payload={
+                                        "insight_candidates": (
+                                            insight_candidates.model_dump(
+                                                mode="json"
+                                            )
+                                        ),
+                                        "fact_ledger": fact_ledger.model_dump(
+                                            mode="json"
+                                        ),
+                                        "evidence_ledger": (
+                                            evidence_ledger.model_dump(
+                                                mode="json"
+                                            )
+                                        ),
+                                    },
+                                ),
+                                store=store,
+                            )
+                        )
+
+                        if verifier_error is not None:
+                            insight_ledger = empty_insight_ledger(
+                                synthesis_enabled=True,
+                                fallback_reason=(
+                                    "Fact Verifier second-pass insight review "
+                                    f"failed: {verifier_error}"
+                                ),
+                            )
+                        else:
+                            try:
+                                insight_verification = (
+                                    InsightVerificationResult.model_validate(
+                                        raw_insight_verification
+                                    )
+                                )
+                                insight_ledger = materialise_insight_ledger(
+                                    candidates=insight_candidates,
+                                    verification=insight_verification,
+                                    fact_ledger=fact_ledger,
+                                    evidence_ledger=evidence_ledger,
+                                    settings=self.settings,
+                                )
+                            except Exception as error:
+                                insight_ledger = empty_insight_ledger(
+                                    synthesis_enabled=True,
+                                    fallback_reason=(
+                                        "Deterministic Insight Ledger "
+                                        "materialisation failed: "
+                                        f"{type(error).__name__}: {error}"
+                                    ),
+                                )
+
+        store.save_json(
+            "07_insight_candidates.json",
+            insight_candidates,
+        )
+        store.save_json(
+            "07_insight_verification.json",
+            insight_verification,
+        )
+        store.save_json(
+            "07_insight_ledger.json",
+            insight_ledger,
+        )
+        store.trace(
+            "insight_ledger",
+            "completed" if insight_ledger.fallback_reason is None else "fallback",
+            {
+                "synthesis_enabled": insight_ledger.synthesis_enabled,
+                "verified_main_insight_count": len(
+                    insight_ledger.verified_insights
+                ),
+                "hypothesis_only_count": len(
+                    insight_ledger.hypothesis_only_insights
+                ),
+                "rejected_count": len(
+                    insight_ledger.rejected_insights
+                ),
+                "fallback_reason": insight_ledger.fallback_reason,
+            },
+        )
+
         writer_pack = build_writer_evidence_pack(
             request=request,
             understanding=understanding,
@@ -856,18 +1619,22 @@ class Table2TextWorkflow:
             evidence=evidence_ledger,
             fact_ledger=fact_ledger,
             settings=self.settings,
+            insight_ledger=insight_ledger,
+            input_structure=input_structure,
+            available_capabilities=capabilities,
         )
         store.save_json("08_writer_evidence_pack.json", writer_pack)
 
         writer_prompt = (
-            "Write the final natural data-science report from the "
+            "Write the final report for the selected report contract from the "
             "compact verified-fact package below.\n\n"
             "Return structured sections and sentences. Do not return "
             "a Markdown field or construct a separate support map; the "
             "controller will create both deterministically.\n\n"
             + compact_json(
                 build_compact_writer_payload(
-                    writer_pack
+                    writer_pack,
+                    self.settings.allow_hypotheses_in_report,
                 )
             )
         )
@@ -879,7 +1646,15 @@ class Table2TextWorkflow:
             dependencies=AgentDependencies(
                 run_id=run_id,
                 payload={
-                    "fact_ledger": fact_ledger.model_dump(mode="json")
+                    "fact_ledger": fact_ledger.model_dump(mode="json"),
+                    "insight_ledger": insight_ledger.model_dump(mode="json"),
+                    "allow_hypotheses_in_report": (
+                        self.settings.allow_hypotheses_in_report
+                    ),
+                    "report_genre": plan.report_specification.genre.value,
+                    "report_perspective": (
+                        plan.report_specification.perspective.value
+                    ),
                 },
             ),
             fallback=lambda: fallback_writer(writer_pack),
@@ -899,14 +1674,42 @@ class Table2TextWorkflow:
                     writer_draft_or_fallback
                 )
             )
+            store.save_json(
+                "09_writer_structured_draft.json",
+                writer_draft,
+            )
 
-            raw_writer_output = (
-                materialise_writer_output(
+            try:
+                raw_writer_output = materialise_writer_output(
                     writer_draft,
                     fact_ledger,
+                    insight_ledger=insight_ledger,
+                    allow_hypotheses_in_report=(
+                        self.settings.allow_hypotheses_in_report
+                    ),
                     writer_mode="llm_writer",
-                    eligible_for_primary_evaluation=True,
+                    eligible_for_primary_evaluation=representation_eligible,
                 )
+            except ValueError as error:
+                store.save_text(
+                    "09_writer_materialisation_error.txt",
+                    str(error),
+                )
+                store.trace(
+                    "natural_writer_materialisation",
+                    "fallback",
+                    {
+                        "reason": f"ValueError: {error}",
+                        "fallback": "deterministic_writer",
+                    },
+                )
+                raw_writer_output = fallback_writer(
+                    writer_pack
+                )
+
+        if not representation_eligible:
+            raw_writer_output = raw_writer_output.model_copy(
+                update={"eligible_for_primary_evaluation": False}
             )
 
         store.save_json(
@@ -948,6 +1751,7 @@ class Table2TextWorkflow:
             report_specification=plan.report_specification,
             settings=self.settings,
             profile_support_records=profile_support_records,
+            insight_ledger=insight_ledger,
         )
         store.save_json("10_initial_writer_quality.json", initial_quality_audit)
 
@@ -985,13 +1789,26 @@ class Table2TextWorkflow:
                             fact_ledger.model_dump(
                                 mode="json"
                             )
-                        )
+                        ),
+                        "insight_ledger": insight_ledger.model_dump(
+                            mode="json"
+                        ),
+                        "allow_hypotheses_in_report": (
+                            self.settings.allow_hypotheses_in_report
+                        ),
+                        "report_genre": (
+                            plan.report_specification.genre.value
+                        ),
+                        "report_perspective": (
+                            plan.report_specification.perspective.value
+                        ),
                     },
                 ),
                 fallback=lambda: raw_writer_output,
                 store=store,
             )
 
+            revision_materialisation_error: str | None = None
             if isinstance(
                 revised_draft_or_fallback,
                 WriterOutput,
@@ -1014,17 +1831,41 @@ class Table2TextWorkflow:
                         revised_draft_or_fallback
                     )
                 )
-                revision_candidate = materialise_writer_output(
+                store.save_json(
+                    "10_writer_quality_revision_draft.json",
                     revised_writer_draft,
-                    fact_ledger,
-                    writer_mode="llm_writer",
-                    eligible_for_primary_evaluation=True,
-                    quality_revision_round=1,
-                    quality_revision_summary=(
-                        "Bounded whole-report "
-                        "quality-revision candidate."
-                    ),
                 )
+                try:
+                    revision_candidate = materialise_writer_output(
+                        revised_writer_draft,
+                        fact_ledger,
+                        insight_ledger=insight_ledger,
+                        allow_hypotheses_in_report=(
+                            self.settings.allow_hypotheses_in_report
+                        ),
+                        writer_mode="llm_writer",
+                        eligible_for_primary_evaluation=representation_eligible,
+                        quality_revision_round=1,
+                        quality_revision_summary=(
+                            "Bounded whole-report "
+                            "quality-revision candidate."
+                        ),
+                    )
+                except ValueError as error:
+                    revision_materialisation_error = str(error)
+                    store.save_text(
+                        "10_writer_quality_revision_materialisation_error.txt",
+                        str(error),
+                    )
+                    store.trace(
+                        "writer_quality_revision_materialisation",
+                        "rejected",
+                        {
+                            "reason": f"ValueError: {error}",
+                            "fallback": "pre_revision_writer_output",
+                        },
+                    )
+                    revision_candidate = raw_writer_output
 
             revision_candidate = revision_candidate.model_copy(
                 update={
@@ -1049,8 +1890,15 @@ class Table2TextWorkflow:
                 validate_writer_output(
                     revision_candidate,
                     fact_ledger,
+                    insight_ledger,
+                    self.settings.allow_hypotheses_in_report,
                 )
             )
+            if revision_materialisation_error is not None:
+                revision_validation_errors.append(
+                    "Writer quality revision failed materialisation: "
+                    + revision_materialisation_error
+                )
 
             revised_quality_audit = (
                 deterministic_audit(
@@ -1069,6 +1917,7 @@ class Table2TextWorkflow:
                     profile_support_records=(
                         profile_support_records
                     ),
+                    insight_ledger=insight_ledger,
                 )
             )
 
@@ -1170,6 +2019,7 @@ class Table2TextWorkflow:
             writer_output=writer_output_for_audit,
             fact_ledger=fact_ledger,
             evidence_ledger=evidence_ledger,
+            insight_ledger=insight_ledger,
             profile_support_records=profile_support_records,
             plan=plan,
             audit_mode=audit_mode,
@@ -1200,6 +2050,8 @@ class Table2TextWorkflow:
                 proposal,
                 fact_ledger,
                 evidence_ledger,
+                insight_ledger,
+                self.settings.allow_hypotheses_in_report,
             )
 
             if not patches:
@@ -1252,6 +2104,7 @@ class Table2TextWorkflow:
                 writer_output=current_output,
                 fact_ledger=fact_ledger,
                 evidence_ledger=evidence_ledger,
+                insight_ledger=insight_ledger,
                 profile_support_records=profile_support_records,
                 plan=plan,
                 audit_mode=audit_mode,
@@ -1310,7 +2163,17 @@ class Table2TextWorkflow:
                 plan.report_specification.required_components,
             ),
         )
-        release_status = decide_release_status(
+        genre_quality = assess_genre_quality(
+            current_output,
+            plan.report_specification,
+            evidence_ledger,
+        )
+        store.save_json(
+            "14_final_genre_quality.json",
+            genre_quality,
+        )
+
+        factual_release_status = decide_release_status(
             annotations=final_audit.annotations,
             quality=final_audit.quality_assessment,
             methodological_warnings=final_audit.methodological_warnings,
@@ -1319,7 +2182,7 @@ class Table2TextWorkflow:
         )
 
         if (
-            release_status
+            factual_release_status
             == ReleaseStatus.HUMAN_REVIEW_REQUIRED
         ):
             final_decision = AuditDecision.BLOCK
@@ -1329,18 +2192,44 @@ class Table2TextWorkflow:
         final_audit = final_audit.model_copy(
             update={
                 "decision": final_decision,
-                "release_status": release_status,
+                "release_status": factual_release_status,
             }
         )
 
-        approved = release_status in {
+        release_status = factual_release_status
+        if (
+            not representation_eligible
+            or genre_quality.status == QualityStatus.REVISE
+        ):
+            release_status = ReleaseStatus.HUMAN_REVIEW_REQUIRED
+
+        if not representation_eligible:
+            current_output = current_output.model_copy(
+                update={"eligible_for_primary_evaluation": False}
+            )
+
+        approved = representation_eligible and genre_quality.status != (
+            QualityStatus.REVISE
+        ) and release_status in {
             ReleaseStatus.APPROVED,
             ReleaseStatus.APPROVED_WITH_WARNINGS,
         }
 
+        if representation_eligible:
+            primary_evaluation_reason = None
+        elif input_structure is None:
+            primary_evaluation_reason = "input_structure_unavailable"
+        else:
+            primary_evaluation_reason = (
+                "input_representation_"
+                + input_structure.representation_status.value
+            )
+
         result = PipelineResult(
             run_id=run_id,
             profile=profile,
+            input_structure=input_structure,
+            evaluation_field_policy=data_bundle.evaluation_field_policy,
             understanding=understanding,
             execution_plan=plan,
             evidence_ledger=evidence_ledger,
@@ -1356,6 +2245,10 @@ class Table2TextWorkflow:
             repair_rounds_used=repair_rounds,
             release_status=release_status,
             approved_for_release=approved,
+            primary_evaluation_eligible=representation_eligible,
+            primary_evaluation_reason=primary_evaluation_reason,
+            genre_quality_assessment=genre_quality,
+            insight_ledger=insight_ledger,
         )
 
         store.save_json("final_result.json", result)
@@ -1379,6 +2272,19 @@ class Table2TextWorkflow:
                 "release_status": release_status.value,
                 "repair_rounds": repair_rounds,
                 "writer_mode": raw_writer_output.writer_mode,
+                "verified_insight_count": len(
+                    insight_ledger.verified_insights
+                ),
+                "insight_fallback_reason": (
+                    insight_ledger.fallback_reason
+                ),
+                "input_representation_status": (
+                    input_structure.representation_status.value
+                    if input_structure is not None
+                    else "invalid"
+                ),
+                "genre_quality_status": genre_quality.status.value,
+                "primary_evaluation_eligible": representation_eligible,
             },
         )
 
@@ -1391,6 +2297,8 @@ class Table2TextWorkflow:
         *,
         audit_mode: AuditMode = AuditMode.INTERNAL,
         external_truth_sources: list[ExternalTruthSource] | None = None,
+        evaluation_field_policy: EvaluationFieldPolicy | None = None,
+        report_genre: ReportGenre | None = None,
     ) -> PipelineResult:
         return asyncio.run(
             self.run(
@@ -1398,5 +2306,7 @@ class Table2TextWorkflow:
                 request,
                 audit_mode=audit_mode,
                 external_truth_sources=external_truth_sources,
+                evaluation_field_policy=evaluation_field_policy,
+                report_genre=report_genre,
             )
         )

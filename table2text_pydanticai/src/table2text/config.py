@@ -53,6 +53,14 @@ class Settings:
     writer_priority_fact_limit: int = 10
     writer_supporting_fact_limit: int = 20
 
+    enable_insight_synthesis: bool = True
+    max_insight_candidates: int = 6
+    max_verified_main_insights: int = 4
+    min_insight_confidence: float = 0.75
+    min_insight_salience: float = 0.65
+    min_facts_per_bounded_insight: int = 2
+    allow_hypotheses_in_report: bool = False
+
     # Deterministic coverage recovery from the trusted evidence ledger.
     minimum_writer_ready_fact_count: int = 6
     minimum_overview_fact_count: int = 1
@@ -96,6 +104,40 @@ class Settings:
     verifier_model: str = "ollama:gemma3:12b"
     writer_model: str = "ollama:gemma3:12b"
     auditor_model: str = "ollama:gemma3:12b"
+
+    def __post_init__(self) -> None:
+        if self.max_insight_candidates <= 0:
+            raise ValueError(
+                "max_insight_candidates must be positive."
+            )
+
+        if self.max_verified_main_insights <= 0:
+            raise ValueError(
+                "max_verified_main_insights must be positive."
+            )
+
+        if (
+            self.max_verified_main_insights
+            > self.max_insight_candidates
+        ):
+            raise ValueError(
+                "max_verified_main_insights cannot exceed "
+                "max_insight_candidates."
+            )
+
+        for field_name, value in {
+            "min_insight_confidence": self.min_insight_confidence,
+            "min_insight_salience": self.min_insight_salience,
+        }.items():
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(
+                    f"{field_name} must be between 0 and 1."
+                )
+
+        if self.min_facts_per_bounded_insight < 1:
+            raise ValueError(
+                "min_facts_per_bounded_insight must be at least 1."
+            )
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -170,6 +212,34 @@ class Settings:
             writer_supporting_fact_limit=env_int(
                 "T2T_WRITER_SUPPORTING_FACT_LIMIT",
                 20,
+            ),
+            enable_insight_synthesis=env_bool(
+                "T2T_ENABLE_INSIGHT_SYNTHESIS",
+                True,
+            ),
+            max_insight_candidates=env_int(
+                "T2T_MAX_INSIGHT_CANDIDATES",
+                6,
+            ),
+            max_verified_main_insights=env_int(
+                "T2T_MAX_VERIFIED_MAIN_INSIGHTS",
+                4,
+            ),
+            min_insight_confidence=env_float(
+                "T2T_MIN_INSIGHT_CONFIDENCE",
+                0.75,
+            ),
+            min_insight_salience=env_float(
+                "T2T_MIN_INSIGHT_SALIENCE",
+                0.65,
+            ),
+            min_facts_per_bounded_insight=env_int(
+                "T2T_MIN_FACTS_PER_BOUNDED_INSIGHT",
+                2,
+            ),
+            allow_hypotheses_in_report=env_bool(
+                "T2T_ALLOW_HYPOTHESES_IN_REPORT",
+                False,
             ),
             minimum_writer_ready_fact_count=env_int(
                 "T2T_MINIMUM_WRITER_READY_FACT_COUNT",

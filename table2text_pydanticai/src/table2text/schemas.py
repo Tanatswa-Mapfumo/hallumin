@@ -29,6 +29,82 @@ class ClaimPermission(str, Enum):
     METHODOLOGICAL = "methodological_interpretation_allowed"
 
 
+class InterpretationLevel(str, Enum):
+    FINDING = "finding"
+    BOUNDED_INSIGHT = "bounded_insight"
+    HYPOTHESIS = "hypothesis"
+
+
+class ReportGenre(str, Enum):
+    DATA_SCIENCE_REPORT = "data_science_report"
+    DATASET_OVERVIEW = "dataset_overview"
+    EVENT_REPORT = "event_report"
+    # Retained for compatibility with existing notebook artifacts.
+    SPORTS_GAME_REPORT = "sports_game_report"
+
+
+class ReportPerspective(str, Enum):
+    NEUTRAL = "neutral"
+    SUBJECT_CENTRED = "subject_centred"
+
+
+class ReportSelectionSource(str, Enum):
+    EXPLICIT_USER_REQUEST = "explicit_user_request"
+    EXPERIMENT_CONFIGURATION = "experiment_configuration"
+    STRUCTURED_INFERENCE = "structured_inference"
+    FALLBACK = "fallback"
+
+
+class InputShape(str, Enum):
+    FLAT_TABLE = "flat_table"
+    NESTED_RECORD = "nested_record"
+    ENTITY_COLLECTION = "entity_collection"
+    EVENT_RECORD = "event_record"
+    TIME_SERIES = "time_series"
+    INPUT_REFERENCE_PAIRS = "input_reference_pairs"
+    AMBIGUOUS = "ambiguous"
+
+
+class InputRepresentationStatus(str, Enum):
+    VALID = "valid"
+    VALID_WITH_WARNINGS = "valid_with_warnings"
+    AMBIGUOUS = "ambiguous"
+    INVALID = "invalid"
+
+
+class EvidenceCapability(str, Enum):
+    DATASET_PROFILE = "dataset_profile"
+    MISSINGNESS = "missingness"
+    DUPLICATES = "duplicates"
+    DISTRIBUTION_SUMMARY = "distribution_summary"
+    ASSOCIATION = "association"
+    GROUP_COMPARISON = "group_comparison"
+    RANKING = "ranking"
+    EXTREMA = "extrema"
+    TEMPORAL_CHANGE = "temporal_change"
+    EVENT_OUTCOME = "event_outcome"
+    ENTITY_PERFORMANCE = "entity_performance"
+    ANOMALY_DETECTION = "anomaly_detection"
+
+
+class InsightType(str, Enum):
+    DOMINANT_PATTERN = "dominant_pattern"
+    CONTRAST = "contrast"
+    REDUNDANCY = "redundancy"
+    ANOMALY = "anomaly"
+    OUTCOME_ASSOCIATION = "outcome_association"
+    TRADE_OFF = "trade_off"
+    DATA_QUALITY_IMPLICATION = "data_quality_implication"
+    NARRATIVE_SUMMARY = "narrative_summary"
+
+
+class InsightVerificationStatus(str, Enum):
+    VERIFIED = "verified"
+    VERIFIED_WITH_CAVEAT = "verified_with_caveat"
+    HYPOTHESIS_ONLY = "hypothesis_only"
+    REJECTED = "rejected"
+
+
 class AuditMode(str, Enum):
     INTERNAL = "internal_evidence_fidelity"
     EXTERNAL = "external_truth_mode"
@@ -146,6 +222,59 @@ class QualityIssueType(str, Enum):
     UNSUPPORTED_METHOD_INTERPRETATION = "unsupported_method_interpretation"
 
 
+class EvaluationFieldPolicy(StrictModel):
+    operational_input_paths: list[str] = Field(default_factory=list)
+    held_out_reference_paths: list[str] = Field(default_factory=list)
+    metadata_paths: list[str] = Field(default_factory=list)
+
+
+class InputStructureProfile(StrictModel):
+    shape: InputShape
+    representation_status: InputRepresentationStatus
+
+    source_paths: list[str] = Field(default_factory=list)
+    row_semantics: str | None = None
+    entity_levels: list[str] = Field(default_factory=list)
+    nested_paths: list[str] = Field(default_factory=list)
+
+    probable_input_fields: list[str] = Field(default_factory=list)
+    probable_reference_fields: list[str] = Field(default_factory=list)
+    probable_metadata_fields: list[str] = Field(default_factory=list)
+
+    heterogeneous_rows_detected: bool = False
+    sparse_flattening_detected: bool = False
+    ambiguity_notes: list[str] = Field(default_factory=list)
+
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class CapabilityDefinition(StrictModel):
+    capability: EvidenceCapability
+    supported_input_shapes: list[InputShape]
+
+    requires_numeric_fields: bool = False
+    requires_time_field: bool = False
+    requires_entity_fields: bool = False
+    requires_event_participants: bool = False
+    requires_outcome_field: bool = False
+
+    minimum_observations: int | None = None
+    output_evidence_types: list[str] = Field(default_factory=list)
+
+
+class GenreQualityAssessment(StrictModel):
+    status: QualityStatus
+    genre: ReportGenre
+
+    required_slots: list[str] = Field(default_factory=list)
+    supported_slots: list[str] = Field(default_factory=list)
+    covered_slots: list[str] = Field(default_factory=list)
+    missing_supported_slots: list[str] = Field(default_factory=list)
+
+    findings: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+
+
 class ColumnProfile(StrictModel):
     name: str
     dtype: str
@@ -240,11 +369,26 @@ class ReportSpecification(StrictModel):
     intended_audience: str = "A reader seeking a data-science interpretation."
     report_purpose: str
 
+    genre: ReportGenre = ReportGenre.DATA_SCIENCE_REPORT
+    audience: str = "general analytical reader"
+    perspective: ReportPerspective = ReportPerspective.NEUTRAL
+    communication_goal: str = (
+        "Summarise the strongest supported findings."
+    )
+
     target_length_words: int = Field(ge=150, le=2_500)
     maximum_main_findings: int = Field(ge=2, le=20)
 
     preferred_sections: list[str] = Field(default_factory=list)
     required_components: list[ReportComponent] = Field(default_factory=list)
+    required_content_slots: list[str] = Field(default_factory=list)
+    optional_content_slots: list[str] = Field(default_factory=list)
+    prohibited_claim_types: list[str] = Field(default_factory=list)
+
+    selection_source: ReportSelectionSource = ReportSelectionSource.FALLBACK
+    selection_confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    unresolved_ambiguities: list[str] = Field(default_factory=list)
+
     include_negative_findings: bool = True
     include_methodological_details: bool = True
 
@@ -260,6 +404,10 @@ class InvestigationTask(StrictModel):
 
     table_name: str
     columns: list[str] = Field(default_factory=list)
+    capability: EvidenceCapability | None = None
+    input_fields: list[str] = Field(default_factory=list)
+    entity_scope: list[str] = Field(default_factory=list)
+    expected_evidence_types: list[str] = Field(default_factory=list)
 
     target_column: str | None = None
     target_status: TargetStatus = TargetStatus.UNCONFIRMED
@@ -277,6 +425,16 @@ class InvestigationTask(StrictModel):
     answerability_note: str
 
 
+class InsightObjective(StrictModel):
+    objective_id: str
+    question: str
+    preferred_insight_types: list[InsightType] = Field(
+        default_factory=list
+    )
+    relevant_task_ids: list[str] = Field(default_factory=list)
+    priority: str = "main"
+
+
 class ExecutionPlan(StrictModel):
     objective: str
     tasks: list[InvestigationTask]
@@ -284,6 +442,17 @@ class ExecutionPlan(StrictModel):
 
     report_specification: ReportSpecification
     audit_mode: AuditMode
+
+    insight_objectives: list[InsightObjective] = Field(
+        default_factory=list
+    )
+
+    available_capabilities: list[EvidenceCapability] = Field(
+        default_factory=list
+    )
+    selected_capabilities: list[EvidenceCapability] = Field(
+        default_factory=list
+    )
 
     revision_limit: int = Field(ge=0, le=3)
     maximum_facts: int = Field(ge=1, le=150)
@@ -315,6 +484,11 @@ class EvidenceItem(StrictModel):
     evidence_id: str
     route: AnalysisRoute
     task_ids: list[str]
+
+    capability: EvidenceCapability = EvidenceCapability.DATASET_PROFILE
+    evidence_type: str = "generic_finding"
+    source_paths: list[str] = Field(default_factory=list)
+    entity_scope: list[str] = Field(default_factory=list)
 
     finding: str
     metrics: dict[str, Any] = Field(default_factory=dict)
@@ -398,6 +572,9 @@ class VerifiedFact(StrictModel):
 
     fact_summary: str
     evidence_ids: list[str]
+    source_capabilities: list[EvidenceCapability] = Field(
+        default_factory=list
+    )
 
     structured_values: dict[str, Any] = Field(default_factory=dict)
     entities: list[str] = Field(default_factory=list)
@@ -434,17 +611,136 @@ class FactLedger(StrictModel):
     )
 
 
+class InsightCandidate(StrictModel):
+    insight_id: str
+
+    statement: str
+    insight_type: InsightType
+    interpretation_level: InterpretationLevel
+
+    source_fact_ids: list[str] = Field(default_factory=list)
+    source_evidence_ids: list[str] = Field(default_factory=list)
+
+    why_it_matters: str = Field(
+        min_length=1,
+        description=(
+            "The evidence-bounded analytical implication: why the related "
+            "findings matter without proposing an unverified explanation."
+        ),
+    )
+    supporting_summary: str
+
+    alternative_explanations: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+
+    claim_permissions: list[ClaimPermission] = Field(default_factory=list)
+
+    confidence: float = Field(ge=0.0, le=1.0)
+    salience: float = Field(ge=0.0, le=1.0)
+
+    suitable_for_main_report: bool = True
+
+
+class InsightCandidateSet(StrictModel):
+    candidates: list[InsightCandidate] = Field(default_factory=list)
+    synthesis_notes: list[str] = Field(default_factory=list)
+
+
+class InsightVerificationRecord(StrictModel):
+    insight_id: str
+    status: InsightVerificationStatus
+
+    verified_statement: str | None = None
+
+    verified_source_fact_ids: list[str] = Field(default_factory=list)
+    verified_source_evidence_ids: list[str] = Field(default_factory=list)
+
+    confidence: float = Field(ge=0.0, le=1.0)
+    salience: float = Field(ge=0.0, le=1.0)
+
+    adds_bounded_synthesis: bool
+    analytical_implication_supported: bool
+    contains_hypothesis: bool
+
+    limitations: list[str] = Field(default_factory=list)
+    verification_notes: list[str] = Field(default_factory=list)
+
+
+class InsightVerificationResult(StrictModel):
+    records: list[InsightVerificationRecord] = Field(default_factory=list)
+    verifier_notes: list[str] = Field(default_factory=list)
+
+
+class VerifiedInsight(StrictModel):
+    insight_id: str
+
+    statement: str
+    insight_type: InsightType
+    interpretation_level: InterpretationLevel
+
+    source_fact_ids: list[str] = Field(default_factory=list)
+    source_evidence_ids: list[str] = Field(default_factory=list)
+    source_capabilities: list[EvidenceCapability] = Field(
+        default_factory=list
+    )
+
+    why_it_matters: str = Field(
+        min_length=1,
+        description=(
+            "The verified analytical implication, kept separate from direct "
+            "findings and hypotheses."
+        ),
+    )
+    limitations: list[str] = Field(default_factory=list)
+
+    claim_permissions: list[ClaimPermission] = Field(default_factory=list)
+
+    confidence: float = Field(ge=0.0, le=1.0)
+    salience: float = Field(ge=0.0, le=1.0)
+
+    verification_status: InsightVerificationStatus
+
+
+class InsightRejection(StrictModel):
+    insight_id: str
+    candidate: InsightCandidate
+    reasons: list[str] = Field(default_factory=list)
+
+
+class InsightLedger(StrictModel):
+    verified_insights: list[VerifiedInsight] = Field(default_factory=list)
+    hypothesis_only_insights: list[VerifiedInsight] = Field(
+        default_factory=list
+    )
+    rejected_insights: list[InsightRejection] = Field(default_factory=list)
+    verifier_notes: list[str] = Field(default_factory=list)
+    synthesis_enabled: bool = True
+    fallback_reason: str | None = None
+
+
 class WriterEvidencePack(StrictModel):
     user_request: str
     report_specification: ReportSpecification
 
     dataset_understanding: DataUnderstanding
+    input_structure: InputStructureProfile | None = None
+    available_capabilities: list[EvidenceCapability] = Field(
+        default_factory=list
+    )
 
     priority_facts: list[VerifiedFact]
     supporting_facts: list[VerifiedFact]
     limitation_facts: list[VerifiedFact]
 
     evidence_ledger: EvidenceLedger
+
+    insight_ledger: InsightLedger = Field(default_factory=InsightLedger)
+    priority_verified_insights: list[VerifiedInsight] = Field(
+        default_factory=list
+    )
+    supporting_verified_insights: list[VerifiedInsight] = Field(
+        default_factory=list
+    )
 
     analytical_recommendations: list[AnalyticalRecommendation] = Field(
         default_factory=list
@@ -487,6 +783,9 @@ class SentenceSupport(StrictModel):
     fact_ids: list[str] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
     profile_support_ids: list[str] = Field(default_factory=list)
+    insight_ids: list[str] = Field(default_factory=list)
+
+    interpretation_level: InterpretationLevel = InterpretationLevel.FINDING
 
     support_type: SupportType
 
@@ -497,6 +796,9 @@ class WriterSentenceDraft(StrictModel):
     fact_ids: list[str] = Field(
         default_factory=list
     )
+
+    insight_ids: list[str] = Field(default_factory=list)
+    interpretation_level: InterpretationLevel = InterpretationLevel.FINDING
 
     support_type: SupportType
 
@@ -581,6 +883,7 @@ class AuditAnnotation(StrictModel):
     evidence_ids: list[str] = Field(default_factory=list)
     external_fact_ids: list[str] = Field(default_factory=list)
     profile_support_ids: list[str] = Field(default_factory=list)
+    insight_ids: list[str] = Field(default_factory=list)
 
     confidence: float = Field(ge=0.0, le=1.0)
 
@@ -593,6 +896,7 @@ class RepairCandidate(StrictModel):
 
     supporting_fact_ids: list[str] = Field(default_factory=list)
     supporting_evidence_ids: list[str] = Field(default_factory=list)
+    supporting_insight_ids: list[str] = Field(default_factory=list)
 
     factual_support_score: float = Field(ge=0.0, le=1.0)
     meaning_preservation_score: float = Field(ge=0.0, le=1.0)
@@ -684,12 +988,20 @@ class RunManifest(StrictModel):
     audit_mode: AuditMode
 
     models: dict[str, str]
+    input_representation_status: InputRepresentationStatus = (
+        InputRepresentationStatus.VALID
+    )
+    report_genre: ReportGenre = ReportGenre.DATA_SCIENCE_REPORT
 
 
 class PipelineResult(StrictModel):
     run_id: str
 
     profile: DataProfile
+    input_structure: InputStructureProfile | None = None
+    evaluation_field_policy: EvaluationFieldPolicy = Field(
+        default_factory=EvaluationFieldPolicy
+    )
     understanding: DataUnderstanding
     execution_plan: ExecutionPlan
 
@@ -709,6 +1021,11 @@ class PipelineResult(StrictModel):
     repair_rounds_used: int
     release_status: ReleaseStatus
     approved_for_release: bool
+    primary_evaluation_eligible: bool = True
+    primary_evaluation_reason: str | None = None
+    genre_quality_assessment: GenreQualityAssessment | None = None
+
+    insight_ledger: InsightLedger = Field(default_factory=InsightLedger)
 
 
 # Compatibility aliases for notebooks using the original names.

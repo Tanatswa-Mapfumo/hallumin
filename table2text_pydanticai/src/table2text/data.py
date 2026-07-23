@@ -4,13 +4,23 @@ import hashlib
 import json
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
 import pandas as pd
 
-from .schemas import ColumnProfile, DataProfile, TableProfile, ZeroRisk
+from .schemas import (
+    ColumnProfile,
+    DataProfile,
+    EvaluationFieldPolicy,
+    InputRepresentationStatus,
+    InputShape,
+    InputStructureProfile,
+    TableProfile,
+    ZeroRisk,
+)
+from .structure import combine_structure_profiles, inspect_and_filter_payload
 
 
 SUPPORTED_EXTENSIONS = {
@@ -56,6 +66,11 @@ class DataBundle:
     tables: dict[str, pd.DataFrame]
     source_paths: list[Path]
     fingerprint: str
+    structured_inputs: dict[str, Any] = field(default_factory=dict)
+    input_structure: InputStructureProfile | None = None
+    evaluation_field_policy: EvaluationFieldPolicy = field(
+        default_factory=EvaluationFieldPolicy
+    )
 
 
 def safe_hashable(value: Any) -> Any:
@@ -75,6 +90,31 @@ def safe_hashable(value: Any) -> Any:
         pass
 
     return value
+
+
+def profile_sample_value(value: Any) -> str:
+    if isinstance(value, dict):
+        return json.dumps(
+            {
+                "type": "object",
+                "keys": [str(key) for key in list(value)[:20]],
+            },
+            sort_keys=True,
+        )
+    if isinstance(value, list):
+        return json.dumps(
+            {
+                "type": "array",
+                "length": len(value),
+                "item_type": (
+                    type(value[0]).__name__ if value else "unknown"
+                ),
+            },
+            sort_keys=True,
+        )
+
+    text = str(value)
+    return text if len(text) <= 240 else text[:237] + "..."
 
 
 def fingerprint_files(paths: list[Path]) -> str:
@@ -124,9 +164,24 @@ def unique_table_name(name: str, tables: dict[str, pd.DataFrame]) -> str:
     return candidate
 
 
-def load_json_tables(path: Path) -> dict[str, pd.DataFrame]:
-    with path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
+def _columnar_mapping(payload: dict[str, Any]) -> bool:
+    values = list(payload.values())
+    if not values or not all(isinstance(value, list) for value in values):
+        return False
+    lengths = {len(value) for value in values}
+    return len(lengths) == 1 and not all(
+        not value or isinstance(value[0], dict)
+        for value in values
+    )
+
+
+def load_json_tables(
+    path: Path,
+    payload: Any | None = None,
+) -> dict[str, pd.DataFrame]:
+    if payload is None:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
 
     if isinstance(payload, list):
         return {path.stem: pd.json_normalize(payload)}
@@ -142,25 +197,48 @@ def load_json_tables(path: Path) -> dict[str, pd.DataFrame]:
         if nested_tables and len(nested_tables) == len(payload):
             return nested_tables
 
-        try:
+        if _columnar_mapping(payload):
             return {path.stem: pd.DataFrame(payload)}
-        except ValueError:
-            return {path.stem: pd.json_normalize(payload)}
+
+        # A mixed scalar/nested mapping is one structured record. Passing it
+        # directly to DataFrame aligns nested keys into artificial rows.
+        return {path.stem: pd.DataFrame([payload])}
 
     return {path.stem: pd.DataFrame({"value": [payload]})}
 
 
-def load_data(inputs: Iterable[str | Path]) -> DataBundle:
+def load_data(
+    inputs: Iterable[str | Path],
+    evaluation_field_policy: EvaluationFieldPolicy | None = None,
+) -> DataBundle:
     paths = expand_inputs(inputs)
     tables: dict[str, pd.DataFrame] = {}
+    structured_inputs: dict[str, Any] = {}
+    structure_profiles: list[InputStructureProfile] = []
+    effective_policies: list[EvaluationFieldPolicy] = []
 
     for path in paths:
         extension = path.suffix.lower()
 
+        operational_payload: Any | None = None
+
         if extension == ".csv":
             loaded = {path.stem: pd.read_csv(path, low_memory=False)}
         elif extension == ".json":
-            loaded = load_json_tables(path)
+            with path.open("r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            (
+                operational_payload,
+                structure_profile,
+                effective_policy,
+            ) = inspect_and_filter_payload(
+                payload=payload,
+                source_path=path,
+                field_policy=evaluation_field_policy,
+            )
+            structure_profiles.append(structure_profile)
+            effective_policies.append(effective_policy)
+            loaded = load_json_tables(path, operational_payload)
         elif extension in {".jsonl", ".ndjson"}:
             loaded = {path.stem: pd.read_json(path, lines=True)}
         elif extension == ".parquet":
@@ -174,16 +252,73 @@ def load_data(inputs: Iterable[str | Path]) -> DataBundle:
         else:
             raise ValueError(f"Unsupported format: {path}")
 
+        if extension != ".json":
+            structure_profiles.append(
+                InputStructureProfile(
+                    shape=(
+                        InputShape.TIME_SERIES
+                        if any(
+                            "date" in str(column).casefold()
+                            or "time" in str(column).casefold()
+                            for frame in loaded.values()
+                            for column in frame.columns
+                        )
+                        else InputShape.FLAT_TABLE
+                    ),
+                    representation_status=InputRepresentationStatus.VALID,
+                    source_paths=[str(path)],
+                    row_semantics="one observation per row",
+                    confidence=0.95,
+                )
+            )
+
         for proposed_name, frame in loaded.items():
             table_name = unique_table_name(proposed_name, tables)
             frame = frame.copy()
             frame.columns = [str(column) for column in frame.columns]
             tables[table_name] = frame
+            if operational_payload is not None:
+                if len(loaded) == 1:
+                    structured_inputs[table_name] = operational_payload
+                elif isinstance(operational_payload, dict):
+                    structured_inputs[table_name] = operational_payload.get(
+                        proposed_name
+                    )
+
+    if effective_policies:
+        effective_policy = EvaluationFieldPolicy(
+            operational_input_paths=list(
+                dict.fromkeys(
+                    path
+                    for policy in effective_policies
+                    for path in policy.operational_input_paths
+                )
+            ),
+            held_out_reference_paths=list(
+                dict.fromkeys(
+                    path
+                    for policy in effective_policies
+                    for path in policy.held_out_reference_paths
+                )
+            ),
+            metadata_paths=list(
+                dict.fromkeys(
+                    path
+                    for policy in effective_policies
+                    for path in policy.metadata_paths
+                )
+            ),
+        )
+    else:
+        effective_policy = evaluation_field_policy or EvaluationFieldPolicy()
 
     return DataBundle(
         tables=tables,
         source_paths=paths,
         fingerprint=fingerprint_files(paths),
+        structured_inputs=structured_inputs,
+        input_structure=combine_structure_profiles(structure_profiles),
+        evaluation_field_policy=effective_policy,
     )
 
 
@@ -470,12 +605,12 @@ def profile_data(bundle: DataBundle) -> DataProfile:
                     "The column is near-constant and may contribute little analytical information."
                 )
 
-            samples = (
-                non_missing.astype(str)
-                .drop_duplicates()
-                .head(5)
-                .tolist()
-            )
+            samples = list(
+                dict.fromkeys(
+                    profile_sample_value(value)
+                    for value in series.dropna().head(20)
+                )
+            )[:5]
 
             columns.append(
                 ColumnProfile(

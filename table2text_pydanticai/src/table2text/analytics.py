@@ -24,21 +24,49 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
+from .capabilities import event_capability_evidence
 from .config import Settings
 from .data import DataBundle, classify_zero_risk, safe_hashable
 from .schemas import (
     AnalysisRoute,
     AnalyticalRecommendation,
     ClaimPermission,
+    EvidenceCapability,
     EvidenceItem,
     EvidenceLedger,
     ExecutionPlan,
+    InputShape,
     InvestigationTask,
     RecommendedUse,
+    ReportGenre,
     TargetStatus,
     ValidationStrategy,
     ZeroRisk,
 )
+
+
+def infer_evidence_capability(
+    route: AnalysisRoute,
+    metrics: dict[str, Any],
+) -> EvidenceCapability:
+    if route == AnalysisRoute.ASSOCIATION_COMPARISON:
+        if any(
+            key in metrics
+            for key in {"pearson_r", "spearman_r", "correlation"}
+        ):
+            return EvidenceCapability.ASSOCIATION
+        return EvidenceCapability.GROUP_COMPARISON
+
+    if route == AnalysisRoute.DESCRIPTIVE:
+        if "duplicate_row_count" in metrics:
+            return EvidenceCapability.DUPLICATES
+        if "missing_count" in metrics or "missing_rate" in metrics:
+            return EvidenceCapability.MISSINGNESS
+        if "row_count" in metrics and "column_count" in metrics:
+            return EvidenceCapability.DATASET_PROFILE
+        return EvidenceCapability.DISTRIBUTION_SUMMARY
+
+    return EvidenceCapability.DATASET_PROFILE
 
 
 class EvidenceBuilder:
@@ -71,6 +99,10 @@ class EvidenceBuilder:
         recommendations: list[AnalyticalRecommendation] | None = None,
         eligible_for_writer: bool = True,
         exclusion_reason: str | None = None,
+        capability: EvidenceCapability | None = None,
+        evidence_type: str | None = None,
+        source_paths: list[str] | None = None,
+        entity_scope: list[str] | None = None,
     ) -> None:
         evidence_id = f"EVD_{len(self.items) + 1:04d}"
 
@@ -78,6 +110,13 @@ class EvidenceBuilder:
             evidence_id=evidence_id,
             route=route,
             task_ids=task_ids,
+            capability=(
+                capability
+                or infer_evidence_capability(route, metrics)
+            ),
+            evidence_type=evidence_type or strength_label,
+            source_paths=source_paths or [],
+            entity_scope=entity_scope or [],
             finding=finding,
             metrics=metrics,
             source_tables=source_tables,
@@ -114,6 +153,102 @@ def tasks_for_route(
     route: AnalysisRoute,
 ) -> list[InvestigationTask]:
     return [task for task in plan.tasks if task.route == route]
+
+
+def event_analysis(
+    bundle: DataBundle,
+    plan: ExecutionPlan,
+    builder: EvidenceBuilder,
+) -> None:
+    selected = set(plan.selected_capabilities)
+    event_capabilities = {
+        EvidenceCapability.EVENT_OUTCOME,
+        EvidenceCapability.ENTITY_PERFORMANCE,
+        EvidenceCapability.RANKING,
+        EvidenceCapability.GROUP_COMPARISON,
+    }
+    if not selected & event_capabilities:
+        return
+
+    event_tasks = [
+        task
+        for task in plan.tasks
+        if task.capability in event_capabilities
+    ]
+    fallback_task_ids = [task.task_id for task in event_tasks]
+
+    for table_name, payload in bundle.structured_inputs.items():
+        records = event_capability_evidence(payload)
+        if not records:
+            continue
+
+        builder.add(
+            route=AnalysisRoute.DESCRIPTIVE,
+            task_ids=fallback_task_ids,
+            capability=EvidenceCapability.DATASET_PROFILE,
+            evidence_type="event_record_overview",
+            finding=(
+                f"`{table_name}` contains one structured event record with "
+                "nested participant and entity information."
+            ),
+            metrics={
+                "event_count": 1,
+                "input_shape": InputShape.EVENT_RECORD.value,
+            },
+            source_tables=[table_name],
+            source_columns=list(bundle.tables[table_name].columns),
+            source_paths=[],
+            entity_scope=[],
+            method="Deterministic input-structure inspection.",
+            practical_interpretation=(
+                "The source is one event, not a flat sample of independent rows."
+            ),
+            strength_label="event_record_overview",
+            claim_permissions=[ClaimPermission.DESCRIPTIVE],
+            factual_confidence=1.0,
+            methodological_strength=1.0,
+            user_relevance=0.9,
+            salience=0.85,
+            recommended_use=RecommendedUse.SUPPORTING_DETAIL,
+        )
+
+        for record in records:
+            if record.capability not in selected:
+                continue
+            task_ids = [
+                task.task_id
+                for task in event_tasks
+                if task.capability == record.capability
+            ] or fallback_task_ids
+            builder.add(
+                route=(
+                    AnalysisRoute.ASSOCIATION_COMPARISON
+                    if record.capability == EvidenceCapability.GROUP_COMPARISON
+                    else AnalysisRoute.DESCRIPTIVE
+                ),
+                task_ids=task_ids,
+                capability=record.capability,
+                evidence_type=record.evidence_type,
+                finding=record.finding,
+                metrics=record.metrics,
+                source_tables=[table_name],
+                source_columns=["teams"],
+                source_paths=record.source_paths,
+                entity_scope=record.entity_scope,
+                method=(
+                    "Deterministic extraction from the structured event record."
+                ),
+                practical_interpretation=record.practical_interpretation,
+                strength_label=record.strength_label,
+                claim_permissions=record.claim_permissions,
+                factual_confidence=record.factual_confidence,
+                methodological_strength=record.methodological_strength,
+                user_relevance=record.user_relevance,
+                salience=record.salience,
+                recommended_use=record.recommended_use,
+                limitations=record.limitations,
+                prohibited_interpretations=record.prohibited_interpretations,
+            )
 
 
 def correlation_strength(value: float) -> str:
@@ -2256,20 +2391,50 @@ def execute_plan(
     settings: Settings,
 ) -> EvidenceLedger:
     builder = EvidenceBuilder(bundle.fingerprint)
+    event_input = bool(
+        bundle.input_structure
+        and bundle.input_structure.shape == InputShape.EVENT_RECORD
+    )
+    event_genre = plan.report_specification.genre in {
+        ReportGenre.EVENT_REPORT,
+        ReportGenre.SPORTS_GAME_REPORT,
+    }
+
+    if event_input:
+        event_analysis(bundle, plan, builder)
 
     for route in plan.route_order:
         tasks = tasks_for_route(plan, route)
 
         if route == AnalysisRoute.DESCRIPTIVE:
-            descriptive_analysis(bundle, tasks, builder)
+            tabular_tasks = [
+                task
+                for task in tasks
+                if task.capability
+                not in {
+                    EvidenceCapability.EVENT_OUTCOME,
+                    EvidenceCapability.ENTITY_PERFORMANCE,
+                    EvidenceCapability.RANKING,
+                    EvidenceCapability.GROUP_COMPARISON,
+                }
+            ]
+            if not (event_input and event_genre):
+                descriptive_analysis(bundle, tabular_tasks, builder)
 
         elif route == AnalysisRoute.ASSOCIATION_COMPARISON:
-            association_analysis(
-                bundle,
-                tasks,
-                builder,
-                settings,
-            )
+            tabular_tasks = [
+                task
+                for task in tasks
+                if task.capability != EvidenceCapability.GROUP_COMPARISON
+                or not event_input
+            ]
+            if tabular_tasks and not (event_input and event_genre):
+                association_analysis(
+                    bundle,
+                    tabular_tasks,
+                    builder,
+                    settings,
+                )
 
         elif route == AnalysisRoute.PREDICTIVE:
             for task in tasks:

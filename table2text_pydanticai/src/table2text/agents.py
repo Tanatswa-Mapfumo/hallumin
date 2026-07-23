@@ -10,9 +10,19 @@ from pydantic_ai.output import NativeOutput, PromptedOutput
 from pydantic_ai.providers.ollama import OllamaProvider
 
 from .audit import (
+    CAUSAL_PATTERN,
+    EXPLANATORY_HYPOTHESIS_PATTERN,
     FIELD_LABEL_PATTERN,
+    FORECAST_PATTERN,
     INTERNAL_CONTROL_PATTERN,
+    PREDICTIVE_PATTERN,
+    build_evidence_lookup,
+    fact_support_numbers,
+    flatten_numbers,
+    numbers_supported,
+    unsupported_backtick_entities,
     validate_fact_candidates,
+    validate_repair_candidate,
 )
 from .config import Settings
 from .schemas import (
@@ -25,11 +35,25 @@ from .schemas import (
     ColumnRisk,
     DataProfile,
     DataUnderstanding,
+    EvidenceCapability,
     ExecutionPlan,
     FactCandidateSet,
     FactLedger,
+    InsightCandidate,
+    InsightCandidateSet,
+    InsightLedger,
+    InsightObjective,
+    InsightRejection,
+    InsightType,
+    InsightVerificationResult,
+    InsightVerificationStatus,
     InvestigationTask,
+    InterpretationLevel,
+    InputStructureProfile,
     ReportComponent,
+    ReportGenre,
+    ReportPerspective,
+    ReportSelectionSource,
     ReportSpecification,
     Severity,
     SupportType,
@@ -37,14 +61,18 @@ from .schemas import (
     TargetStatus,
     ValidationStrategy,
     VerificationResult,
+    VerifiedFact,
+    VerifiedInsight,
     WriterAgentDraft,
+    WriterSectionDraft,
+    WriterSentenceDraft,
 )
 
 REPORT_QUALITY_DEFECT_PATTERN = re.compile(
     r"\b("
     r"report|sentence|section|wording|phrasing|selection|structure|"
     r"coherence|redundan|repetit|overstat|understat|omit|unclear|"
-    r"unsupported|imprecise"
+    r"unsupported|imprecise|paragraph|insight|genre|hypothesis|game report"
     r")\b",
     re.IGNORECASE,
 )
@@ -182,6 +210,10 @@ ORCHESTRATOR_INSTRUCTIONS = """
 You are the Orchestrator and Investigation Planner.
 
 Create a frozen analytical plan before analytical results are observed.
+Define bounded-insight objectives as questions before results are observed.
+Objectives may use the request, report specification, table and column
+structure, and planned tasks, but must not contain result values or predicted
+conclusions.
 
 The user wants a useful data-science report, not a dump of every statistic.
 
@@ -198,6 +230,9 @@ Rules:
   and naive baselines.
 - Causal work is feasibility-first.
 - Include a report specification with a finding budget and target length.
+- Use only evidence capabilities listed as available in the supplied input.
+- Never plan an event result, entity ranking, temporal change, milestone, or
+  comparison capability that is not available.
 - Do not let one analytical route dominate a general dataset-understanding
   report.
 - Do not let one evidence subtype dominate a general dataset-understanding
@@ -211,6 +246,25 @@ Rules:
   request or confirmed metadata supports them.
 - Do not rewrite or replace the user's objective with a different objective.
 - Negative and insufficiency findings are valid.
+- Use data_science_report for an ambiguous request such as "understand the
+  dataset and report its strongest findings". Select event_report only when
+  the user explicitly asks for an event/game report or the experiment
+  configuration supplies that contract. Genre controls communication, never
+  factual permission.
+- Use neutral perspective by default. Subject-centred perspective may
+  prioritise verified facts about an explicitly named subject, but it must not
+  change numbers, claim permissions, or evaluative strength.
+- A generic report may ask which findings jointly describe the strongest
+  structure, which contrast is strongest and non-redundant, whether variables
+  overlap substantially, which quality issue matters most, and what the reader
+  should remember.
+- A sports report may ask which verified facts describe the result, salient
+  performances, team contrasts, and supported conventional milestones.
+- An event report must request the event_result, leading_performance, and
+  main_contrast content slots only when their required capabilities are
+  available. It must not treat reference text as operational evidence.
+- Do not place a result, statistic, double-double, hat-trick, dominance claim,
+  or other predicted conclusion in an insight objective.
 - Set frozen=true.
 """
 
@@ -266,6 +320,13 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
             )
 
         seen: set[str] = set()
+        available_capabilities = {
+            EvidenceCapability(value)
+            for value in context.deps.payload.get(
+                "available_capabilities",
+                [],
+            )
+        }
 
         for task in output.tasks:
             if task.task_id in seen:
@@ -273,6 +334,15 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
                     f"Duplicate task ID: {task.task_id}"
                 )
             seen.add(task.task_id)
+
+            if (
+                task.capability is not None
+                and task.capability not in available_capabilities
+            ):
+                raise ModelRetry(
+                    f"Task {task.task_id} selects unavailable capability "
+                    f"{task.capability.value}."
+                )
 
             if task.table_name not in valid_tables:
                 raise ModelRetry(
@@ -324,6 +394,57 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
         ):
             raise ModelRetry(
                 "route_order must include every route used by the tasks."
+            )
+
+        if settings.enable_insight_synthesis and not output.insight_objectives:
+            raise ModelRetry(
+                "Create a small set of frozen insight objectives as questions."
+            )
+
+        objective_ids: set[str] = set()
+        for objective in output.insight_objectives:
+            if not objective.objective_id.strip():
+                raise ModelRetry("Insight objective IDs must not be empty.")
+
+            if objective.objective_id in objective_ids:
+                raise ModelRetry(
+                    f"Duplicate insight objective ID: {objective.objective_id}"
+                )
+            objective_ids.add(objective.objective_id)
+
+            if not objective.question.strip().endswith("?"):
+                raise ModelRetry(
+                    "Insight objectives must be questions, not conclusions."
+                )
+
+            if re.search(r"(?<!\w)\d+(?:[.,]\d+)?%?", objective.question):
+                raise ModelRetry(
+                    "Insight objectives must not contain result values."
+                )
+
+            unknown_task_ids = (
+                set(objective.relevant_task_ids) - seen
+            )
+            if unknown_task_ids:
+                raise ModelRetry(
+                    "Insight objectives reference unknown task IDs: "
+                    f"{sorted(unknown_task_ids)}"
+                )
+
+        if (
+            output.report_specification.genre
+            in {
+                ReportGenre.EVENT_REPORT,
+                ReportGenre.SPORTS_GAME_REPORT,
+            }
+            and not context.deps.payload.get(
+                "event_genre_allowed",
+                False,
+            )
+        ):
+            raise ModelRetry(
+                "event_report requires an explicit request or experiment "
+                "configuration."
             )
 
         if user_request and re.search(
@@ -509,11 +630,1323 @@ def build_verifier_agent(settings: Settings) -> Agent:
     return agent
 
 
+INSIGHT_SYNTHESIS_INSTRUCTIONS = """
+You are the Evidence Analyst performing a second bounded synthesis pass.
+
+The first pass identified evidence-grounded facts. This pass relates verified
+facts into a small number of useful, evidence-constrained interpretations.
+
+Definitions:
+- Finding: a directly supported observation.
+- Bounded insight: an interpretation formed by relating verified findings.
+- Analytical implication: why the related findings matter for interpretation
+  or analysis, without proposing why the observed pattern exists.
+- Hypothesis: a plausible explanation requiring additional testing.
+
+Rules:
+1. Use only supplied writer-ready verified facts and their referenced
+   deterministic evidence.
+2. Never calculate a statistic.
+3. Never introduce a number absent from supplied support.
+4. Never introduce an entity absent from supplied support.
+5. Every candidate must cite source fact IDs.
+6. Every cited fact ID must contribute materially to the statement.
+7. A bounded insight normally requires at least the configured minimum number
+   of source facts.
+8. Single-fact exceptions are permitted only for anomaly, data-quality
+   implication, or a direct narrative summary supported by one compound fact.
+9. Do not merely paraphrase one fact, or several facts that repeat the same
+   result, and label the restatement an insight.
+10. Do not turn correlation into causation.
+    Use outcome_association, never outcome_driver, for descriptive evidence.
+11. Do not use drives, causes, explains, leads to, results in, or equivalent
+    causal wording without explicit causal permission.
+12. Do not add domain knowledge from memory.
+13. Do not infer collection location, frequency, provenance, or measurement
+    process.
+14. Do not claim that a variable is useless or universally redundant.
+15. Describe overlap as containing highly overlapping information in this
+    dataset.
+16. `why_it_matters` is the analytical implication. It must add a concrete,
+   evidence-bounded consequence for interpretation or analysis; it must not
+   restate coefficients, effect labels, or the candidate statement.
+17. A possible reason why a pattern exists is a hypothesis, including claims
+   that a pattern may reflect a dependency, data artifact, collection process,
+   or unmeasured mechanism. Do not hide a hypothesis in `why_it_matters`, a
+   limitation, or a recommendation.
+18. A hypothesis must be explicitly labelled as a hypothesis.
+19. A hypothesis must not be suitable for the main report unless hypotheses
+   are explicitly allowed.
+20. Preserve deterministic qualitative strength labels. Do not relabel a
+   strong association as moderate, or vice versa.
+21. For missingness, prefer the directly supported scope of the complete-case
+   subset over an assumed bias mechanism. For duplicates, describe a possible
+   influence only as a bounded methodological risk, never as a measured effect.
+22. Include limitations or alternative explanations where needed, but keep
+   unverified explanations in explicitly labelled hypothesis candidates.
+23. Prefer a few meaningful insights over many small restatements.
+24. Respect the configured candidate limit.
+
+Return structured output only.
+"""
+
+
+INSIGHT_VERIFIER_INSTRUCTIONS = """
+You are the Fact Verifier reviewing bounded insight candidates.
+
+A candidate can contain correct individual facts while still making an
+unsupported interpretation. Review each candidate against only the supplied
+verified facts and deterministic evidence.
+
+For each candidate decide verified, verified_with_caveat, hypothesis_only, or
+rejected.
+
+For every record explicitly set:
+- `adds_bounded_synthesis`: true only when the statement relates findings and
+  adds more than a direct finding restatement;
+- `analytical_implication_supported`: true only when `why_it_matters` is a
+  concrete, evidence-bounded analytical implication rather than a paraphrase;
+- `contains_hypothesis`: true whenever the statement or analytical implication
+  proposes a possible explanation that requires further testing.
+
+A record may be verified or verified_with_caveat only when the first two flags
+are true and `contains_hypothesis` is false. A direct-finding restatement must
+be rejected. A candidate containing a possible explanation must be
+hypothesis_only or rejected.
+
+Check that every cited fact exists and genuinely contributes; every number,
+table, column, group and entity is supported; the facts jointly support the
+statement; and the wording adds useful synthesis rather than renaming one
+fact. Match wording strength to evidence strength. Do not introduce causality,
+outside domain explanations, collection metadata, or generalisations beyond
+the analysed dataset. Preserve needed limitations and identify hypotheses
+explicitly. Exclude hypotheses from the main report unless explicitly allowed.
+Treat explanations involving possible dependencies, artifacts, collection
+processes, or unmeasured mechanisms as hypotheses, even when phrased as a next
+step. Do not call a deterministically strong relationship moderate.
+Assess salience against the request and selected report genre.
+
+Do not approve a claim merely because it sounds plausible. Do not use outside
+knowledge or calculate new values. Preserve or safely weaken candidate
+wording; never strengthen it. Return one record for every candidate.
+"""
+
+
+HYPOTHESIS_LABEL_PATTERN = re.compile(
+    r"\b(hypothesis|hypothesise|hypothesize|hypothesised|hypothesized)\b",
+    re.IGNORECASE,
+)
+
+UNIVERSAL_GENERALISATION_PATTERN = re.compile(
+    r"\b(always|in general|universally|proves that|demonstrates that all)\b",
+    re.IGNORECASE,
+)
+
+SINGLE_FACT_INSIGHT_TYPES = {
+    InsightType.ANOMALY,
+    InsightType.DATA_QUALITY_IMPLICATION,
+    InsightType.NARRATIVE_SUMMARY,
+}
+
+STRONG_PERMISSIONS = {
+    ClaimPermission.CAUSAL,
+    ClaimPermission.PREDICTIVE,
+    ClaimPermission.FORECAST,
+}
+
+
+def _normalise_statement(value: str) -> str:
+    return re.sub(
+        r"[^a-z0-9]+",
+        " ",
+        value.lower(),
+    ).strip()
+
+
+def _statement_tokens(value: str) -> set[str]:
+    return {
+        token
+        for token in _normalise_statement(value).split()
+        if len(token) > 2
+    }
+
+
+def _materially_duplicate_statements(
+    left: str,
+    right: str,
+) -> bool:
+    left_normalised = _normalise_statement(left)
+    right_normalised = _normalise_statement(right)
+
+    if left_normalised == right_normalised:
+        return True
+
+    left_tokens = _statement_tokens(left)
+    right_tokens = _statement_tokens(right)
+
+    if not left_tokens or not right_tokens:
+        return False
+
+    return (
+        len(left_tokens & right_tokens)
+        / len(left_tokens | right_tokens)
+        >= 0.85
+    )
+
+
+def _safe_fact_permissions(
+    facts: list[VerifiedFact],
+) -> set[ClaimPermission]:
+    if not facts:
+        return set()
+
+    permissions = {
+        permission
+        for fact in facts
+        for permission in fact.claim_permissions
+    }
+
+    for permission in STRONG_PERMISSIONS:
+        if not all(
+            permission in fact.claim_permissions
+            for fact in facts
+        ):
+            permissions.discard(permission)
+
+    return permissions
+
+
+def _insight_support_numbers(
+    facts: list[VerifiedFact],
+    evidence_ledger: Any,
+) -> list[float]:
+    return [
+        number
+        for fact in facts
+        for number in fact_support_numbers(
+            fact,
+            evidence_ledger,
+        )
+    ]
+
+
+def _schema_entities_for_evidence_ids(
+    evidence_ids: set[str],
+    evidence_ledger: Any,
+) -> set[str]:
+    lookup = build_evidence_lookup(evidence_ledger)
+    return {
+        entity
+        for evidence_id in evidence_ids
+        if evidence_id in lookup
+        for entity in [
+            *lookup[evidence_id].source_tables,
+            *lookup[evidence_id].source_columns,
+        ]
+        if entity
+    }
+
+
+def _entity_occurs(
+    entity: str,
+    statement: str,
+) -> bool:
+    return bool(
+        entity
+        and re.search(
+            rf"(?<!\w){re.escape(entity)}(?!\w)",
+            statement,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _unsupported_insight_entities(
+    *,
+    statement: str,
+    facts: list[VerifiedFact],
+    evidence_ledger: Any,
+) -> list[str]:
+    cited_evidence_ids = {
+        evidence_id
+        for fact in facts
+        for evidence_id in fact.evidence_ids
+    }
+    supported_entities = {
+        entity
+        for fact in facts
+        for entity in fact.entities
+        if entity
+    }
+    supported_entities.update(
+        _schema_entities_for_evidence_ids(
+            cited_evidence_ids,
+            evidence_ledger,
+        )
+    )
+
+    all_schema_entities = _schema_entities_for_evidence_ids(
+        {
+            item.evidence_id
+            for item in evidence_ledger.items
+        },
+        evidence_ledger,
+    )
+
+    unsupported = {
+        entity
+        for entity in all_schema_entities
+        if _entity_occurs(entity, statement)
+        and entity not in supported_entities
+    }
+
+    unsupported.update(
+        unsupported_backtick_entities(
+            statement,
+            supported_entities,
+        )
+    )
+
+    for entity in re.findall(
+        r"\b(?:Team|Player)\s+[A-Z][\w'-]*(?:\s+[A-Z][\w'-]*)?",
+        statement,
+    ):
+        if entity not in supported_entities:
+            unsupported.add(entity)
+
+    return sorted(unsupported)
+
+
+def _candidate_fact_lookup(
+    fact_ledger: FactLedger,
+) -> dict[str, VerifiedFact]:
+    return {
+        fact.fact_id: fact
+        for fact in fact_ledger.writer_ready_facts
+    }
+
+
+def validate_insight_candidates(
+    candidate_set: InsightCandidateSet,
+    fact_ledger: FactLedger,
+    evidence_ledger: Any,
+    settings: Settings,
+) -> list[str]:
+    errors: list[str] = []
+    fact_lookup = _candidate_fact_lookup(fact_ledger)
+    evidence_lookup = build_evidence_lookup(evidence_ledger)
+    seen_ids: set[str] = set()
+    accepted_for_duplicate_check: list[InsightCandidate] = []
+
+    if len(candidate_set.candidates) > settings.max_insight_candidates:
+        errors.append(
+            "Insight candidate count exceeds the configured limit of "
+            f"{settings.max_insight_candidates}."
+        )
+
+    for candidate in candidate_set.candidates:
+        candidate_id = candidate.insight_id.strip()
+
+        if not candidate_id:
+            errors.append("An insight candidate has an empty insight_id.")
+            continue
+
+        if candidate_id in seen_ids:
+            errors.append(f"Duplicate insight ID: {candidate_id}")
+            continue
+
+        seen_ids.add(candidate_id)
+
+        if not candidate.statement.strip():
+            errors.append(f"{candidate_id} has an empty statement.")
+
+        if not candidate.source_fact_ids:
+            errors.append(f"{candidate_id} has no source fact IDs.")
+            continue
+
+        if len(candidate.source_fact_ids) != len(
+            set(candidate.source_fact_ids)
+        ):
+            errors.append(f"{candidate_id} repeats source fact IDs.")
+
+        unknown_fact_ids = [
+            fact_id
+            for fact_id in candidate.source_fact_ids
+            if fact_id not in fact_lookup
+        ]
+        if unknown_fact_ids:
+            errors.append(
+                f"{candidate_id} cites unknown fact IDs: "
+                f"{unknown_fact_ids}"
+            )
+            continue
+
+        facts = [
+            fact_lookup[fact_id]
+            for fact_id in candidate.source_fact_ids
+        ]
+        fact_evidence_ids = {
+            evidence_id
+            for fact in facts
+            for evidence_id in fact.evidence_ids
+        }
+
+        unknown_evidence_ids = [
+            evidence_id
+            for evidence_id in candidate.source_evidence_ids
+            if evidence_id not in evidence_lookup
+        ]
+        if unknown_evidence_ids:
+            errors.append(
+                f"{candidate_id} cites unknown evidence IDs: "
+                f"{unknown_evidence_ids}"
+            )
+
+        unlinked_evidence_ids = [
+            evidence_id
+            for evidence_id in candidate.source_evidence_ids
+            if evidence_id not in fact_evidence_ids
+        ]
+        if unlinked_evidence_ids:
+            errors.append(
+                f"{candidate_id} cites evidence not referenced by its "
+                f"source facts: {unlinked_evidence_ids}"
+            )
+
+        support_numbers = _insight_support_numbers(
+            facts,
+            evidence_ledger,
+        )
+        writer_visible_text = " ".join(
+            [
+                candidate.statement,
+                candidate.why_it_matters,
+            ]
+        )
+        for field_name, field_text in {
+            "statement": candidate.statement,
+            "why_it_matters": candidate.why_it_matters,
+        }.items():
+            if not numbers_supported(
+                field_text,
+                support_numbers,
+            ):
+                errors.append(
+                    f"{candidate_id} {field_name} contains unsupported "
+                    "numbers."
+                )
+
+            unsupported_entities = _unsupported_insight_entities(
+                statement=field_text,
+                facts=facts,
+                evidence_ledger=evidence_ledger,
+            )
+            if unsupported_entities:
+                errors.append(
+                    f"{candidate_id} {field_name} contains unsupported table "
+                    f"or column entities: {unsupported_entities}"
+                )
+
+        safe_permissions = _safe_fact_permissions(facts)
+        if not set(candidate.claim_permissions).issubset(
+            safe_permissions
+        ):
+            errors.append(
+                f"{candidate_id} requests permissions stronger than its "
+                "source facts."
+            )
+
+        if (
+            candidate.interpretation_level
+            == InterpretationLevel.BOUNDED_INSIGHT
+            and len(set(candidate.source_fact_ids))
+            < settings.min_facts_per_bounded_insight
+            and candidate.insight_type
+            not in SINGLE_FACT_INSIGHT_TYPES
+        ):
+            errors.append(
+                f"{candidate_id} is a single-fact pseudo-insight; "
+                f"{settings.min_facts_per_bounded_insight} source facts "
+                "are required."
+            )
+
+        if (
+            candidate.interpretation_level
+            == InterpretationLevel.HYPOTHESIS
+        ):
+            if not HYPOTHESIS_LABEL_PATTERN.search(candidate.statement):
+                errors.append(
+                    f"{candidate_id} is a hypothesis but is not explicitly "
+                    "labelled as one."
+                )
+
+            if (
+                candidate.suitable_for_main_report
+                and not settings.allow_hypotheses_in_report
+            ):
+                errors.append(
+                    f"{candidate_id} cannot be suitable for the main report "
+                    "while hypotheses are disabled."
+                )
+
+        if (
+            candidate.interpretation_level
+            == InterpretationLevel.BOUNDED_INSIGHT
+            and (
+                HYPOTHESIS_LABEL_PATTERN.search(writer_visible_text)
+                or EXPLANATORY_HYPOTHESIS_PATTERN.search(
+                    writer_visible_text
+                )
+            )
+        ):
+            errors.append(
+                f"{candidate_id} contains an explanatory hypothesis but is "
+                "classified as a bounded insight."
+            )
+
+        if (
+            candidate.interpretation_level
+            == InterpretationLevel.FINDING
+        ):
+            errors.append(
+                f"{candidate_id} is a finding, not a second-pass bounded "
+                "insight or hypothesis."
+            )
+
+        if (
+            CAUSAL_PATTERN.search(writer_visible_text)
+            and ClaimPermission.CAUSAL not in safe_permissions
+        ):
+            errors.append(
+                f"{candidate_id} introduces unsupported causal wording."
+            )
+
+        if (
+            PREDICTIVE_PATTERN.search(writer_visible_text)
+            and ClaimPermission.PREDICTIVE not in safe_permissions
+        ):
+            errors.append(
+                f"{candidate_id} introduces unsupported predictive wording."
+            )
+
+        if (
+            FORECAST_PATTERN.search(writer_visible_text)
+            and ClaimPermission.FORECAST not in safe_permissions
+        ):
+            errors.append(
+                f"{candidate_id} introduces unsupported forecast wording."
+            )
+
+        if UNIVERSAL_GENERALISATION_PATTERN.search(writer_visible_text):
+            errors.append(
+                f"{candidate_id} generalises beyond the analysed dataset."
+            )
+
+        if _materially_duplicate_statements(
+            candidate.statement,
+            candidate.why_it_matters,
+        ):
+            errors.append(
+                f"{candidate_id} why_it_matters merely restates the insight."
+            )
+
+        if any(
+            _materially_duplicate_statements(
+                candidate.why_it_matters,
+                fact_text,
+            )
+            for fact in facts
+            for fact_text in [
+                fact.fact_summary,
+                *fact.allowed_interpretations,
+            ]
+            if fact_text.strip()
+        ):
+            errors.append(
+                f"{candidate_id} why_it_matters merely restates a source "
+                "finding."
+            )
+
+        duplicate = next(
+            (
+                previous
+                for previous in accepted_for_duplicate_check
+                if _materially_duplicate_statements(
+                    previous.statement,
+                    candidate.statement,
+                )
+                or (
+                    set(previous.source_fact_ids)
+                    == set(candidate.source_fact_ids)
+                    and previous.insight_type == candidate.insight_type
+                    and _materially_duplicate_statements(
+                        previous.supporting_summary,
+                        candidate.supporting_summary,
+                    )
+                )
+            ),
+            None,
+        )
+        if duplicate is not None:
+            errors.append(
+                f"{candidate_id} materially duplicates "
+                f"{duplicate.insight_id}."
+            )
+        else:
+            accepted_for_duplicate_check.append(candidate)
+
+    return errors
+
+
+def build_insight_synthesis_agent(
+    settings: Settings,
+) -> Agent:
+    agent = Agent(
+        build_model(
+            settings.model_for("evidence"),
+            settings,
+        ),
+        name="evidence_analyst_agent_second_pass_insight_synthesis",
+        deps_type=AgentDependencies,
+        output_type=output_schema(
+            InsightCandidateSet,
+            settings,
+        ),
+        instructions=INSIGHT_SYNTHESIS_INSTRUCTIONS,
+        model_settings=ModelSettings(
+            temperature=0.0,
+            max_tokens=8_000,
+        ),
+        retries={"output": 3},
+    )
+
+    @agent.output_validator
+    def validate_output(
+        context: RunContext[AgentDependencies],
+        output: InsightCandidateSet,
+    ) -> InsightCandidateSet:
+        from .schemas import EvidenceLedger
+
+        fact_ledger = FactLedger.model_validate(
+            context.deps.payload["fact_ledger"]
+        )
+        evidence_ledger = EvidenceLedger.model_validate(
+            context.deps.payload["evidence_ledger"]
+        )
+        errors = validate_insight_candidates(
+            output,
+            fact_ledger,
+            evidence_ledger,
+            settings,
+        )
+
+        if errors:
+            raise ModelRetry(
+                "Insight candidate validation failed:\n- "
+                + "\n- ".join(errors[:12])
+            )
+
+        return output
+
+    return agent
+
+
+def _verified_statement_is_safe(
+    *,
+    candidate: InsightCandidate,
+    statement: str,
+    source_fact_ids: list[str],
+    source_evidence_ids: list[str],
+    fact_ledger: FactLedger,
+    evidence_ledger: Any,
+    settings: Settings,
+) -> bool:
+    candidate_normalised = _normalise_statement(candidate.statement)
+    statement_normalised = _normalise_statement(statement)
+
+    if not statement_normalised:
+        return False
+
+    if (
+        candidate_normalised not in statement_normalised
+        and statement_normalised not in candidate_normalised
+    ):
+        return False
+
+    checked = candidate.model_copy(
+        update={
+            "statement": statement,
+            "source_fact_ids": source_fact_ids,
+            "source_evidence_ids": source_evidence_ids,
+        }
+    )
+
+    return not validate_insight_candidates(
+        InsightCandidateSet(candidates=[checked]),
+        fact_ledger,
+        evidence_ledger,
+        settings,
+    )
+
+
+def validate_insight_verification(
+    verification: InsightVerificationResult,
+    candidates: InsightCandidateSet,
+    fact_ledger: FactLedger,
+    evidence_ledger: Any,
+    settings: Settings,
+) -> list[str]:
+    errors: list[str] = []
+    candidate_lookup = {
+        candidate.insight_id: candidate
+        for candidate in candidates.candidates
+    }
+    received_ids = [
+        record.insight_id
+        for record in verification.records
+    ]
+    expected_ids = set(candidate_lookup)
+
+    if len(received_ids) != len(set(received_ids)):
+        errors.append("Duplicate insight verification records are not allowed.")
+
+    if set(received_ids) != expected_ids:
+        errors.append(
+            "Review every insight candidate exactly once. "
+            f"Missing={sorted(expected_ids - set(received_ids))}; "
+            f"extra={sorted(set(received_ids) - expected_ids)}"
+        )
+
+    for record in verification.records:
+        candidate = candidate_lookup.get(record.insight_id)
+        if candidate is None:
+            continue
+
+        verified_status = record.status in {
+            InsightVerificationStatus.VERIFIED,
+            InsightVerificationStatus.VERIFIED_WITH_CAVEAT,
+        }
+        if verified_status and not record.adds_bounded_synthesis:
+            errors.append(
+                f"{record.insight_id} is a direct-finding restatement rather "
+                "than a bounded insight."
+            )
+        if (
+            verified_status
+            and not record.analytical_implication_supported
+        ):
+            errors.append(
+                f"{record.insight_id} lacks a supported analytical implication."
+            )
+        if verified_status and record.contains_hypothesis:
+            errors.append(
+                f"{record.insight_id} contains a hypothesis and cannot be a "
+                "verified main insight."
+            )
+        if (
+            record.status
+            == InsightVerificationStatus.HYPOTHESIS_ONLY
+            and not record.contains_hypothesis
+        ):
+            errors.append(
+                f"{record.insight_id} is marked hypothesis_only without a "
+                "hypothesis."
+            )
+        if (
+            candidate.interpretation_level
+            == InterpretationLevel.HYPOTHESIS
+            and verified_status
+        ):
+            errors.append(
+                f"{record.insight_id} cannot verify a hypothesis as a bounded "
+                "main insight."
+            )
+
+        source_fact_ids = (
+            record.verified_source_fact_ids
+            or candidate.source_fact_ids
+        )
+        source_evidence_ids = (
+            record.verified_source_evidence_ids
+            or candidate.source_evidence_ids
+        )
+
+        if not set(source_fact_ids).issubset(
+            set(candidate.source_fact_ids)
+        ):
+            errors.append(
+                f"{record.insight_id} verifier introduced source fact IDs."
+            )
+
+        candidate_evidence_ids = {
+            evidence_id
+            for fact in fact_ledger.writer_ready_facts
+            if fact.fact_id in candidate.source_fact_ids
+            for evidence_id in fact.evidence_ids
+        }
+        if not set(source_evidence_ids).issubset(candidate_evidence_ids):
+            errors.append(
+                f"{record.insight_id} verifier introduced source evidence IDs."
+            )
+
+        if record.verified_statement and not _verified_statement_is_safe(
+            candidate=candidate,
+            statement=record.verified_statement,
+            source_fact_ids=source_fact_ids,
+            source_evidence_ids=source_evidence_ids,
+            fact_ledger=fact_ledger,
+            evidence_ledger=evidence_ledger,
+            settings=settings,
+        ):
+            errors.append(
+                f"{record.insight_id} verifier statement is unsupported or "
+                "stronger than the candidate."
+            )
+
+    return errors
+
+
+def build_insight_verifier_agent(
+    settings: Settings,
+) -> Agent:
+    agent = Agent(
+        build_model(
+            settings.model_for("verifier"),
+            settings,
+        ),
+        name="fact_verification_agent_second_pass_insight_verification",
+        deps_type=AgentDependencies,
+        output_type=output_schema(
+            InsightVerificationResult,
+            settings,
+        ),
+        instructions=INSIGHT_VERIFIER_INSTRUCTIONS,
+        model_settings=ModelSettings(
+            temperature=0.0,
+            max_tokens=8_000,
+        ),
+        retries={"output": 3},
+    )
+
+    @agent.output_validator
+    def validate_output(
+        context: RunContext[AgentDependencies],
+        output: InsightVerificationResult,
+    ) -> InsightVerificationResult:
+        from .schemas import EvidenceLedger
+
+        candidates = InsightCandidateSet.model_validate(
+            context.deps.payload["insight_candidates"]
+        )
+        fact_ledger = FactLedger.model_validate(
+            context.deps.payload["fact_ledger"]
+        )
+        evidence_ledger = EvidenceLedger.model_validate(
+            context.deps.payload["evidence_ledger"]
+        )
+        errors = validate_insight_verification(
+            output,
+            candidates,
+            fact_ledger,
+            evidence_ledger,
+            settings,
+        )
+
+        if errors:
+            raise ModelRetry(
+                "Insight verification validation failed:\n- "
+                + "\n- ".join(errors[:12])
+            )
+
+        return output
+
+    return agent
+
+
+def empty_insight_ledger(
+    *,
+    synthesis_enabled: bool,
+    fallback_reason: str,
+) -> InsightLedger:
+    return InsightLedger(
+        synthesis_enabled=synthesis_enabled,
+        fallback_reason=fallback_reason,
+    )
+
+
+def materialise_insight_ledger(
+    *,
+    candidates: InsightCandidateSet,
+    verification: InsightVerificationResult,
+    fact_ledger: FactLedger,
+    evidence_ledger: Any,
+    settings: Settings,
+) -> InsightLedger:
+    candidate_errors = validate_insight_candidates(
+        candidates,
+        fact_ledger,
+        evidence_ledger,
+        settings,
+    )
+    verification_errors = validate_insight_verification(
+        verification,
+        candidates,
+        fact_ledger,
+        evidence_ledger,
+        settings,
+    )
+    records = {
+        record.insight_id: record
+        for record in verification.records
+    }
+    evidence_lookup = {
+        item.evidence_id: item
+        for item in evidence_ledger.items
+    }
+    fact_lookup = _candidate_fact_lookup(fact_ledger)
+    rejected: list[InsightRejection] = []
+    hypotheses: list[VerifiedInsight] = []
+    eligible: list[tuple[int, InsightCandidate, VerifiedInsight]] = []
+    candidate_ids = {
+        candidate.insight_id
+        for candidate in candidates.candidates
+    }
+    global_candidate_errors = [
+        error
+        for error in candidate_errors
+        if not any(
+            candidate_id in error
+            for candidate_id in candidate_ids
+        )
+    ]
+    global_verification_errors = [
+        error
+        for error in verification_errors
+        if not any(
+            candidate_id in error
+            for candidate_id in candidate_ids
+        )
+    ]
+
+    for index, candidate in enumerate(candidates.candidates):
+        reasons = [
+            error
+            for error in candidate_errors
+            if candidate.insight_id in error
+        ]
+        reasons.extend(global_candidate_errors)
+        reasons.extend(global_verification_errors)
+        record = records.get(candidate.insight_id)
+
+        if record is None:
+            reasons.append("The verifier did not review this insight.")
+
+        if record is not None and record.status == InsightVerificationStatus.REJECTED:
+            reasons.extend(
+                record.verification_notes
+                or ["The verifier rejected this insight."]
+            )
+
+        source_fact_ids = list(
+            dict.fromkeys(
+                (
+                    record.verified_source_fact_ids
+                    if record is not None
+                    and record.verified_source_fact_ids
+                    else candidate.source_fact_ids
+                )
+            )
+        )
+        source_evidence_ids = list(
+            dict.fromkeys(
+                (
+                    record.verified_source_evidence_ids
+                    if record is not None
+                    and record.verified_source_evidence_ids
+                    else (
+                        candidate.source_evidence_ids
+                        or [
+                            evidence_id
+                            for fact_id in source_fact_ids
+                            if fact_id in fact_lookup
+                            for evidence_id in fact_lookup[
+                                fact_id
+                            ].evidence_ids
+                        ]
+                    )
+                )
+            )
+        )
+        statement = (
+            record.verified_statement
+            if record is not None
+            and record.verified_statement
+            else candidate.statement
+        )
+
+        if (
+            record is not None
+            and record.verified_statement
+            and not _verified_statement_is_safe(
+                candidate=candidate,
+                statement=record.verified_statement,
+                source_fact_ids=source_fact_ids,
+                source_evidence_ids=source_evidence_ids,
+                fact_ledger=fact_ledger,
+                evidence_ledger=evidence_ledger,
+                settings=settings,
+            )
+        ):
+            reasons.append(
+                "The verifier statement was stronger than or unsupported by "
+                "the candidate provenance."
+            )
+
+        confidence = min(
+            candidate.confidence,
+            record.confidence if record is not None else 0.0,
+        )
+        salience = min(
+            candidate.salience,
+            record.salience if record is not None else 0.0,
+        )
+
+        hypothesis_only = bool(
+            candidate.interpretation_level
+            == InterpretationLevel.HYPOTHESIS
+            or (
+                record is not None
+                and record.status
+                == InsightVerificationStatus.HYPOTHESIS_ONLY
+            )
+        )
+
+        if verification_errors:
+            record_errors = [
+                error
+                for error in verification_errors
+                if candidate.insight_id in error
+            ]
+            reasons.extend(record_errors)
+
+        if reasons:
+            rejected.append(
+                InsightRejection(
+                    insight_id=candidate.insight_id,
+                    candidate=candidate,
+                    reasons=list(dict.fromkeys(reasons)),
+                )
+            )
+            continue
+
+        verified = VerifiedInsight(
+            insight_id=candidate.insight_id,
+            statement=statement,
+            insight_type=candidate.insight_type,
+            interpretation_level=(
+                InterpretationLevel.HYPOTHESIS
+                if hypothesis_only
+                else InterpretationLevel.BOUNDED_INSIGHT
+            ),
+            source_fact_ids=source_fact_ids,
+            source_evidence_ids=source_evidence_ids,
+            source_capabilities=list(
+                dict.fromkeys(
+                    evidence_lookup[evidence_id].capability
+                    for evidence_id in source_evidence_ids
+                    if evidence_id in evidence_lookup
+                )
+            ),
+            why_it_matters=candidate.why_it_matters,
+            limitations=list(
+                dict.fromkeys(
+                    [
+                        *candidate.limitations,
+                        *(
+                            record.limitations
+                            if record is not None
+                            else []
+                        ),
+                    ]
+                )
+            ),
+            claim_permissions=candidate.claim_permissions,
+            confidence=confidence,
+            salience=salience,
+            verification_status=(
+                InsightVerificationStatus.HYPOTHESIS_ONLY
+                if hypothesis_only
+                else record.status
+            ),
+        )
+
+        if hypothesis_only:
+            if not HYPOTHESIS_LABEL_PATTERN.search(statement):
+                rejected.append(
+                    InsightRejection(
+                        insight_id=candidate.insight_id,
+                        candidate=candidate,
+                        reasons=[
+                            "A hypothesis-only statement must be explicitly "
+                            "labelled as a hypothesis."
+                        ],
+                    )
+                )
+            else:
+                hypotheses.append(verified)
+            continue
+
+        if not candidate.suitable_for_main_report:
+            rejected.append(
+                InsightRejection(
+                    insight_id=candidate.insight_id,
+                    candidate=candidate,
+                    reasons=["The candidate is not suitable for the main report."],
+                )
+            )
+            continue
+
+        if confidence < settings.min_insight_confidence:
+            rejected.append(
+                InsightRejection(
+                    insight_id=candidate.insight_id,
+                    candidate=candidate,
+                    reasons=[
+                        "Confidence is below the configured main-insight "
+                        "threshold."
+                    ],
+                )
+            )
+            continue
+
+        if salience < settings.min_insight_salience:
+            rejected.append(
+                InsightRejection(
+                    insight_id=candidate.insight_id,
+                    candidate=candidate,
+                    reasons=[
+                        "Salience is below the configured main-insight "
+                        "threshold."
+                    ],
+                )
+            )
+            continue
+
+        eligible.append((index, candidate, verified))
+
+    eligible.sort(
+        key=lambda item: (
+            not item[1].suitable_for_main_report,
+            -item[2].salience,
+            -item[2].confidence,
+            item[0],
+        )
+    )
+    selected = eligible[: settings.max_verified_main_insights]
+
+    for _, candidate, _ in eligible[settings.max_verified_main_insights :]:
+        rejected.append(
+            InsightRejection(
+                insight_id=candidate.insight_id,
+                candidate=candidate,
+                reasons=[
+                    "The configured verified main-insight budget was reached."
+                ],
+            )
+        )
+
+    return InsightLedger(
+        verified_insights=[
+            verified
+            for _, _, verified in selected
+        ],
+        hypothesis_only_insights=hypotheses,
+        rejected_insights=rejected,
+        verifier_notes=[
+            *verification.verifier_notes,
+            *[
+                error
+                for error in verification_errors
+                if error not in {
+                    reason
+                    for rejection in rejected
+                    for reason in rejection.reasons
+                }
+            ],
+        ],
+        synthesis_enabled=True,
+    )
+
+
+def writer_sentence_grounding_errors(
+    *,
+    sentence: WriterSentenceDraft,
+    fact_lookup: dict[str, VerifiedFact],
+    insight_lookup: dict[str, VerifiedInsight],
+    sentence_label: str,
+) -> list[str]:
+    if sentence.support_type == SupportType.NON_FACTUAL:
+        return []
+
+    expanded_fact_ids = list(
+        dict.fromkeys(
+            [
+                *sentence.fact_ids,
+                *[
+                    fact_id
+                    for insight_id in sentence.insight_ids
+                    if insight_id in insight_lookup
+                    for fact_id in insight_lookup[
+                        insight_id
+                    ].source_fact_ids
+                ],
+            ]
+        )
+    )
+    supporting_facts = [
+        fact_lookup[fact_id]
+        for fact_id in expanded_fact_ids
+        if fact_id in fact_lookup
+    ]
+
+    if not supporting_facts:
+        return []
+
+    errors: list[str] = []
+    support_numbers = [
+        number
+        for fact in supporting_facts
+        for number in flatten_numbers(
+            fact.structured_values
+        )
+    ]
+    if not numbers_supported(
+        sentence.text,
+        support_numbers,
+    ):
+        errors.append(
+            f"{sentence_label} contains a number unsupported by mapped facts "
+            f"{expanded_fact_ids}."
+        )
+
+    supported_entities = {
+        entity
+        for fact in supporting_facts
+        for entity in fact.entities
+    }
+    unsupported_entities = unsupported_backtick_entities(
+        sentence.text,
+        supported_entities,
+    )
+    if unsupported_entities:
+        errors.append(
+            f"{sentence_label} contains unsupported entities "
+            f"{unsupported_entities}; mapped fact IDs: "
+            f"{expanded_fact_ids}."
+        )
+
+    return errors
+
+
+def recover_missing_writer_insight_ids(
+    draft: WriterAgentDraft,
+    verified_insight_lookup: dict[str, VerifiedInsight],
+) -> WriterAgentDraft:
+    """Recover one unambiguous omitted insight ID from exact fact provenance."""
+
+    changed = False
+    recovered_sections: list[WriterSectionDraft] = []
+
+    for section in draft.sections:
+        recovered_sentences: list[WriterSentenceDraft] = []
+
+        for sentence in section.sentences:
+            recovered = sentence
+            if (
+                sentence.interpretation_level
+                == InterpretationLevel.BOUNDED_INSIGHT
+                and not sentence.insight_ids
+                and sentence.fact_ids
+            ):
+                cited_fact_ids = set(sentence.fact_ids)
+                candidates = [
+                    insight_id
+                    for insight_id, insight
+                    in verified_insight_lookup.items()
+                    if set(insight.source_fact_ids)
+                    == cited_fact_ids
+                ]
+                if len(candidates) == 1:
+                    recovered = sentence.model_copy(
+                        update={"insight_ids": candidates}
+                    )
+                    changed = True
+
+            recovered_sentences.append(recovered)
+
+        recovered_sections.append(
+            section.model_copy(
+                update={"sentences": recovered_sentences}
+            )
+        )
+
+    if not changed:
+        return draft
+
+    return draft.model_copy(
+        update={"sections": recovered_sections}
+    )
+
+
 WRITER_INSTRUCTIONS = """
 You are an expert data scientist and natural report writer.
 
 Use the supplied verified evidence to produce a selective, coherent,
 reader-facing data-science report.
+
+Write an insight-led report rather than a catalogue of unrelated statistics
+when verified bounded insights are available. The verified Insight Ledger is
+the only source of interpretive claims. Verified facts remain the source of
+direct findings and supporting details.
+
+For each main analytical paragraph, state one verified bounded insight,
+support it with its verified facts, explain why it matters only as authorised
+by that insight, and integrate its limitation where needed. Do not invent or
+strengthen an insight during writing.
+
+Keep four roles distinct:
+- a direct finding reports a verified observation or statistic;
+- a bounded insight relates multiple findings into a dataset-scoped pattern;
+- the analytical implication explains why that combined pattern matters for
+  interpretation or analysis, using only the insight's `why_it_matters`;
+- a hypothesis proposes why the pattern exists and requires further testing.
+
+Do not fill an analytical paragraph with a coefficient sentence followed by a
+verbal restatement of the same coefficients. Use the verified analytical
+implication. A possible dependency, artifact, collection process, or unmeasured
+mechanism is a hypothesis even when introduced as something to investigate.
+
+Do not turn association into causation, a group difference into an
+explanation, overlapping variables into universal redundancy, a data-quality
+risk into a confirmed error, or a game statistic into unsupported dominance.
+Every bounded-insight sentence must cite its insight ID and retain relevant
+source fact IDs. Every direct factual sentence must cite fact IDs. Do not use
+rejected insights or hypothesis-only insights in the main report.
+
+When hypotheses are disabled, do not write a hypothesis section. When they
+are enabled, place them only in a separate "Questions for Further
+Investigation" section, label each as a hypothesis or question, state what
+additional analysis is needed, and never present it as a result.
+
+Respect the selected genre, content slots and perspective. A data-science
+report uses bounded analytical prose. A dataset overview stays concise and
+mainly finding-led. An event report communicates the verified result, leading
+performances and major participant contrasts in conventional narrative form.
+Fill each required slot only from evidence carrying its required capability.
+Do not mention a slot when its evidence is unavailable. Do not invent
+chronology, comeback leadership, dominance, milestones, audience, venue,
+season context or historical significance. Neutral perspective is the
+default; subject-centred perspective changes selection only, never facts.
 
 You have freedom over:
 - wording;
@@ -521,7 +1954,7 @@ You have freedom over:
 - selection;
 - synthesis;
 - paragraph organisation;
-- explanation;
+- integration of verified analytical implications;
 - consolidation of caveats.
 
 You do not have freedom to invent:
@@ -553,6 +1986,10 @@ Do not render internal evidence fields such as:
 - Global Prohibited Interpretations
 
 Translate effect labels and metrics into natural prose.
+Preserve their verified classification consistently. If mapped evidence calls
+an association strong, do not later call the same association moderate. Do not
+invent a qualitative strength label that differs from the supplied controlled
+strength label.
 Do not begin with generic boilerplate such as "This document summarizes",
 "This report provides", "Here's a breakdown", or "The goal is to provide".
 
@@ -588,7 +2025,15 @@ Use neutral terms such as "rows", "records", "observations" or
 
 Reader-facing next steps must come from supplied analytical recommendations,
 verified methodological facts or the explicit user request. Do not invent
-generic future modelling tasks.
+generic future modelling tasks. A recommendation to investigate whether a
+pattern reflects a dependency, artifact, collection process, or unmeasured
+mechanism is still a hypothesis and must follow the hypothesis policy.
+
+When supported missingness facts are available, state clearly which observed
+subset the analysis describes. Do not assume missingness is non-random or has
+already biased an estimate. When supported duplicate facts are available,
+describe possible influence as an unmeasured methodological risk; do not claim
+that deduplication would change results unless that comparison was performed.
 
 For a major group comparison, where supplied, explain:
 - the group means;
@@ -638,6 +2083,9 @@ The controller will materialise Markdown and sentence support
 deterministically.
 
 Each factual sentence must list its supporting fact IDs.
+Every backticked table or column name and every visible number must be
+supported by those same fact IDs. When a sentence combines facts, cite every
+fact needed for all of its named entities and values.
 Non-factual transitions may be marked non_factual_transition and must not
 cite fact IDs.
 """
@@ -672,10 +2120,45 @@ def build_writer_agent(settings: Settings) -> Agent:
             context.deps.payload["fact_ledger"]
         )
 
+        fact_lookup = {
+            fact.fact_id: fact
+            for fact in ledger.writer_ready_facts
+        }
         valid_fact_ids = {
             fact.fact_id
             for fact in ledger.writer_ready_facts
         }
+        insight_ledger = InsightLedger.model_validate(
+            context.deps.payload.get(
+                "insight_ledger",
+                {},
+            )
+        )
+        verified_insight_lookup = {
+            insight.insight_id: insight
+            for insight in insight_ledger.verified_insights
+        }
+        hypothesis_insight_lookup = {
+            insight.insight_id: insight
+            for insight in insight_ledger.hypothesis_only_insights
+        }
+        all_insight_lookup = {
+            **verified_insight_lookup,
+            **hypothesis_insight_lookup,
+        }
+        output = recover_missing_writer_insight_ids(
+            output,
+            verified_insight_lookup,
+        )
+        valid_insight_ids = set(verified_insight_lookup)
+        hypothesis_insight_ids = set(hypothesis_insight_lookup)
+        all_insight_ids = set(all_insight_lookup)
+        allow_hypotheses = bool(
+            context.deps.payload.get(
+                "allow_hypotheses_in_report",
+                False,
+            )
+        )
 
         errors: list[str] = []
 
@@ -710,10 +2193,105 @@ def build_writer_agent(settings: Settings) -> Agent:
                         f"{sorted(unknown)}"
                     )
 
+                unknown_insights = (
+                    set(sentence.insight_ids)
+                    - all_insight_ids
+                )
+                if unknown_insights:
+                    errors.append(
+                        "Sentence "
+                        f"{section_index}.{sentence_index} "
+                        "uses unknown insight IDs: "
+                        f"{sorted(unknown_insights)}"
+                    )
+
+                if not unknown and not unknown_insights:
+                    errors.extend(
+                        writer_sentence_grounding_errors(
+                            sentence=sentence,
+                            fact_lookup=fact_lookup,
+                            insight_lookup=all_insight_lookup,
+                            sentence_label=(
+                                "Sentence "
+                                f"{section_index}.{sentence_index}"
+                            ),
+                        )
+                    )
+
+                if (
+                    EXPLANATORY_HYPOTHESIS_PATTERN.search(
+                        sentence.text
+                    )
+                    and sentence.interpretation_level
+                    != InterpretationLevel.HYPOTHESIS
+                ):
+                    errors.append(
+                        "Sentence "
+                        f"{section_index}.{sentence_index} presents a possible "
+                        "explanation without classifying it as a hypothesis."
+                    )
+
+                if (
+                    sentence.interpretation_level
+                    == InterpretationLevel.BOUNDED_INSIGHT
+                ):
+                    if not sentence.insight_ids:
+                        errors.append(
+                            "A bounded-insight sentence must cite a verified "
+                            "insight ID."
+                        )
+                    elif not set(sentence.insight_ids).issubset(
+                        valid_insight_ids
+                    ):
+                        errors.append(
+                            "A bounded-insight sentence may cite only verified "
+                            "main insights."
+                        )
+
+                if (
+                    sentence.interpretation_level
+                    == InterpretationLevel.HYPOTHESIS
+                ):
+                    if not allow_hypotheses:
+                        errors.append(
+                            "Hypothesis sentences are disabled by configuration."
+                        )
+                    if not sentence.insight_ids or not set(
+                        sentence.insight_ids
+                    ).issubset(hypothesis_insight_ids):
+                        errors.append(
+                            "A hypothesis sentence must cite a hypothesis-only "
+                            "insight ID."
+                        )
+                    if section.heading.strip().lower() != (
+                        "questions for further investigation"
+                    ):
+                        errors.append(
+                            "Hypotheses may appear only in the Questions for "
+                            "Further Investigation section."
+                        )
+                    if not HYPOTHESIS_LABEL_PATTERN.search(
+                        sentence.text
+                    ) and not sentence.text.strip().endswith("?"):
+                        errors.append(
+                            "A hypothesis sentence must be explicitly labelled "
+                            "as a hypothesis."
+                        )
+
+                if (
+                    sentence.interpretation_level
+                    == InterpretationLevel.FINDING
+                    and sentence.insight_ids
+                ):
+                    errors.append(
+                        "A direct finding must not be relabelled with insight IDs."
+                    )
+
                 if (
                     sentence.support_type
                     != SupportType.NON_FACTUAL
                     and not sentence.fact_ids
+                    and not sentence.insight_ids
                 ):
                     errors.append(
                         "Sentence "
@@ -724,11 +2302,14 @@ def build_writer_agent(settings: Settings) -> Agent:
                 if (
                     sentence.support_type
                     == SupportType.NON_FACTUAL
-                    and sentence.fact_ids
+                    and (
+                        sentence.fact_ids
+                        or sentence.insight_ids
+                    )
                 ):
                     errors.append(
                         "A non-factual transition must not "
-                        "cite fact IDs."
+                        "cite fact or insight IDs."
                     )
 
                 if re.search(
@@ -784,11 +2365,14 @@ You receive:
 - optional trusted external facts.
 
 Authority hierarchy:
-- The deterministic pre-audit is authoritative.
-- Verified facts, deterministic evidence, deterministic profile support and
-  properly scoped trusted external facts are factual sources.
-- Data Understanding is interpretive context only. Never validate one
-  LLM-generated claim solely because another LLM output repeats it.
+- The deterministic pre-audit is authoritative and cannot be erased.
+- Factual and interpretive authority, in order, is the Verified Fact Ledger,
+  deterministic Evidence Ledger, deterministic profile support, verified
+  Insight Ledger for exact bounded interpretations, properly scoped trusted
+  external facts when allowed, and Data Understanding as non-authoritative
+  context only.
+- Never validate one LLM-generated claim solely because another LLM output
+  repeats it.
 - A claim that is exactly supported by deterministic profile data but missing
   from the sentence support map is a support-mapping defect. Do not call it a
   visible hallucination when the visible statement is correct.
@@ -796,6 +2380,21 @@ Authority hierarchy:
   patch fully resolves the problem.
 - The semantic Auditor may add supported annotations and repair candidates but
   must not erase deterministic findings.
+
+A verified insight is an evidence-constrained interpretation, not permission
+to write any plausible related claim. Check that report wording is no stronger
+than the mapped insight. Do not call a supported bounded insight a
+hallucination merely because it is not a direct numeric fact.
+
+Flag interpretations absent from the Insight Ledger, wording stronger than a
+verified insight, causal escalation, unsupported domain interpretation,
+unlabelled hypotheses, hypotheses presented as conclusions, and unsupported
+genre-specific narratives. Also flag qualitative strength wording that
+conflicts with the mapped deterministic strength label, such as calling the
+same verified association strong in one place and moderate in another. The
+Insight Ledger does not authorise new numbers, entities, recommendations,
+causality, generalisations or domain explanations. Do not use Data
+Understanding to validate an insight.
 
 Perform two responsibilities.
 
@@ -923,6 +2522,62 @@ def build_auditor_agent(settings: Settings) -> Agent:
                 [],
             )
         )
+        valid_insight_ids = set(
+            context.deps.payload.get(
+                "valid_insight_ids",
+                [],
+            )
+        )
+        hypothesis_only_insight_ids = set(
+            context.deps.payload.get(
+                "hypothesis_only_insight_ids",
+                [],
+            )
+        )
+        all_insight_ids = (
+            valid_insight_ids
+            | hypothesis_only_insight_ids
+        )
+        insight_statements = dict(
+            context.deps.payload.get(
+                "insight_statements",
+                {},
+            )
+        )
+        sentence_insight_ids = {
+            sentence: set(insight_ids)
+            for sentence, insight_ids in context.deps.payload.get(
+                "sentence_insight_ids",
+                {},
+            ).items()
+        }
+        allow_hypotheses = bool(
+            context.deps.payload.get(
+                "allow_hypotheses_in_report",
+                False,
+            )
+        )
+        repair_fact_ledger = (
+            FactLedger.model_validate(
+                context.deps.payload["fact_ledger"]
+            )
+            if "fact_ledger" in context.deps.payload
+            else None
+        )
+        if "evidence_ledger" in context.deps.payload:
+            from .schemas import EvidenceLedger
+
+            repair_evidence_ledger = EvidenceLedger.model_validate(
+                context.deps.payload["evidence_ledger"]
+            )
+        else:
+            repair_evidence_ledger = None
+        repair_insight_ledger = InsightLedger.model_validate(
+            context.deps.payload.get(
+                "insight_ledger",
+                {},
+            )
+        )
         deterministic_annotation_ids = set(
             context.deps.payload.get(
                 "deterministic_annotation_ids",
@@ -998,6 +2653,45 @@ def build_auditor_agent(settings: Settings) -> Agent:
                     f"{sorted(unknown_profile_support)}"
                 )
 
+            unknown_insights = (
+                set(annotation.insight_ids)
+                - all_insight_ids
+            )
+            if unknown_insights:
+                raise ModelRetry(
+                    "Unknown annotation insight IDs: "
+                    f"{sorted(unknown_insights)}"
+                )
+
+            insight_subtype = annotation.subtype in {
+                "unsupported_insight",
+                "insight_exceeds_verified_wording",
+                "insight_missing_source_support",
+                "single_fact_relabelled_as_insight",
+                "unlabelled_hypothesis",
+                "hypothesis_presented_as_conclusion",
+                "unsupported_causal_interpretation",
+                "unsupported_domain_interpretation",
+                "unsupported_sports_narrative",
+                "genre_mismatch",
+            }
+            if (
+                insight_subtype
+                and not annotation.insight_ids
+                and not sentence_insight_ids.get(annotation.sentence)
+                and annotation.subtype
+                not in {
+                    "unsupported_insight",
+                    "unlabelled_hypothesis",
+                    "unsupported_sports_narrative",
+                    "genre_mismatch",
+                }
+            ):
+                raise ModelRetry(
+                    "Insight-specific annotations must reference the mapped "
+                    "insight where one exists."
+                )
+
         for repair in output.repairs:
             if repair.original_sentence not in report_text:
                 raise ModelRetry(
@@ -1020,6 +2714,26 @@ def build_auditor_agent(settings: Settings) -> Agent:
                 )
 
             for candidate in repair.candidates:
+                if (
+                    repair_fact_ledger is not None
+                    and repair_evidence_ledger is not None
+                ):
+                    repair_errors = validate_repair_candidate(
+                        candidate,
+                        repair_fact_ledger,
+                        repair_evidence_ledger,
+                        repair_insight_ledger,
+                        allow_hypotheses,
+                        original_text=(
+                            repair.original_sentence
+                        ),
+                    )
+                    if repair_errors:
+                        raise ModelRetry(
+                            "Repair candidate validation failed: "
+                            + "; ".join(repair_errors)
+                        )
+
                 unknown = (
                     set(candidate.supporting_fact_ids)
                     - valid_fact_ids
@@ -1040,6 +2754,55 @@ def build_auditor_agent(settings: Settings) -> Agent:
                         "Unknown repair evidence IDs: "
                         f"{sorted(unknown_evidence)}"
                     )
+
+                unknown_insights = (
+                    set(candidate.supporting_insight_ids)
+                    - all_insight_ids
+                )
+                if unknown_insights:
+                    raise ModelRetry(
+                        "Unknown repair insight IDs: "
+                        f"{sorted(unknown_insights)}"
+                    )
+
+                if (
+                    set(candidate.supporting_insight_ids)
+                    & hypothesis_only_insight_ids
+                    and not allow_hypotheses
+                ):
+                    raise ModelRetry(
+                        "Repairs may not introduce hypotheses while the "
+                        "feature is disabled."
+                    )
+
+                for insight_id in candidate.supporting_insight_ids:
+                    insight_statement = insight_statements.get(
+                        insight_id,
+                        "",
+                    )
+                    replacement = candidate.replacement_text
+                    if (
+                        replacement
+                        and insight_statement
+                        and CAUSAL_PATTERN.search(replacement)
+                        and not CAUSAL_PATTERN.search(insight_statement)
+                    ):
+                        raise ModelRetry(
+                            "A repair candidate strengthens a verified insight "
+                            "with causal wording."
+                        )
+
+                    if (
+                        replacement
+                        and UNIVERSAL_GENERALISATION_PATTERN.search(replacement)
+                        and not UNIVERSAL_GENERALISATION_PATTERN.search(
+                            insight_statement
+                        )
+                    ):
+                        raise ModelRetry(
+                            "A repair candidate generalises beyond its verified "
+                            "insight."
+                        )
 
         if output.recommended_decision == AuditDecision.BLOCK:
             semantic_serious = any(
@@ -1262,13 +3025,230 @@ def select_explicit_target(
     return None
 
 
+def event_report_requested(
+    request: str,
+) -> bool:
+    return bool(
+        re.search(
+            r"\b(write|create|produce|give|prepare)?\s*"
+            r"(?:a\s+)?(?:event|sports|game|match)\s+report\b|"
+            r"\bwrite up (?:the|this) (?:event|game|match)\b",
+            request,
+            re.IGNORECASE,
+        )
+    )
+
+
+def sports_game_report_requested(
+    request: str,
+) -> bool:
+    return event_report_requested(request)
+
+
+def profile_supports_sports_game_report(
+    profile: DataProfile,
+) -> bool:
+    names = {
+        column.name.lower()
+        for table in profile.tables
+        for column in table.columns
+    }
+    table_names = {
+        table.table_name.lower()
+        for table in profile.tables
+    }
+
+    has_subject = any(
+        token in name
+        for name in names
+        for token in {"team", "player", "opponent"}
+    )
+    has_result = any(
+        token in name
+        for name in names
+        for token in {"score", "points", "winner", "result"}
+    )
+    game_named = any(
+        token in name
+        for name in table_names
+        for token in {"game", "match", "boxscore", "box_score"}
+    )
+
+    return has_subject and has_result and game_named
+
+
+def fallback_insight_objectives(
+    *,
+    tasks: list[InvestigationTask],
+    genre: ReportGenre,
+    enabled: bool,
+) -> list[InsightObjective]:
+    if not enabled:
+        return []
+
+    task_ids = [task.task_id for task in tasks]
+
+    if genre in {
+        ReportGenre.EVENT_REPORT,
+        ReportGenre.SPORTS_GAME_REPORT,
+    }:
+        questions = [
+            (
+                "What verified facts best describe the result without "
+                "implying unsupported causality?",
+                [InsightType.NARRATIVE_SUMMARY],
+            ),
+            (
+                "Which verified performances are most salient to the game "
+                "report?",
+                [InsightType.DOMINANT_PATTERN, InsightType.CONTRAST],
+            ),
+            (
+                "Which verified team-level contrasts define the bounded game "
+                "narrative?",
+                [InsightType.CONTRAST, InsightType.NARRATIVE_SUMMARY],
+            ),
+            (
+                "Are any conventional milestones explicitly supported by the "
+                "verified facts?",
+                [InsightType.NARRATIVE_SUMMARY],
+            ),
+        ]
+    else:
+        questions = [
+            (
+                "Which verified findings jointly describe the strongest "
+                "structure in the data?",
+                [InsightType.DOMINANT_PATTERN, InsightType.NARRATIVE_SUMMARY],
+            ),
+            (
+                "What is the strongest non-redundant verified contrast?",
+                [InsightType.CONTRAST],
+            ),
+            (
+                "Do any verified variables contain substantially overlapping "
+                "information in this dataset?",
+                [InsightType.REDUNDANCY, InsightType.OUTCOME_ASSOCIATION],
+            ),
+            (
+                "Which verified data-quality issue most affects interpretation?",
+                [InsightType.DATA_QUALITY_IMPLICATION, InsightType.ANOMALY],
+            ),
+            (
+                "What bounded message should the reader remember from the "
+                "verified findings?",
+                [InsightType.NARRATIVE_SUMMARY],
+            ),
+        ]
+
+    return [
+        InsightObjective(
+            objective_id=f"INSIGHT_OBJECTIVE_{index:03d}",
+            question=question,
+            preferred_insight_types=insight_types,
+            relevant_task_ids=task_ids,
+        )
+        for index, (question, insight_types) in enumerate(
+            questions,
+            start=1,
+        )
+    ]
+
+
 def fallback_execution_plan(
     request: str,
     profile: DataProfile,
     audit_mode: AuditMode,
     settings: Settings,
+    *,
+    input_structure: InputStructureProfile | None = None,
+    available_capabilities: list[EvidenceCapability] | None = None,
+    report_genre_override: ReportGenre | None = None,
 ) -> ExecutionPlan:
     tasks: list[InvestigationTask] = []
+    available_capabilities = available_capabilities or []
+    explicit_event_request = event_report_requested(request)
+    report_genre = (
+        ReportGenre.EVENT_REPORT
+        if explicit_event_request
+        else (
+            report_genre_override
+            if report_genre_override is not None
+            else (
+                ReportGenre.DATASET_OVERVIEW
+                if re.search(
+                    r"\bdataset overview\b",
+                    request,
+                    re.IGNORECASE,
+                )
+                else ReportGenre.DATA_SCIENCE_REPORT
+            )
+        )
+    )
+
+    if explicit_event_request:
+        selection_source = ReportSelectionSource.EXPLICIT_USER_REQUEST
+    elif report_genre_override is not None:
+        selection_source = ReportSelectionSource.EXPERIMENT_CONFIGURATION
+    else:
+        selection_source = ReportSelectionSource.FALLBACK
+
+    if report_genre in {
+        ReportGenre.EVENT_REPORT,
+        ReportGenre.SPORTS_GAME_REPORT,
+    } and profile.tables:
+        event_table = profile.tables[0]
+        event_task_specs = [
+            (
+                EvidenceCapability.EVENT_OUTCOME,
+                AnalysisRoute.DESCRIPTIVE,
+                "What is the verified event result and status?",
+                ["event_outcome", "event_status"],
+            ),
+            (
+                EvidenceCapability.ENTITY_PERFORMANCE,
+                AnalysisRoute.DESCRIPTIVE,
+                "Which recorded entity performances are most salient?",
+                ["entity_performance"],
+            ),
+            (
+                EvidenceCapability.RANKING,
+                AnalysisRoute.DESCRIPTIVE,
+                "Which entities lead the recorded performance rankings?",
+                ["entity_ranking"],
+            ),
+            (
+                EvidenceCapability.GROUP_COMPARISON,
+                AnalysisRoute.ASSOCIATION_COMPARISON,
+                "What are the strongest participant-level contrasts?",
+                ["participant_comparison"],
+            ),
+        ]
+        for capability, route, question, evidence_types in event_task_specs:
+            if capability not in available_capabilities:
+                continue
+            tasks.append(
+                InvestigationTask(
+                    task_id=f"TASK_{len(tasks) + 1:03d}",
+                    question=question,
+                    route=route,
+                    priority=5 if capability == EvidenceCapability.EVENT_OUTCOME else 4,
+                    table_name=event_table.table_name,
+                    columns=[column.name for column in event_table.columns],
+                    capability=capability,
+                    input_fields=["teams"],
+                    entity_scope=input_structure.entity_levels if input_structure else [],
+                    expected_evidence_types=evidence_types,
+                    required_evidence=evidence_types,
+                    claim_permissions=[
+                        ClaimPermission.DESCRIPTIVE,
+                        ClaimPermission.COMPARATIVE,
+                    ],
+                    answerability_note=(
+                        "Answerable through deterministic structured-event extraction."
+                    ),
+                )
+            )
 
     predictive_requested = bool(
         re.search(
@@ -1502,20 +3482,115 @@ def fallback_execution_plan(
         route_order=route_order,
         report_specification=ReportSpecification(
             report_purpose=request,
+            genre=report_genre,
+            perspective=ReportPerspective.NEUTRAL,
+            communication_goal=(
+                "Explain the verified result, leading performances and "
+                "major team contrasts."
+                if report_genre
+                in {
+                    ReportGenre.EVENT_REPORT,
+                    ReportGenre.SPORTS_GAME_REPORT,
+                }
+                else (
+                    "Describe the table structure and strongest supported "
+                    "findings concisely."
+                    if report_genre == ReportGenre.DATASET_OVERVIEW
+                    else "Summarise the strongest supported findings."
+                )
+            ),
             target_length_words=settings.writer_target_words,
             maximum_main_findings=settings.writer_max_main_findings,
-            preferred_sections=[
-                "Overview and data quality",
-                "Strongest observed relationships",
-                "Modelling and validation",
-                "Limitations and next steps",
-            ],
-            required_components=[
-                ReportComponent.DATASET_OVERVIEW,
-                ReportComponent.DATA_QUALITY,
-                ReportComponent.STRONGEST_RELATIONSHIPS,
-                ReportComponent.LIMITATIONS_NEXT_STEPS,
-            ],
+            preferred_sections=(
+                [
+                    "Result and game narrative",
+                    "Leading performances",
+                    "Decisive team contrasts",
+                    "Limitations",
+                ]
+                if report_genre
+                in {
+                    ReportGenre.EVENT_REPORT,
+                    ReportGenre.SPORTS_GAME_REPORT,
+                }
+                else [
+                    "Overview and data quality",
+                    "Strongest observed relationships",
+                    "Modelling and validation",
+                    "Limitations and next steps",
+                ]
+            ),
+            required_components=(
+                [
+                    ReportComponent.DATASET_OVERVIEW,
+                    ReportComponent.STRONGEST_RELATIONSHIPS,
+                    ReportComponent.LIMITATIONS_NEXT_STEPS,
+                ]
+                if report_genre
+                in {
+                    ReportGenre.EVENT_REPORT,
+                    ReportGenre.SPORTS_GAME_REPORT,
+                }
+                else [
+                    ReportComponent.DATASET_OVERVIEW,
+                    ReportComponent.DATA_QUALITY,
+                    ReportComponent.STRONGEST_RELATIONSHIPS,
+                    ReportComponent.LIMITATIONS_NEXT_STEPS,
+                ]
+            ),
+            required_content_slots=(
+                [
+                    "event_result",
+                    "leading_performance",
+                    "main_contrast",
+                ]
+                if report_genre
+                in {
+                    ReportGenre.EVENT_REPORT,
+                    ReportGenre.SPORTS_GAME_REPORT,
+                }
+                else [
+                    "dataset_scope",
+                    "material_data_quality_issue",
+                    "strongest_analytical_finding",
+                    "limitation",
+                ]
+            ),
+            optional_content_slots=(
+                [
+                    "event_status",
+                    "secondary_performance",
+                ]
+                if report_genre
+                in {
+                    ReportGenre.EVENT_REPORT,
+                    ReportGenre.SPORTS_GAME_REPORT,
+                }
+                else []
+            ),
+            prohibited_claim_types=(
+                [
+                    "unsupported_chronology",
+                    "unsupported_milestone",
+                    "unsupported_historical_significance",
+                ]
+                if report_genre
+                in {
+                    ReportGenre.EVENT_REPORT,
+                    ReportGenre.SPORTS_GAME_REPORT,
+                }
+                else ["unsupported_causality"]
+            ),
+            selection_source=selection_source,
+            selection_confidence=(
+                1.0
+                if selection_source
+                in {
+                    ReportSelectionSource.EXPLICIT_USER_REQUEST,
+                    ReportSelectionSource.EXPERIMENT_CONFIGURATION,
+                }
+                else 0.8
+            ),
             include_negative_findings=True,
             include_methodological_details=True,
             prioritisation_rule=(
@@ -1524,6 +3599,31 @@ def fallback_execution_plan(
             ),
         ),
         audit_mode=audit_mode,
+        insight_objectives=fallback_insight_objectives(
+            tasks=tasks[:10],
+            genre=report_genre,
+            enabled=settings.enable_insight_synthesis,
+        ),
+        available_capabilities=available_capabilities,
+        selected_capabilities=[
+            capability
+            for capability in available_capabilities
+            if (
+                report_genre
+                not in {
+                    ReportGenre.EVENT_REPORT,
+                    ReportGenre.SPORTS_GAME_REPORT,
+                }
+                or capability
+                in {
+                    EvidenceCapability.DATASET_PROFILE,
+                    EvidenceCapability.EVENT_OUTCOME,
+                    EvidenceCapability.ENTITY_PERFORMANCE,
+                    EvidenceCapability.RANKING,
+                    EvidenceCapability.GROUP_COMPARISON,
+                }
+            )
+        ],
         revision_limit=settings.max_revision_rounds,
         maximum_facts=80,
         frozen=True,
