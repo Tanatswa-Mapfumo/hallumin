@@ -1,0 +1,867 @@
+from __future__ import annotations
+
+import json
+
+import pandas as pd
+import pytest
+from pydantic import ValidationError
+
+from table2text.analytics import execute_plan
+from table2text.audit import (
+    assess_genre_quality,
+    fallback_fact_candidates,
+    flatten_numbers,
+    numbers_supported,
+    scope_fact_ledger_for_genre,
+    validate_fact_candidates,
+    validate_writer_output,
+)
+from table2text.capabilities import (
+    available_capabilities,
+    semantic_query_evidence,
+    validate_evidence_queries,
+)
+from table2text.config import Settings
+from table2text.data import DataBundle, load_data
+from table2text.schemas import (
+    AnalysisRoute,
+    AuditMode,
+    ClaimPermission,
+    DataUnderstanding,
+    EvaluationFieldPolicy,
+    EvidenceCapability,
+    EvidenceItem,
+    EvidenceLedger,
+    EvidenceOperation,
+    EvidenceQuery,
+    ExecutionPlan,
+    FactCandidate,
+    FactCandidateSet,
+    FactLedger,
+    InputRepresentationStatus,
+    InputSemanticMap,
+    InputShape,
+    InputStructureProfile,
+    InvestigationTask,
+    QualityStatus,
+    RecommendedUse,
+    ReportComponent,
+    ReportGenre,
+    ReportSelectionSource,
+    ReportSpecification,
+    SemanticBinding,
+    SemanticLevel,
+    SemanticRole,
+    SentenceSupport,
+    SupportType,
+    VerifiedFact,
+    WriterOutput,
+    WriterAgentDraft,
+)
+from table2text.structure import build_structural_catalog
+from table2text.workflow import (
+    build_orchestrator_prompt_context,
+    resolve_report_genre,
+)
+
+
+def renamed_event() -> dict:
+    return {
+        "occasion": {
+            "when": "2026-07-23",
+            "where": "Civic Hall",
+            "extra": False,
+        },
+        "sides": {
+            "north": {
+                "label": "North",
+                "tally": 12,
+                "attempts": 17,
+                "members": {
+                    "n1": {"label": "Nia", "alpha": 7},
+                    "n2": {"label": "Noor", "alpha": 4},
+                },
+            },
+            "south": {
+                "label": "South",
+                "tally": 9,
+                "attempts": 22,
+                "members": {
+                    "s1": {"label": "Sol", "alpha": 6},
+                    "s2": {"label": "Sage", "alpha": 2},
+                },
+            },
+        },
+    }
+
+
+def semantic_map() -> InputSemanticMap:
+    def binding(
+        binding_id: str,
+        label: str,
+        role: SemanticRole,
+        level: SemanticLevel,
+        path: str,
+    ) -> SemanticBinding:
+        return SemanticBinding(
+            binding_id=binding_id,
+            table_name="contest",
+            label=label,
+            role=role,
+            level=level,
+            path_pattern=path,
+            description=f"Semantic interpretation of {label}.",
+            confidence=0.98,
+            evidence_basis="Observed path and values in the sanitized catalog.",
+        )
+
+    return InputSemanticMap(
+        input_shape=InputShape.EVENT_RECORD,
+        record_description="One event with two participants and nested entities.",
+        bindings=[
+            binding(
+                "B_PARTICIPANT",
+                "participant",
+                SemanticRole.PARTICIPANT_IDENTIFIER,
+                SemanticLevel.PARTICIPANT,
+                "sides.*.label",
+            ),
+            binding(
+                "B_OUTCOME",
+                "event tally",
+                SemanticRole.OUTCOME_MEASURE,
+                SemanticLevel.PARTICIPANT,
+                "sides.*.tally",
+            ),
+            binding(
+                "B_ATTEMPTS",
+                "attempts",
+                SemanticRole.MEASURE,
+                SemanticLevel.PARTICIPANT,
+                "sides.*.attempts",
+            ),
+            binding(
+                "B_ENTITY",
+                "member",
+                SemanticRole.ENTITY_IDENTIFIER,
+                SemanticLevel.ENTITY,
+                "sides.*.members.*.label",
+            ),
+            binding(
+                "B_ALPHA",
+                "alpha performance",
+                SemanticRole.PERFORMANCE_MEASURE,
+                SemanticLevel.ENTITY,
+                "sides.*.members.*.alpha",
+            ),
+            binding(
+                "B_TIME",
+                "event date",
+                SemanticRole.TIME,
+                SemanticLevel.EVENT,
+                "occasion.when",
+            ),
+            binding(
+                "B_LOCATION",
+                "event venue",
+                SemanticRole.LOCATION,
+                SemanticLevel.EVENT,
+                "occasion.where",
+            ),
+            binding(
+                "B_STATUS",
+                "extra-period status",
+                SemanticRole.STATUS,
+                SemanticLevel.EVENT,
+                "occasion.extra",
+            ),
+        ],
+        recommended_report_genre=ReportGenre.EVENT_REPORT,
+        report_rationale="The sanitized input describes one bounded event.",
+        confidence=0.98,
+    )
+
+
+def semantic_queries() -> list[EvidenceQuery]:
+    common = {
+        "table_name": "contest",
+        "user_relevance": 0.95,
+        "salience": 0.95,
+    }
+    return [
+        EvidenceQuery(
+            query_id="QUERY_CONTEXT",
+            task_id="TASK_OUTCOME",
+            operation=EvidenceOperation.RETRIEVE,
+            capability=EvidenceCapability.EVENT_OUTCOME,
+            evidence_type="event_context",
+            semantic_label="event context",
+            question="What supplied context locates this event?",
+            semantic_level=SemanticLevel.EVENT,
+            value_binding_ids=["B_TIME", "B_LOCATION"],
+            recommended_use=RecommendedUse.HEADLINE,
+            **common,
+        ),
+        EvidenceQuery(
+            query_id="QUERY_STATUS",
+            task_id="TASK_OUTCOME",
+            operation=EvidenceOperation.RETRIEVE,
+            capability=EvidenceCapability.EVENT_OUTCOME,
+            evidence_type="event_status",
+            semantic_label="event status",
+            question="What status is recorded for this event?",
+            semantic_level=SemanticLevel.EVENT,
+            value_binding_ids=["B_STATUS"],
+            **common,
+        ),
+        EvidenceQuery(
+            query_id="QUERY_OUTCOME",
+            task_id="TASK_OUTCOME",
+            operation=EvidenceOperation.COMPARE,
+            capability=EvidenceCapability.EVENT_OUTCOME,
+            evidence_type="event_outcome",
+            semantic_label="event outcome",
+            question="How do the participant outcome measures compare?",
+            semantic_level=SemanticLevel.PARTICIPANT,
+            value_binding_ids=["B_OUTCOME"],
+            entity_binding_id="B_PARTICIPANT",
+            recommended_use=RecommendedUse.HEADLINE,
+            **common,
+        ),
+        EvidenceQuery(
+            query_id="QUERY_RANKING",
+            task_id="TASK_RANKING",
+            operation=EvidenceOperation.RANK,
+            capability=EvidenceCapability.RANKING,
+            evidence_type="entity_ranking",
+            semantic_label="alpha ranking",
+            question="Which entities have the highest alpha values?",
+            semantic_level=SemanticLevel.ENTITY,
+            value_binding_ids=["B_ALPHA"],
+            entity_binding_id="B_ENTITY",
+            group_binding_id="B_PARTICIPANT",
+            limit=3,
+            **common,
+        ),
+        EvidenceQuery(
+            query_id="QUERY_CONTRAST",
+            task_id="TASK_CONTRAST",
+            operation=EvidenceOperation.COMPARE,
+            capability=EvidenceCapability.GROUP_COMPARISON,
+            evidence_type="event_contrast",
+            semantic_label="attempt contrast",
+            question="How do participant attempts compare?",
+            semantic_level=SemanticLevel.PARTICIPANT,
+            value_binding_ids=["B_ATTEMPTS"],
+            entity_binding_id="B_PARTICIPANT",
+            **common,
+        ),
+    ]
+
+
+def test_semantic_map_rejects_exhaustive_binding_dumps():
+    compact_map = semantic_map()
+    bindings = [
+        binding.model_copy(
+            update={"binding_id": f"B_{index:02d}"},
+        )
+        for index, binding in enumerate(
+            (compact_map.bindings * 4)[:25],
+            start=1,
+        )
+    ]
+
+    with pytest.raises(ValidationError, match="at most 24 items"):
+        InputSemanticMap(
+            input_shape=compact_map.input_shape,
+            record_description=compact_map.record_description,
+            bindings=bindings,
+            recommended_report_genre=compact_map.recommended_report_genre,
+            report_rationale=compact_map.report_rationale,
+            confidence=compact_map.confidence,
+        )
+
+
+def test_orchestrator_context_exposes_binding_ids_without_raw_paths():
+    understanding = DataUnderstanding(
+        profile_fingerprint="fixture",
+        dataset_summary="One structured event.",
+        tables=[],
+        semantic_map=semantic_map(),
+    )
+    structure = event_structure().model_copy(
+        update={"nested_paths": ["sides.*.members.*.alpha"]}
+    )
+    context = build_orchestrator_prompt_context(
+        understanding=understanding,
+        input_structure=structure,
+        structural_catalog=build_structural_catalog(
+            {"contest": renamed_event()}
+        ),
+    )
+
+    assert "semantic_map" not in context["understanding"]
+    assert context["input_structure"]["nested_paths"] == []
+    assert context["structural_catalog"] == []
+    assert {
+        item["binding_id"]
+        for item in context["semantic_binding_catalog"]
+    } == {binding.binding_id for binding in semantic_map().bindings}
+    assert all(
+        "path_pattern" not in item
+        for item in context["semantic_binding_catalog"]
+    )
+
+
+def test_writer_draft_rejects_exhaustive_support_id_sequences():
+    with pytest.raises(ValidationError, match="at most 8 items"):
+        WriterAgentDraft(
+            title="Unsupported title",
+            title_fact_ids=[f"FACT_{index:04d}" for index in range(9)],
+        )
+
+
+def test_numeric_string_evidence_supports_rendered_dates_and_identifiers():
+    support_numbers = flatten_numbers(
+        {
+            "values": ["4885", "2017", "11", "09"],
+            "non_numeric": "Capital One Arena",
+        }
+    )
+
+    assert support_numbers == [4885.0, 2017.0, 11.0, 9.0]
+    assert numbers_supported(
+        "Game 4885 took place on 2017-11-09.",
+        support_numbers,
+    )
+
+
+def event_structure() -> InputStructureProfile:
+    return InputStructureProfile(
+        shape=InputShape.EVENT_RECORD,
+        representation_status=InputRepresentationStatus.VALID,
+        row_semantics="one event",
+        confidence=0.98,
+    )
+
+
+def event_report_specification() -> ReportSpecification:
+    return ReportSpecification(
+        report_purpose="Describe the event.",
+        genre=ReportGenre.EVENT_REPORT,
+        communication_goal="Communicate the verified event evidence.",
+        target_length_words=250,
+        maximum_main_findings=5,
+        required_components=[
+            ReportComponent.STRONGEST_RELATIONSHIPS,
+            ReportComponent.LIMITATIONS_NEXT_STEPS,
+        ],
+        required_content_slots=["event_result"],
+        prohibited_claim_types=["unsupported_causality"],
+        selection_source=ReportSelectionSource.STRUCTURED_INFERENCE,
+        prioritisation_rule="Prefer salient event evidence.",
+    )
+
+
+def evidence_item(
+    *,
+    evidence_id: str,
+    capability: EvidenceCapability,
+    evidence_type: str,
+    semantic_level: SemanticLevel,
+) -> EvidenceItem:
+    return EvidenceItem(
+        evidence_id=evidence_id,
+        route=AnalysisRoute.DESCRIPTIVE,
+        task_ids=["TASK_EVENT"],
+        capability=capability,
+        evidence_type=evidence_type,
+        semantic_level=semantic_level,
+        finding="Supported evidence item.",
+        metrics={"value": 12},
+        source_tables=["contest"],
+        method="Validated test evidence.",
+        practical_interpretation="Direct descriptive evidence.",
+        strength_label="direct",
+        claim_permissions=[ClaimPermission.DESCRIPTIVE],
+        factual_confidence=1.0,
+        methodological_strength=1.0,
+        user_relevance=1.0,
+        salience=1.0,
+        recommended_use=RecommendedUse.MAIN_FINDING,
+    )
+
+
+def verified_fact(
+    *,
+    fact_id: str,
+    evidence: EvidenceItem,
+) -> VerifiedFact:
+    return VerifiedFact(
+        fact_id=fact_id,
+        source_candidate_id=f"CAN_{fact_id}",
+        fact_summary="A directly supported fact.",
+        evidence_ids=[evidence.evidence_id],
+        source_capabilities=[evidence.capability],
+        structured_values={evidence.evidence_id: evidence.metrics},
+        entities=["contest"],
+        claim_permissions=[ClaimPermission.DESCRIPTIVE],
+        factual_confidence=1.0,
+        methodological_strength=1.0,
+        user_relevance=1.0,
+        salience=1.0,
+        recommended_use=RecommendedUse.MAIN_FINDING,
+    )
+
+
+def test_structural_catalog_uses_wildcards_and_excludes_held_out_reference(
+    tmp_path,
+):
+    sentinel = "SECRET HELD OUT REFERENCE " * 50
+    path = tmp_path / "contest.json"
+    path.write_text(
+        json.dumps({**renamed_event(), "reference": sentinel}),
+        encoding="utf-8",
+    )
+    bundle = load_data(
+        [path],
+        evaluation_field_policy=EvaluationFieldPolicy(
+            operational_input_paths=["occasion", "sides"],
+            held_out_reference_paths=["reference"],
+        ),
+    )
+
+    catalog = build_structural_catalog(bundle.structured_inputs)
+    serialized = json.dumps([field.model_dump(mode="json") for field in catalog])
+    paths = {field.path_pattern for field in catalog}
+
+    assert "sides.*.members.*.alpha" in paths
+    assert "sides.*.tally" in paths
+    assert sentinel.strip() not in serialized
+    assert "reference" not in serialized
+
+
+def test_generic_semantic_queries_execute_renamed_event_without_authored_claims():
+    catalog = build_structural_catalog({"contest": renamed_event()})
+    queries = semantic_queries()
+    available = {
+        EvidenceCapability.DATASET_PROFILE,
+        EvidenceCapability.EVENT_OUTCOME,
+        EvidenceCapability.RANKING,
+        EvidenceCapability.GROUP_COMPARISON,
+    }
+
+    assert not validate_evidence_queries(
+        queries,
+        semantic_map(),
+        catalog,
+        task_ids={"TASK_OUTCOME", "TASK_RANKING", "TASK_CONTRAST"},
+        available=available,
+        task_capabilities={
+            "TASK_OUTCOME": EvidenceCapability.EVENT_OUTCOME,
+            "TASK_RANKING": EvidenceCapability.RANKING,
+            "TASK_CONTRAST": EvidenceCapability.GROUP_COMPARISON,
+        },
+    )
+
+    results = semantic_query_evidence(
+        table_name="contest",
+        payload=renamed_event(),
+        semantic_map=semantic_map(),
+        queries=queries,
+    )
+    by_type = {item.evidence_type: item for item in results}
+
+    outcome = by_type["event_outcome"]
+    assert outcome.metrics["records"][0]["entity"] == "North"
+    assert outcome.metrics["records"][0]["value"] == 12
+    assert outcome.metrics["records"][1]["entity"] == "South"
+    assert outcome.metrics["difference"] == 3
+    assert "winner" not in outcome.metrics
+    assert "defeated" not in outcome.finding.lower()
+
+    ranking = by_type["entity_ranking"].metrics["ranking"]
+    assert [(item["entity"], item["group"], item["value"]) for item in ranking] == [
+        ("Nia", "North", 7.0),
+        ("Sol", "South", 6.0),
+        ("Noor", "North", 4.0),
+    ]
+    context_values = by_type["event_context"].metrics["values"]
+    assert {item["value"] for item in context_values} == {
+        "2026-07-23",
+        "Civic Hall",
+    }
+
+
+def test_semantic_query_validator_rejects_authored_operation_mismatch():
+    bad_query = semantic_queries()[2].model_copy(update={"operation": EvidenceOperation.RETRIEVE})
+
+    errors = validate_evidence_queries(
+        [bad_query],
+        semantic_map(),
+        build_structural_catalog({"contest": renamed_event()}),
+        task_ids={"TASK_OUTCOME"},
+        available={EvidenceCapability.EVENT_OUTCOME},
+        task_capabilities={
+            "TASK_OUTCOME": EvidenceCapability.EVENT_OUTCOME,
+        },
+    )
+
+    assert any("must use operation 'compare'" in error for error in errors)
+
+
+def test_generic_request_uses_semantically_inferred_event_genre():
+    genre, source, confidence = resolve_report_genre(
+        request="Understand the dataset and report its strongest findings.",
+        planned_genre=ReportGenre.DATA_SCIENCE_REPORT,
+        configured_genre=None,
+        semantic_map=semantic_map(),
+    )
+
+    assert genre == ReportGenre.EVENT_REPORT
+    assert source == ReportSelectionSource.STRUCTURED_INFERENCE
+    assert confidence == 0.98
+
+    explicit_genre, explicit_source, _ = resolve_report_genre(
+        request="Write a data-science report.",
+        planned_genre=ReportGenre.EVENT_REPORT,
+        configured_genre=None,
+        semantic_map=semantic_map(),
+    )
+    assert explicit_genre == ReportGenre.DATA_SCIENCE_REPORT
+    assert explicit_source == ReportSelectionSource.EXPLICIT_USER_REQUEST
+
+
+def test_event_capabilities_require_event_semantics_within_one_table():
+    collection_map = semantic_map().model_copy(
+        update={"input_shape": InputShape.ENTITY_COLLECTION}
+    )
+    bundle = DataBundle(
+        tables={},
+        source_paths=[],
+        fingerprint="fixture",
+        input_structure=InputStructureProfile(
+            shape=InputShape.ENTITY_COLLECTION,
+            representation_status=InputRepresentationStatus.VALID,
+            confidence=0.95,
+        ),
+    )
+
+    capabilities = available_capabilities(bundle, collection_map)
+
+    assert EvidenceCapability.RANKING in capabilities
+    assert EvidenceCapability.EVENT_OUTCOME not in capabilities
+    assert EvidenceCapability.ENTITY_PERFORMANCE not in capabilities
+
+
+def test_event_writer_scope_excludes_flat_wrapper_profile_facts():
+    event = evidence_item(
+        evidence_id="EVID_EVENT",
+        capability=EvidenceCapability.EVENT_OUTCOME,
+        evidence_type="event_outcome",
+        semantic_level=SemanticLevel.EVENT,
+    )
+    wrapper = evidence_item(
+        evidence_id="EVID_WRAPPER",
+        capability=EvidenceCapability.DATASET_PROFILE,
+        evidence_type="dataset_overview",
+        semantic_level=SemanticLevel.DATASET,
+    )
+    ledger = EvidenceLedger(fingerprint="fixture", items=[event, wrapper])
+    facts = FactLedger(
+        writer_ready_facts=[
+            verified_fact(fact_id="FACT_EVENT", evidence=event),
+            verified_fact(fact_id="FACT_WRAPPER", evidence=wrapper),
+        ]
+    )
+
+    scoped = scope_fact_ledger_for_genre(
+        facts,
+        ledger,
+        ReportGenre.EVENT_REPORT,
+    )
+
+    assert [fact.fact_id for fact in scoped.writer_ready_facts] == ["FACT_EVENT"]
+
+
+@pytest.mark.parametrize(
+    "boilerplate",
+    [
+        "Statistical modeling is not possible because the wrapper has one row.",
+        (
+            "Observed associations are descriptive. "
+            "Group comparisons are unadjusted."
+        ),
+    ],
+)
+def test_event_quality_gate_rejects_flat_modelling_discussion(boilerplate):
+    event = evidence_item(
+        evidence_id="EVID_EVENT",
+        capability=EvidenceCapability.EVENT_OUTCOME,
+        evidence_type="event_outcome",
+        semantic_level=SemanticLevel.EVENT,
+    )
+    output = WriterOutput(
+        title="Event report",
+        markdown=(
+            f"# Event report\n\nNorth recorded 12. {boilerplate}\n"
+        ),
+        sentence_support=[
+            SentenceSupport(
+                sentence_id="SENT_0001",
+                sentence_text="North recorded 12.",
+                fact_ids=["FACT_EVENT"],
+                evidence_ids=[event.evidence_id],
+                support_type=SupportType.DIRECT,
+            )
+        ],
+    )
+
+    assessment = assess_genre_quality(
+        output,
+        event_report_specification(),
+        EvidenceLedger(fingerprint="fixture", items=[event]),
+    )
+
+    assert assessment.status == QualityStatus.REVISE
+    assert any("flat-table profiling or modelling" in finding for finding in assessment.findings)
+
+
+def test_factual_title_must_map_every_named_entity_to_its_facts():
+    event = evidence_item(
+        evidence_id="EVID_EVENT",
+        capability=EvidenceCapability.EVENT_OUTCOME,
+        evidence_type="event_outcome",
+        semantic_level=SemanticLevel.EVENT,
+    )
+    alpha_fact = verified_fact(
+        fact_id="FACT_ALPHA",
+        evidence=event,
+    ).model_copy(update={"entities": ["Alpha"]})
+    beta_fact = verified_fact(
+        fact_id="FACT_BETA",
+        evidence=event,
+    ).model_copy(update={"entities": ["Beta"]})
+    output = WriterOutput(
+        title="Alpha defeats Beta",
+        title_fact_ids=[alpha_fact.fact_id],
+        markdown=(
+            "# Alpha defeats Beta\n\n## Event overview\n\n"
+            "Alpha has a supported event fact.\n"
+        ),
+        sentence_support=[
+            SentenceSupport(
+                sentence_id="SENT_0001",
+                sentence_text="Alpha has a supported event fact.",
+                fact_ids=[alpha_fact.fact_id],
+                evidence_ids=[event.evidence_id],
+                support_type=SupportType.DIRECT,
+            )
+        ],
+    )
+
+    errors = validate_writer_output(
+        output,
+        FactLedger(writer_ready_facts=[alpha_fact, beta_fact]),
+    )
+
+    assert any(
+        "entities unsupported by its facts" in error
+        and "Beta" in error
+        for error in errors
+    )
+
+
+def test_fact_candidate_rejects_driven_by_without_causal_permission():
+    event = evidence_item(
+        evidence_id="EVID_EVENT",
+        capability=EvidenceCapability.EVENT_OUTCOME,
+        evidence_type="event_outcome",
+        semantic_level=SemanticLevel.EVENT,
+    )
+    candidate = FactCandidate(
+        candidate_id="CAN_0001",
+        fact_summary="The result was driven by the recorded value of 12.",
+        evidence_ids=[event.evidence_id],
+        claim_permissions=[ClaimPermission.DESCRIPTIVE],
+        factual_confidence=1.0,
+        methodological_strength=1.0,
+        user_relevance=1.0,
+        salience=1.0,
+        recommended_use=RecommendedUse.MAIN_FINDING,
+    )
+
+    errors = validate_fact_candidates(
+        FactCandidateSet(candidates=[candidate]),
+        EvidenceLedger(fingerprint="fixture", items=[event]),
+    )
+
+    assert any("unsupported causal wording" in error for error in errors)
+
+
+def test_deterministic_fact_fallback_does_not_interpret_semantic_queries():
+    query_evidence = evidence_item(
+        evidence_id="EVID_QUERY",
+        capability=EvidenceCapability.EVENT_OUTCOME,
+        evidence_type="event_outcome",
+        semantic_level=SemanticLevel.PARTICIPANT,
+    ).model_copy(
+        update={
+            "query_id": "QUERY_OUTCOME",
+            "finding": "Validated semantic query result for `event outcome`.",
+        }
+    )
+
+    candidates = fallback_fact_candidates(
+        EvidenceLedger(fingerprint="fixture", items=[query_evidence]),
+        maximum_facts=10,
+    )
+
+    assert not candidates.candidates
+
+
+def test_execute_plan_propagates_semantic_query_provenance():
+    payload = renamed_event()
+    bundle = DataBundle(
+        tables={"contest": pd.DataFrame([{"event": payload}])},
+        source_paths=[],
+        fingerprint="fixture",
+        structured_inputs={"contest": payload},
+        input_structure=event_structure(),
+    )
+
+    def task(
+        task_id: str,
+        capability: EvidenceCapability,
+        route: AnalysisRoute,
+    ) -> InvestigationTask:
+        return InvestigationTask(
+            task_id=task_id,
+            question=f"What can {capability.value} establish?",
+            route=route,
+            priority=5,
+            table_name="contest",
+            capability=capability,
+            expected_evidence_types=[],
+            required_evidence=[],
+            claim_permissions=[
+                ClaimPermission.DESCRIPTIVE,
+                ClaimPermission.COMPARATIVE,
+            ],
+            answerability_note="Use the validated semantic query plan.",
+        )
+
+    plan = ExecutionPlan(
+        objective="Describe the event.",
+        tasks=[
+            task(
+                "TASK_OUTCOME",
+                EvidenceCapability.EVENT_OUTCOME,
+                AnalysisRoute.DESCRIPTIVE,
+            ),
+            task(
+                "TASK_RANKING",
+                EvidenceCapability.RANKING,
+                AnalysisRoute.DESCRIPTIVE,
+            ),
+            task(
+                "TASK_CONTRAST",
+                EvidenceCapability.GROUP_COMPARISON,
+                AnalysisRoute.ASSOCIATION_COMPARISON,
+            ),
+        ],
+        route_order=[
+            AnalysisRoute.DESCRIPTIVE,
+            AnalysisRoute.ASSOCIATION_COMPARISON,
+        ],
+        report_specification=event_report_specification(),
+        audit_mode=AuditMode.INTERNAL,
+        evidence_queries=semantic_queries(),
+        available_capabilities=[
+            EvidenceCapability.DATASET_PROFILE,
+            EvidenceCapability.EVENT_OUTCOME,
+            EvidenceCapability.RANKING,
+            EvidenceCapability.GROUP_COMPARISON,
+        ],
+        selected_capabilities=[
+            EvidenceCapability.DATASET_PROFILE,
+            EvidenceCapability.EVENT_OUTCOME,
+            EvidenceCapability.RANKING,
+            EvidenceCapability.GROUP_COMPARISON,
+        ],
+        revision_limit=0,
+        maximum_facts=10,
+        rationale="Frozen semantic event plan.",
+    )
+
+    evidence = execute_plan(
+        bundle,
+        plan,
+        Settings(),
+        semantic_map(),
+    )
+    query_items = [item for item in evidence.items if item.query_id]
+    overview = next(
+        item
+        for item in evidence.items
+        if item.evidence_type == "event_record_overview"
+    )
+
+    assert len(query_items) == len(semantic_queries())
+    assert all(
+        item.method == "Validated generic semantic-query execution."
+        for item in query_items
+    )
+    assert all(item.semantic_binding_ids for item in query_items)
+    assert not overview.eligible_for_writer
+
+
+def test_semantic_map_without_queries_does_not_use_legacy_alias_extraction():
+    payload = renamed_event()
+    structure = event_structure()
+    bundle = DataBundle(
+        tables={"contest": pd.DataFrame([{"event": payload}])},
+        source_paths=[],
+        fingerprint="fixture",
+        structured_inputs={"contest": payload},
+        input_structure=structure,
+    )
+    task = InvestigationTask(
+        task_id="TASK_EVENT",
+        question="What is the event outcome?",
+        route=AnalysisRoute.DESCRIPTIVE,
+        priority=5,
+        table_name="contest",
+        capability=EvidenceCapability.EVENT_OUTCOME,
+        expected_evidence_types=["event_outcome"],
+        required_evidence=["event_outcome"],
+        claim_permissions=[
+            ClaimPermission.DESCRIPTIVE,
+            ClaimPermission.COMPARATIVE,
+        ],
+        answerability_note="Use the semantic query plan.",
+    )
+    plan = ExecutionPlan(
+        objective="Describe the event.",
+        tasks=[task],
+        route_order=[AnalysisRoute.DESCRIPTIVE],
+        report_specification=event_report_specification(),
+        audit_mode=AuditMode.INTERNAL,
+        available_capabilities=[EvidenceCapability.EVENT_OUTCOME],
+        selected_capabilities=[EvidenceCapability.EVENT_OUTCOME],
+        revision_limit=0,
+        maximum_facts=10,
+        rationale="Frozen semantic event plan.",
+    )
+
+    evidence = execute_plan(
+        bundle,
+        plan,
+        Settings(),
+        semantic_map(),
+    )
+
+    assert not evidence.items
+    assert any(
+        "Legacy field-alias extraction was not used" in note for note in evidence.execution_notes
+    )

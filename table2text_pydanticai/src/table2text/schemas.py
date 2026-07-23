@@ -65,6 +65,35 @@ class InputShape(str, Enum):
     AMBIGUOUS = "ambiguous"
 
 
+class SemanticRole(str, Enum):
+    IDENTIFIER = "identifier"
+    CONTEXT = "context"
+    TIME = "time"
+    LOCATION = "location"
+    STATUS = "status"
+    PARTICIPANT_IDENTIFIER = "participant_identifier"
+    ENTITY_IDENTIFIER = "entity_identifier"
+    OUTCOME_MEASURE = "outcome_measure"
+    PERFORMANCE_MEASURE = "performance_measure"
+    MEASURE = "measure"
+    CATEGORY = "category"
+    METADATA = "metadata"
+
+
+class SemanticLevel(str, Enum):
+    DATASET = "dataset"
+    EVENT = "event"
+    PARTICIPANT = "participant"
+    ENTITY = "entity"
+    OBSERVATION = "observation"
+
+
+class EvidenceOperation(str, Enum):
+    RETRIEVE = "retrieve"
+    COMPARE = "compare"
+    RANK = "rank"
+
+
 class InputRepresentationStatus(str, Enum):
     VALID = "valid"
     VALID_WITH_WARNINGS = "valid_with_warnings"
@@ -248,6 +277,40 @@ class InputStructureProfile(StrictModel):
     confidence: float = Field(ge=0.0, le=1.0)
 
 
+class StructuralField(StrictModel):
+    table_name: str
+    path_pattern: str
+    value_types: list[str] = Field(default_factory=list)
+    sample_values: list[str] = Field(default_factory=list)
+    occurrence_count: int = Field(default=1, ge=1)
+
+
+class SemanticBinding(StrictModel):
+    binding_id: str
+    table_name: str
+    label: str
+    role: SemanticRole
+    level: SemanticLevel
+    path_pattern: str
+    description: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    evidence_basis: str
+    unit: str | None = None
+
+
+class InputSemanticMap(StrictModel):
+    input_shape: InputShape
+    record_description: str
+    bindings: list[SemanticBinding] = Field(
+        default_factory=list,
+        max_length=24,
+    )
+    recommended_report_genre: ReportGenre | None = None
+    report_rationale: str = ""
+    confidence: float = Field(ge=0.0, le=1.0)
+    unresolved_ambiguities: list[str] = Field(default_factory=list)
+
+
 class CapabilityDefinition(StrictModel):
     capability: EvidenceCapability
     supported_input_shapes: list[InputShape]
@@ -363,6 +426,7 @@ class DataUnderstanding(StrictModel):
     supported_routes: list[AnalysisRoute] = Field(default_factory=list)
     uncertain_routes: list[str] = Field(default_factory=list)
     global_caveats: list[str] = Field(default_factory=list)
+    semantic_map: InputSemanticMap | None = None
 
 
 class ReportSpecification(StrictModel):
@@ -435,6 +499,57 @@ class InsightObjective(StrictModel):
     priority: str = "main"
 
 
+class EvidenceQuery(StrictModel):
+    query_id: str
+    task_id: str
+    operation: EvidenceOperation
+    capability: EvidenceCapability
+    evidence_type: str
+
+    semantic_label: str
+    question: str
+    table_name: str
+    semantic_level: SemanticLevel
+
+    value_binding_ids: list[str] = Field(
+        default_factory=list,
+        max_length=8,
+        description=(
+            "Exact SemanticBinding.binding_id values only; never field paths "
+            "or semantic labels."
+        ),
+    )
+    entity_binding_id: str | None = Field(
+        default=None,
+        description=(
+            "One exact SemanticBinding.binding_id for the entity being compared "
+            "or ranked; never a field path."
+        ),
+    )
+    group_binding_id: str | None = Field(
+        default=None,
+        description=(
+            "One exact SemanticBinding.binding_id for an optional parent group; "
+            "never a field path."
+        ),
+    )
+    context_binding_ids: list[str] = Field(
+        default_factory=list,
+        max_length=8,
+        description=(
+            "Exact SemanticBinding.binding_id values for optional context only; "
+            "never field paths."
+        ),
+    )
+
+    limit: int = Field(default=3, ge=1, le=20)
+    descending: bool = True
+
+    recommended_use: RecommendedUse = RecommendedUse.MAIN_FINDING
+    user_relevance: float = Field(default=0.8, ge=0.0, le=1.0)
+    salience: float = Field(default=0.8, ge=0.0, le=1.0)
+
+
 class ExecutionPlan(StrictModel):
     objective: str
     tasks: list[InvestigationTask]
@@ -446,6 +561,7 @@ class ExecutionPlan(StrictModel):
     insight_objectives: list[InsightObjective] = Field(
         default_factory=list
     )
+    evidence_queries: list[EvidenceQuery] = Field(default_factory=list)
 
     available_capabilities: list[EvidenceCapability] = Field(
         default_factory=list
@@ -489,6 +605,9 @@ class EvidenceItem(StrictModel):
     evidence_type: str = "generic_finding"
     source_paths: list[str] = Field(default_factory=list)
     entity_scope: list[str] = Field(default_factory=list)
+    semantic_level: SemanticLevel = SemanticLevel.DATASET
+    semantic_binding_ids: list[str] = Field(default_factory=list)
+    query_id: str | None = None
 
     finding: str
     metrics: dict[str, Any] = Field(default_factory=dict)
@@ -794,10 +913,14 @@ class WriterSentenceDraft(StrictModel):
     text: str = Field(min_length=1)
 
     fact_ids: list[str] = Field(
-        default_factory=list
+        default_factory=list,
+        max_length=8,
     )
 
-    insight_ids: list[str] = Field(default_factory=list)
+    insight_ids: list[str] = Field(
+        default_factory=list,
+        max_length=4,
+    )
     interpretation_level: InterpretationLevel = InterpretationLevel.FINDING
 
     support_type: SupportType
@@ -807,25 +930,33 @@ class WriterSectionDraft(StrictModel):
     heading: str = Field(min_length=1)
 
     sentences: list[WriterSentenceDraft] = Field(
-        default_factory=list
+        default_factory=list,
+        max_length=12,
     )
 
 
 class WriterAgentDraft(StrictModel):
     title: str = Field(min_length=1)
+    title_fact_ids: list[str] = Field(
+        default_factory=list,
+        max_length=8,
+    )
 
     sections: list[WriterSectionDraft] = Field(
-        default_factory=list
+        default_factory=list,
+        max_length=8,
     )
 
     writer_notes: list[str] = Field(
-        default_factory=list
+        default_factory=list,
+        max_length=8,
     )
 
 
 class WriterOutput(StrictModel):
     title: str
     markdown: str
+    title_fact_ids: list[str] = Field(default_factory=list)
 
     sentence_support: list[SentenceSupport]
 
@@ -999,6 +1130,7 @@ class PipelineResult(StrictModel):
 
     profile: DataProfile
     input_structure: InputStructureProfile | None = None
+    structural_catalog: list[StructuralField] = Field(default_factory=list)
     evaluation_field_policy: EvaluationFieldPolicy = Field(
         default_factory=EvaluationFieldPolicy
     )

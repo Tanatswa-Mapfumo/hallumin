@@ -48,6 +48,7 @@ from .schemas import (
     ReportQualityAssessment,
     ReviewDecision,
     SentenceSupport,
+    SemanticLevel,
     Severity,
     SupportMapPatch,
     SupportType,
@@ -67,8 +68,16 @@ NUMBER_PATTERN = re.compile(
 )
 
 CAUSAL_PATTERN = re.compile(
-    r"\b(caused|causes|causing|drives?|drove|led to|effect of|"
-    r"responsible for|results? in|because of|due to|explains?)\b",
+    r"\b(caused|causes|causing|drives?|drove|driven by|led to|effect of|"
+    r"responsible for|result(?:s|ed|ing)? in|"
+    r"contribut(?:e|es|ed|ing) to|because of|due to|explains?)\b",
+    re.IGNORECASE,
+)
+
+FACTUAL_TITLE_PATTERN = re.compile(
+    r"\b(defeats?|defeated|beats?|beat|wins?|won|loses?|lost|"
+    r"edges?|edged|outscores?|outscored|leads?|led|draws?|drew|"
+    r"ties?|tied|versus|vs\.?)\b",
     re.IGNORECASE,
 )
 
@@ -435,6 +444,17 @@ def flatten_numbers(value: Any) -> list[float]:
         number = float(value)
         if math.isfinite(number):
             numbers.append(number)
+        return numbers
+
+    if isinstance(value, str):
+        token = value.strip()
+        if NUMBER_PATTERN.fullmatch(token):
+            percentage = token.endswith("%")
+            number = float(token.rstrip("%").replace(",", ""))
+            if percentage:
+                number /= 100.0
+            if math.isfinite(number):
+                numbers.append(number)
         return numbers
 
     if isinstance(value, dict):
@@ -1239,6 +1259,12 @@ def validate_fact_candidates(
                 f"{candidate.candidate_id} requests unsupported permissions."
             )
 
+        if (
+            CAUSAL_PATTERN.search(candidate.fact_summary)
+            and ClaimPermission.CAUSAL not in permissions
+        ):
+            errors.append(f"{candidate.candidate_id} introduces unsupported causal wording.")
+
         if candidate.eligible_for_writer and not all(
             lookup[evidence_id].eligible_for_writer
             for evidence_id in candidate.evidence_ids
@@ -1274,6 +1300,7 @@ def fallback_fact_candidates(
         item
         for item in evidence.items
         if item.eligible_for_writer
+        and item.query_id is None
     ]
 
     ranked = sorted(
@@ -1844,6 +1871,9 @@ def evidence_priority_score(
 def eligible_for_deterministic_fact_recovery(
     item: EvidenceItem,
 ) -> bool:
+    if item.query_id is not None:
+        return False
+
     if not item.eligible_for_writer:
         return False
 
@@ -2675,6 +2705,71 @@ def select_priority_verified_insights(
     return priority, supporting
 
 
+def fact_is_relevant_to_genre(
+    fact: VerifiedFact,
+    evidence_lookup: dict[str, EvidenceItem],
+    genre: ReportGenre,
+) -> bool:
+    if genre not in {
+        ReportGenre.EVENT_REPORT,
+        ReportGenre.SPORTS_GAME_REPORT,
+    }:
+        return True
+
+    items = [
+        evidence_lookup[evidence_id]
+        for evidence_id in fact.evidence_ids
+        if evidence_id in evidence_lookup
+    ]
+    if not items:
+        return False
+
+    return any(
+        item.eligible_for_writer
+        and (
+            item.semantic_level
+            in {
+                SemanticLevel.EVENT,
+                SemanticLevel.PARTICIPANT,
+                SemanticLevel.ENTITY,
+            }
+            or item.capability
+            in {
+                EvidenceCapability.EVENT_OUTCOME,
+                EvidenceCapability.ENTITY_PERFORMANCE,
+                EvidenceCapability.RANKING,
+            }
+            or (
+                item.capability == EvidenceCapability.GROUP_COMPARISON
+                and item.evidence_type
+                in {
+                    "participant_comparison",
+                    "event_contrast",
+                }
+            )
+        )
+        for item in items
+    )
+
+
+def scope_fact_ledger_for_genre(
+    fact_ledger: FactLedger,
+    evidence: EvidenceLedger,
+    genre: ReportGenre,
+) -> FactLedger:
+    evidence_lookup = {item.evidence_id: item for item in evidence.items}
+    scoped_facts = [
+        fact
+        for fact in fact_ledger.writer_ready_facts
+        if fact_is_relevant_to_genre(
+            fact,
+            evidence_lookup,
+            genre,
+        )
+    ]
+    return fact_ledger.model_copy(update={"writer_ready_facts": scoped_facts})
+
+
 def build_writer_evidence_pack(
     request: str,
     understanding: Any,
@@ -2690,11 +2785,13 @@ def build_writer_evidence_pack(
         synthesis_enabled=False,
         fallback_reason="No Insight Ledger was supplied.",
     )
-    facts = fact_ledger.writer_ready_facts
-    evidence_lookup = {
-        item.evidence_id: item
-        for item in evidence.items
-    }
+    evidence_lookup = {item.evidence_id: item for item in evidence.items}
+    scoped_fact_ledger = scope_fact_ledger_for_genre(
+        fact_ledger,
+        evidence,
+        plan.report_specification.genre,
+    )
+    facts = scoped_fact_ledger.writer_ready_facts
 
     priority = select_balanced_priority_facts(
         facts=facts,
@@ -2753,11 +2850,26 @@ def build_writer_evidence_pack(
             for interpretation in fact.prohibited_interpretations
         )
     )
-    priority_insights, supporting_insights = (
-        select_priority_verified_insights(
-            insight_ledger=insight_ledger,
-            maximum=settings.max_verified_main_insights,
-        )
+    scoped_fact_ids = {fact.fact_id for fact in facts}
+    scoped_insight_ledger = insight_ledger.model_copy(
+        update={
+            "verified_insights": [
+                insight
+                for insight in insight_ledger.verified_insights
+                if insight.source_fact_ids
+                and set(insight.source_fact_ids).issubset(scoped_fact_ids)
+            ],
+            "hypothesis_only_insights": [
+                insight
+                for insight in insight_ledger.hypothesis_only_insights
+                if insight.source_fact_ids
+                and set(insight.source_fact_ids).issubset(scoped_fact_ids)
+            ],
+        }
+    )
+    priority_insights, supporting_insights = select_priority_verified_insights(
+        insight_ledger=scoped_insight_ledger,
+        maximum=settings.max_verified_main_insights,
     )
 
     return WriterEvidencePack(
@@ -2770,7 +2882,7 @@ def build_writer_evidence_pack(
         supporting_facts=supporting,
         limitation_facts=limitations,
         evidence_ledger=evidence,
-        insight_ledger=insight_ledger,
+        insight_ledger=scoped_insight_ledger,
         priority_verified_insights=priority_insights,
         supporting_verified_insights=supporting_insights,
         analytical_recommendations=recommendations,
@@ -2831,6 +2943,51 @@ def validate_writer_output(
         *hypothesis_insights,
     }
     section_headings = _sentence_section_headings(output.markdown)
+
+    unknown_title_fact_ids = set(output.title_fact_ids) - valid_fact_ids
+    if unknown_title_fact_ids:
+        errors.append(f"The title cites unknown fact IDs: {sorted(unknown_title_fact_ids)}")
+    title_facts = [
+        fact_lookup[fact_id] for fact_id in output.title_fact_ids if fact_id in fact_lookup
+    ]
+    all_title_entities = {
+        entity
+        for fact in fact_ledger.writer_ready_facts
+        for entity in fact.entities
+        if len(entity.strip()) >= 3
+        and entity.casefold() in output.title.casefold()
+    }
+    title_requires_support = bool(
+        extract_number_tokens(output.title)
+        or (
+            all_title_entities
+            and FACTUAL_TITLE_PATTERN.search(output.title)
+        )
+    )
+    if title_requires_support and not output.title_fact_ids:
+        errors.append("A factual title must cite supporting fact IDs.")
+    supported_title_entities = {
+        entity
+        for fact in title_facts
+        for entity in fact.entities
+    }
+    unsupported_title_entities = (
+        all_title_entities - supported_title_entities
+    )
+    if title_requires_support and unsupported_title_entities:
+        errors.append(
+            "The title contains entities unsupported by its facts: "
+            f"{sorted(unsupported_title_entities)}"
+        )
+    if title_facts and not numbers_supported(
+        output.title,
+        [number for fact in title_facts for number in flatten_numbers(fact.structured_values)],
+    ):
+        errors.append("The title contains a number unsupported by its facts.")
+    if CAUSAL_PATTERN.search(output.title) and not any(
+        ClaimPermission.CAUSAL in fact.claim_permissions for fact in title_facts
+    ):
+        errors.append("The title introduces unsupported causal wording.")
 
     if re.search(r"\[(?:CLM|FACT)_\d+", output.markdown):
         errors.append(
@@ -3162,6 +3319,11 @@ def materialise_writer_output(
         **verified_insight_lookup,
         **hypothesis_insight_lookup,
     }
+    unknown_title_fact_ids = [
+        fact_id for fact_id in draft.title_fact_ids if fact_id not in fact_lookup
+    ]
+    if unknown_title_fact_ids:
+        raise ValueError(f"Writer draft title contains unknown fact IDs: {unknown_title_fact_ids}")
 
     lines: list[str] = [
         f"# {draft.title.strip()}",
@@ -3169,7 +3331,7 @@ def materialise_writer_output(
     ]
 
     sentence_support: list[SentenceSupport] = []
-    selected_fact_ids: list[str] = []
+    selected_fact_ids: list[str] = list(dict.fromkeys(draft.title_fact_ids))
     sentence_number = 1
 
     for section in draft.sections:
@@ -3364,6 +3526,7 @@ def materialise_writer_output(
 
     output = WriterOutput(
         title=draft.title.strip(),
+        title_fact_ids=list(dict.fromkeys(draft.title_fact_ids)),
         markdown=(
             "\n".join(lines).strip()
             + "\n"
@@ -4101,8 +4264,11 @@ def assess_genre_quality(
                 matches.add(evidence_id)
             elif slot == "main_contrast" and item.evidence_type in {
                 "participant_comparison",
+                "event_contrast",
                 "group_comparison",
             }:
+                matches.add(evidence_id)
+            elif slot == "event_context" and item.evidence_type == ("event_context"):
                 matches.add(evidence_id)
             elif slot == "event_status" and item.evidence_type == "event_status":
                 matches.add(evidence_id)
@@ -4163,8 +4329,29 @@ def assess_genre_quality(
         "Use the available verified evidence to cover each missing content slot."
     ] if missing else []
 
+    if report_specification.genre in {
+        ReportGenre.EVENT_REPORT,
+        ReportGenre.SPORTS_GAME_REPORT,
+    } and re.search(
+        r"\b(rows?|columns?|constant columns?|missingness|schema|"
+        r"correlations?|regressions?|statistical modelling|statistical modeling|"
+        r"predictive modelling|predictive modeling|statistical power|"
+        r"feature sets?|observed associations?|"
+        r"group comparisons? (?:are|is) unadjusted)\b",
+        writer_output.markdown,
+        re.IGNORECASE,
+    ):
+        findings.append(
+            "The event report includes flat-table profiling or modelling "
+            "discussion that displaces the supported event narrative."
+        )
+        recommendations.append(
+            "Remove wrapper-level profiling and modelling discussion; use the "
+            "supported event context, performances and participant contrasts."
+        )
+
     return GenreQualityAssessment(
-        status=(QualityStatus.REVISE if missing else QualityStatus.PASS),
+        status=(QualityStatus.REVISE if findings else QualityStatus.PASS),
         genre=report_specification.genre,
         required_slots=required_slots,
         supported_slots=list(dict.fromkeys(supported_slots)),

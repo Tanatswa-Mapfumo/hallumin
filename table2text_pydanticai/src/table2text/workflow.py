@@ -49,10 +49,12 @@ from .audit import (
     materialise_writer_output,
     merge_audit_proposal,
     normalise_strength_label,
+    scope_fact_ledger_for_genre,
     validate_writer_output,
 )
 from .config import Settings
 from .data import load_data, profile_data
+from .structure import build_structural_catalog
 from .schemas import (
     AuditDecision,
     AuditMode,
@@ -65,6 +67,7 @@ from .schemas import (
     ExternalTruthSource,
     FactCandidateSet,
     FactLedger,
+    InputSemanticMap,
     InsightCandidateSet,
     InsightLedger,
     InsightVerificationResult,
@@ -74,6 +77,7 @@ from .schemas import (
     ReportComponent,
     ReportGenre,
     ReportSelectionSource,
+    InputShape,
     InputRepresentationStatus,
     ReleaseStatus,
     RunManifest,
@@ -126,11 +130,61 @@ EVENT_CAPABILITIES = {
 }
 
 
+def build_orchestrator_prompt_context(
+    *,
+    understanding: DataUnderstanding,
+    input_structure: Any | None,
+    structural_catalog: list[Any],
+) -> dict[str, Any]:
+    """Expose semantic IDs to the planner without competing raw paths."""
+
+    understanding_payload = understanding.model_dump(mode="json")
+    semantic_map = understanding.semantic_map
+    if semantic_map is None:
+        return {
+            "understanding": understanding_payload,
+            "input_structure": input_structure,
+            "structural_catalog": structural_catalog,
+            "semantic_binding_catalog": [],
+        }
+
+    understanding_payload.pop("semantic_map", None)
+    structure_payload = (
+        input_structure.model_dump(mode="json")
+        if hasattr(input_structure, "model_dump")
+        else input_structure
+    )
+    if isinstance(structure_payload, dict):
+        structure_payload = {
+            **structure_payload,
+            "nested_paths": [],
+        }
+
+    return {
+        "understanding": understanding_payload,
+        "input_structure": structure_payload,
+        "structural_catalog": [],
+        "semantic_binding_catalog": [
+            {
+                "binding_id": binding.binding_id,
+                "table_name": binding.table_name,
+                "label": binding.label,
+                "role": binding.role.value,
+                "level": binding.level.value,
+                "unit": binding.unit,
+            }
+            for binding in semantic_map.bindings
+        ],
+    }
+
+
 def resolve_report_genre(
     *,
     request: str,
     planned_genre: ReportGenre,
     configured_genre: ReportGenre | None,
+    input_structure: Any | None = None,
+    semantic_map: InputSemanticMap | None = None,
 ) -> tuple[ReportGenre, ReportSelectionSource, float]:
     if event_report_requested(request):
         return (
@@ -157,6 +211,30 @@ def resolve_report_genre(
             1.0,
         )
 
+    semantic_event = bool(
+        semantic_map is not None
+        and semantic_map.confidence >= 0.7
+        and (
+            semantic_map.input_shape == InputShape.EVENT_RECORD
+            or semantic_map.recommended_report_genre in EVENT_GENRES
+        )
+    )
+    structural_event = bool(
+        input_structure is not None
+        and input_structure.shape == InputShape.EVENT_RECORD
+        and input_structure.confidence >= 0.7
+    )
+    if semantic_event or structural_event:
+        return (
+            ReportGenre.EVENT_REPORT,
+            ReportSelectionSource.STRUCTURED_INFERENCE,
+            (
+                semantic_map.confidence
+                if semantic_event and semantic_map is not None
+                else input_structure.confidence
+            ),
+        )
+
     if re.search(
         r"\b(understand|explore|strongest findings|key findings|"
         r"report (?:its |the )?findings)\b",
@@ -171,9 +249,9 @@ def resolve_report_genre(
 
     if planned_genre in EVENT_GENRES:
         return (
-            ReportGenre.DATA_SCIENCE_REPORT,
-            ReportSelectionSource.FALLBACK,
-            0.8,
+            ReportGenre.EVENT_REPORT,
+            ReportSelectionSource.STRUCTURED_INFERENCE,
+            0.85,
         )
     return (
         planned_genre,
@@ -192,30 +270,33 @@ def report_contract_fields(
                 "and major participant contrasts."
             ),
             "preferred_sections": [
-                "Event result",
-                "Leading performances",
-                "Main contrasts",
-                "Limitations",
+                "Event overview",
+                "Key performances",
+                "Participant contrasts",
+                "Scope limitations",
             ],
             "required_components": [
-                ReportComponent.DATASET_OVERVIEW,
                 ReportComponent.STRONGEST_RELATIONSHIPS,
                 ReportComponent.LIMITATIONS_NEXT_STEPS,
             ],
             "required_content_slots": [
                 "event_result",
+                "event_context",
+                "event_status",
                 "leading_performance",
                 "main_contrast",
             ],
             "optional_content_slots": [
-                "event_status",
                 "secondary_performance",
             ],
             "prohibited_claim_types": [
                 "unsupported_chronology",
                 "unsupported_milestone",
                 "unsupported_historical_significance",
+                "unsupported_causality",
             ],
+            "include_negative_findings": False,
+            "include_methodological_details": False,
         }
 
     if genre == ReportGenre.DATASET_OVERVIEW:
@@ -1001,6 +1082,7 @@ class Table2TextWorkflow:
         )
         input_structure = data_bundle.input_structure
         capabilities = available_capabilities(data_bundle)
+        structural_catalog = build_structural_catalog(data_bundle.structured_inputs)
         representation_eligible = bool(
             input_structure
             and input_structure.representation_status
@@ -1030,6 +1112,10 @@ class Table2TextWorkflow:
             data_bundle.evaluation_field_policy,
         )
         store.save_json("00_available_capabilities.json", capabilities)
+        store.save_json(
+            "00_structural_catalog.json",
+            structural_catalog,
+        )
 
         models = {
             role: self.settings.model_for(role)
@@ -1093,6 +1179,8 @@ class Table2TextWorkflow:
                 "Create a data understanding and analytical-risk report.\n\n"
                 "Input structure:\n"
                 + compact_json(input_structure)
+                + "\n\nSanitized structural field catalog:\n"
+                + compact_json(structural_catalog)
                 + "\n\nSanitized data profile:\n"
                 + compact_json(profile)
             ),
@@ -1107,6 +1195,10 @@ class Table2TextWorkflow:
                         if input_structure is not None
                         else None
                     ),
+                    "structural_catalog": [
+                        field.model_dump(mode="json") for field in structural_catalog
+                    ],
+                    "semantic_map_required": bool(structural_catalog),
                 },
             ),
             fallback=lambda: fallback_understanding(profile),
@@ -1114,6 +1206,37 @@ class Table2TextWorkflow:
         )
         understanding = DataUnderstanding.model_validate(understanding)
         store.save_json("02_understanding.json", understanding)
+        semantic_map = understanding.semantic_map
+        store.save_json("02_semantic_map.json", semantic_map)
+        capabilities = available_capabilities(
+            data_bundle,
+            semantic_map,
+        )
+        store.save_json(
+            "02_available_capabilities.json",
+            capabilities,
+        )
+        inferred_genre = (
+            semantic_map.recommended_report_genre
+            if semantic_map is not None and semantic_map.recommended_report_genre is not None
+            else ReportGenre.DATA_SCIENCE_REPORT
+        )
+        (
+            controller_genre,
+            _,
+            _,
+        ) = resolve_report_genre(
+            request=request,
+            planned_genre=inferred_genre,
+            configured_genre=report_genre,
+            input_structure=input_structure,
+            semantic_map=semantic_map,
+        )
+        planner_context = build_orchestrator_prompt_context(
+            understanding=understanding,
+            input_structure=input_structure,
+            structural_catalog=structural_catalog,
+        )
 
         plan = await self.run_agent_or_fallback(
             stage="orchestration_and_planning",
@@ -1124,11 +1247,20 @@ class Table2TextWorkflow:
                 + "\n\nData profile:\n"
                 + compact_json(profile)
                 + "\n\nData understanding:\n"
-                + compact_json(understanding)
+                + compact_json(planner_context["understanding"])
                 + "\n\nInput structure:\n"
-                + compact_json(input_structure)
+                + compact_json(planner_context["input_structure"])
+                + "\n\nSanitized structural field catalog:\n"
+                + compact_json(planner_context["structural_catalog"])
+                + "\n\nID-only semantic binding catalogue:\n"
+                + compact_json(planner_context["semantic_binding_catalog"])
+                + "\nUse only `binding_id` values from that catalogue in all "
+                "evidence-query binding fields. Raw paths are deliberately "
+                "unavailable for semantic query planning.\n"
                 + "\n\nAvailable evidence capabilities:\n"
                 + compact_json(capabilities)
+                + "\n\nController-selected report genre:\n"
+                + controller_genre.value
                 + "\n\nConfigured report genre override:\n"
                 + (report_genre.value if report_genre else "none")
                 + "\n\nAudit mode:\n"
@@ -1148,9 +1280,18 @@ class Table2TextWorkflow:
                         for capability in capabilities
                     ],
                     "event_genre_allowed": (
-                        event_report_requested(request)
-                        or report_genre in EVENT_GENRES
+                        controller_genre in EVENT_GENRES
                     ),
+                    "selected_report_genre": controller_genre.value,
+                    "semantic_map": (
+                        semantic_map.model_dump(mode="json")
+                        if semantic_map is not None
+                        else None
+                    ),
+                    "structural_catalog": [
+                        field.model_dump(mode="json")
+                        for field in structural_catalog
+                    ],
                     "enable_insight_synthesis": (
                         self.settings.enable_insight_synthesis
                     ),
@@ -1177,6 +1318,8 @@ class Table2TextWorkflow:
             request=request,
             planned_genre=plan.report_specification.genre,
             configured_genre=report_genre,
+            input_structure=input_structure,
+            semantic_map=semantic_map,
         )
         contract_fields = report_contract_fields(selected_genre)
         required_components = (
@@ -1190,6 +1333,22 @@ class Table2TextWorkflow:
                 "genre": selected_genre,
                 "selection_source": selection_source,
                 "selection_confidence": selection_confidence,
+                "target_length_words": (
+                    min(
+                        plan.report_specification.target_length_words,
+                        450,
+                    )
+                    if selected_genre in EVENT_GENRES
+                    else plan.report_specification.target_length_words
+                ),
+                "maximum_main_findings": (
+                    min(
+                        plan.report_specification.maximum_main_findings,
+                        6,
+                    )
+                    if selected_genre in EVENT_GENRES
+                    else plan.report_specification.maximum_main_findings
+                ),
                 "required_components": list(
                     dict.fromkeys(
                         [
@@ -1248,6 +1407,10 @@ class Table2TextWorkflow:
         store.save_json("00_manifest.json", manifest)
         store.save_json("03_execution_plan.json", plan)
         store.save_json(
+            "03_evidence_queries.json",
+            plan.evidence_queries,
+        )
+        store.save_json(
             "03_insight_objectives.json",
             plan.insight_objectives,
         )
@@ -1256,6 +1419,7 @@ class Table2TextWorkflow:
             data_bundle,
             plan,
             self.settings,
+            semantic_map,
         )
         store.save_json("04_evidence_ledger.json", evidence_ledger)
 
@@ -1380,6 +1544,11 @@ class Table2TextWorkflow:
             "07_fact_ledger.json",
             fact_ledger,
         )
+        genre_scoped_fact_ledger = scope_fact_ledger_for_genre(
+            fact_ledger,
+            evidence_ledger,
+            plan.report_specification.genre,
+        )
 
         insight_candidates = InsightCandidateSet()
         insight_verification = InsightVerificationResult()
@@ -1423,7 +1592,7 @@ class Table2TextWorkflow:
             insight_payload = build_compact_insight_payload(
                 request=request,
                 plan=plan,
-                fact_ledger=fact_ledger,
+                fact_ledger=genre_scoped_fact_ledger,
                 evidence_ledger=evidence_ledger,
                 settings=self.settings,
             )
@@ -1440,8 +1609,10 @@ class Table2TextWorkflow:
                     dependencies=AgentDependencies(
                         run_id=run_id,
                         payload={
-                            "fact_ledger": fact_ledger.model_dump(
-                                mode="json"
+                            "fact_ledger": (
+                                genre_scoped_fact_ledger.model_dump(
+                                    mode="json"
+                                )
                             ),
                             "evidence_ledger": evidence_ledger.model_dump(
                                 mode="json"
@@ -1491,7 +1662,7 @@ class Table2TextWorkflow:
                         }
                         referenced_evidence_ids.update(
                             evidence_id
-                            for fact in fact_ledger.writer_ready_facts
+                            for fact in genre_scoped_fact_ledger.writer_ready_facts
                             if fact.fact_id
                             in {
                                 fact_id
@@ -1519,7 +1690,8 @@ class Table2TextWorkflow:
                                     + compact_json(insight_candidates)
                                     + "\n\nWriter-ready facts:\n"
                                     + compact_json(
-                                        fact_ledger.writer_ready_facts
+                                        genre_scoped_fact_ledger
+                                        .writer_ready_facts
                                     )
                                     + "\n\nReferenced deterministic evidence:\n"
                                     + compact_json(verifier_evidence)
@@ -1536,8 +1708,11 @@ class Table2TextWorkflow:
                                                 mode="json"
                                             )
                                         ),
-                                        "fact_ledger": fact_ledger.model_dump(
-                                            mode="json"
+                                        "fact_ledger": (
+                                            genre_scoped_fact_ledger
+                                            .model_dump(
+                                                mode="json"
+                                            )
                                         ),
                                         "evidence_ledger": (
                                             evidence_ledger.model_dump(
@@ -1568,7 +1743,7 @@ class Table2TextWorkflow:
                                 insight_ledger = materialise_insight_ledger(
                                     candidates=insight_candidates,
                                     verification=insight_verification,
-                                    fact_ledger=fact_ledger,
+                                    fact_ledger=genre_scoped_fact_ledger,
                                     evidence_ledger=evidence_ledger,
                                     settings=self.settings,
                                 )
@@ -1639,27 +1814,47 @@ class Table2TextWorkflow:
             )
         )
 
-        writer_draft_or_fallback = await self.run_agent_or_fallback(
-            stage="natural_writer",
-            agent=self.writer_agent,
-            prompt=writer_prompt,
-            dependencies=AgentDependencies(
-                run_id=run_id,
-                payload={
-                    "fact_ledger": fact_ledger.model_dump(mode="json"),
-                    "insight_ledger": insight_ledger.model_dump(mode="json"),
-                    "allow_hypotheses_in_report": (
-                        self.settings.allow_hypotheses_in_report
-                    ),
-                    "report_genre": plan.report_specification.genre.value,
-                    "report_perspective": (
-                        plan.report_specification.perspective.value
-                    ),
-                },
-            ),
-            fallback=lambda: fallback_writer(writer_pack),
-            store=store,
+        writer_material_available = bool(
+            writer_pack.priority_facts
+            or writer_pack.supporting_facts
+            or writer_pack.limitation_facts
+            or writer_pack.priority_verified_insights
+            or writer_pack.supporting_verified_insights
         )
+        if writer_material_available:
+            writer_draft_or_fallback = await self.run_agent_or_fallback(
+                stage="natural_writer",
+                agent=self.writer_agent,
+                prompt=writer_prompt,
+                dependencies=AgentDependencies(
+                    run_id=run_id,
+                    payload={
+                        "fact_ledger": genre_scoped_fact_ledger.model_dump(mode="json"),
+                        "insight_ledger": writer_pack.insight_ledger.model_dump(
+                            mode="json"
+                        ),
+                        "allow_hypotheses_in_report": (
+                            self.settings.allow_hypotheses_in_report
+                        ),
+                        "report_genre": plan.report_specification.genre.value,
+                        "report_perspective": (
+                            plan.report_specification.perspective.value
+                        ),
+                    },
+                ),
+                fallback=lambda: fallback_writer(writer_pack),
+                store=store,
+            )
+        else:
+            writer_draft_or_fallback = fallback_writer(writer_pack)
+            store.trace(
+                "natural_writer",
+                "skipped",
+                {
+                    "reason": "No verified genre-scoped facts or insights.",
+                    "fallback": "deterministic_writer",
+                },
+            )
 
         if isinstance(
             writer_draft_or_fallback,
@@ -1682,8 +1877,8 @@ class Table2TextWorkflow:
             try:
                 raw_writer_output = materialise_writer_output(
                     writer_draft,
-                    fact_ledger,
-                    insight_ledger=insight_ledger,
+                    genre_scoped_fact_ledger,
+                    insight_ledger=writer_pack.insight_ledger,
                     allow_hypotheses_in_report=(
                         self.settings.allow_hypotheses_in_report
                     ),
@@ -1740,6 +1935,15 @@ class Table2TextWorkflow:
             "09_writer_component_coverage.json",
             component_assessments,
         )
+        initial_genre_quality = assess_genre_quality(
+            raw_writer_output,
+            plan.report_specification,
+            evidence_ledger,
+        )
+        store.save_json(
+            "09_writer_genre_quality.json",
+            initial_genre_quality,
+        )
 
         initial_quality_audit = deterministic_audit(
             writer_output=raw_writer_output,
@@ -1760,10 +1964,12 @@ class Table2TextWorkflow:
         needs_quality_revision = (
             bool(missing_components)
             or initial_quality_audit.quality_assessment.status == QualityStatus.REVISE
+            or initial_genre_quality.status == QualityStatus.REVISE
         )
 
         if (
             needs_quality_revision
+            and writer_material_available
             and self.settings.use_llm
             and self.writer_agent is not None
             and self.settings.writer_quality_revision_rounds > 0
@@ -1776,9 +1982,10 @@ class Table2TextWorkflow:
                     current_output=raw_writer_output,
                     missing_components=missing_components,
                     quality_findings=(
-                        initial_quality_audit
-                        .quality_assessment
-                        .findings
+                        [
+                            *initial_quality_audit.quality_assessment.findings,
+                            *initial_genre_quality.findings,
+                        ]
                     ),
                     settings=self.settings,
                 ),
@@ -1786,12 +1993,14 @@ class Table2TextWorkflow:
                     run_id=run_id,
                     payload={
                         "fact_ledger": (
-                            fact_ledger.model_dump(
+                            genre_scoped_fact_ledger.model_dump(
                                 mode="json"
                             )
                         ),
-                        "insight_ledger": insight_ledger.model_dump(
-                            mode="json"
+                        "insight_ledger": (
+                            writer_pack.insight_ledger.model_dump(
+                                mode="json"
+                            )
                         ),
                         "allow_hypotheses_in_report": (
                             self.settings.allow_hypotheses_in_report
@@ -1838,8 +2047,8 @@ class Table2TextWorkflow:
                 try:
                     revision_candidate = materialise_writer_output(
                         revised_writer_draft,
-                        fact_ledger,
-                        insight_ledger=insight_ledger,
+                        genre_scoped_fact_ledger,
+                        insight_ledger=writer_pack.insight_ledger,
                         allow_hypotheses_in_report=(
                             self.settings.allow_hypotheses_in_report
                         ),
@@ -2229,6 +2438,7 @@ class Table2TextWorkflow:
             run_id=run_id,
             profile=profile,
             input_structure=input_structure,
+            structural_catalog=structural_catalog,
             evaluation_field_policy=data_bundle.evaluation_field_policy,
             understanding=understanding,
             execution_plan=plan,

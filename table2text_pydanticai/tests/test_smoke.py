@@ -2416,6 +2416,7 @@ def test_writer_payload_removes_data_understanding_factual_prose():
 
     assert "dataset_summary" not in payload
     assert "table_context" not in payload
+    assert "semantic_map" not in payload
     assert payload["priority_facts"]
     assert "analytical_recommendations" in payload
 
@@ -4237,7 +4238,7 @@ def test_event_capability_selection_and_report_contract_are_bounded(
         available_capabilities=restricted_capabilities,
     )
 
-    assert generic.report_specification.genre == ReportGenre.DATA_SCIENCE_REPORT
+    assert generic.report_specification.genre == ReportGenre.EVENT_REPORT
     assert event.report_specification.genre == ReportGenre.EVENT_REPORT
     assert "event_result" in event.report_specification.required_content_slots
     assert all(
@@ -4251,8 +4252,9 @@ def test_event_capability_selection_and_report_contract_are_bounded(
         request="Understand the dataset and report its strongest findings.",
         planned_genre=ReportGenre.DATASET_OVERVIEW,
         configured_genre=None,
+        input_structure=bundle.input_structure,
     )
-    assert resolved_genre == ReportGenre.DATA_SCIENCE_REPORT
+    assert resolved_genre == ReportGenre.EVENT_REPORT
 
 
 def test_genre_quality_revises_event_report_that_omits_supported_result(
@@ -4353,6 +4355,7 @@ def test_event_reference_never_reaches_operational_prompts_or_report(
         ReportGenre.EVENT_REPORT
     )
     assert result.genre_quality_assessment is not None
-    assert result.genre_quality_assessment.status == QualityStatus.PASS
+    assert result.genre_quality_assessment.status == QualityStatus.REVISE
+    assert result.genre_quality_assessment.missing_supported_slots == ["event_status"]
     assert "Alpha defeated Beta 90-80" in result.final_writer_output.markdown
     assert "comeback" not in result.final_writer_output.markdown.lower()

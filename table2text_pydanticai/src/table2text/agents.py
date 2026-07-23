@@ -12,6 +12,7 @@ from pydantic_ai.providers.ollama import OllamaProvider
 from .audit import (
     CAUSAL_PATTERN,
     EXPLANATORY_HYPOTHESIS_PATTERN,
+    FACTUAL_TITLE_PATTERN,
     FIELD_LABEL_PATTERN,
     FORECAST_PATTERN,
     INTERNAL_CONTROL_PATTERN,
@@ -25,6 +26,7 @@ from .audit import (
     validate_repair_candidate,
 )
 from .config import Settings
+from .capabilities import validate_evidence_queries, validate_semantic_map
 from .schemas import (
     AnalysisRoute,
     AuditDecision,
@@ -48,6 +50,8 @@ from .schemas import (
     InsightVerificationResult,
     InsightVerificationStatus,
     InvestigationTask,
+    InputSemanticMap,
+    InputShape,
     InterpretationLevel,
     InputStructureProfile,
     ReportComponent,
@@ -55,7 +59,9 @@ from .schemas import (
     ReportPerspective,
     ReportSelectionSource,
     ReportSpecification,
+    SemanticRole,
     Severity,
+    StructuralField,
     SupportType,
     TableUnderstanding,
     TargetStatus,
@@ -124,7 +130,9 @@ Combine:
 - quality and usability assessment;
 - identification of methodological risks.
 
-Use only the supplied deterministic profile.
+Use only the supplied deterministic profile, input-structure description and
+sanitized structural field catalog. The catalog contains operational input
+only; held-out reference text has already been removed.
 
 Identify:
 - constant and near-constant columns;
@@ -138,6 +146,56 @@ Do not invent provenance, collection locations, units, scientific meanings,
 diagnoses, interventions, or source metadata.
 
 Preserve exact table and column names.
+
+For structured input, create an `InputSemanticMap` that explains what the
+record and its fields represent. Use only the broad controlled semantic roles
+provided by the schema. Keep domain labels such as scoring, votes, revenue or
+assists in the free-text `label` and `description`; do not invent a new role.
+
+The semantic map is a compact analytical index, not an exhaustive data
+dictionary. Return at most 24 bindings. Copy every `path_pattern` verbatim from
+the structural catalog, including any `*` wildcards. A wildcard pattern binds
+the repeated field family once: never expand it into concrete participant,
+entity, period or record keys, and never bind the same catalog path twice.
+Label wildcard bindings collectively, such as "Participant name" or "Entity
+points"; never label a wildcard as one particular member such as home,
+visitor, first or second.
+
+Prioritise bindings in this order:
+- event context, time, location and status;
+- participant and nested-entity identifiers;
+- participant-level event outcome measures;
+- no more than six salient participant-level measures for major contrasts;
+- no more than four salient entity-level measures for rankings or performance.
+
+For an event record, reserve space for report-critical roles before optional
+context: a human-readable participant identifier, a human-readable nested
+entity identifier when present, the aggregate outcome, event status, salient
+participant measures and salient entity measures. Use the minimum date parts
+needed to reconstruct the supplied date and no more than two location fields.
+Prefer human-readable names over technical IDs or codes. Do not spend the
+binding budget on technical record IDs, redundant name components, pre-event
+records, nested status flags or administrative fields while report-critical
+performance measures remain unbound.
+
+Omit low-value administrative fields and exhaustive period/component
+measures. For a nested single-event record, top-level constancy is expected:
+describe its scope once rather than creating a separate constant-column risk
+for every event-context or container field.
+
+Every semantic binding must use an exact table name and exact path pattern from
+the supplied structural catalog. Bind the fields needed to identify context,
+participants, nested entities, outcome measures and other salient measures.
+When the same measure appears at aggregate and segment/sub-event levels, bind
+the event outcome to the participant-level aggregate and keep the semantic
+levels distinct. Do not substitute a period, phase or component value for an
+event total.
+Do not encode an analytical conclusion in a binding. Recommend `event_report`
+when the sanitized structure represents one event with participants or
+entities, even when the later reporting request may be generic.
+
+Semantic interpretation is not factual evidence. Do not write event results,
+rankings or report prose in the semantic map.
 Return structured output only.
 """
 
@@ -201,6 +259,29 @@ def build_data_understanding_agent(settings: Settings) -> Agent:
                         f"Unknown risk column: {risk.column_name}"
                     )
 
+        catalog = [
+            StructuralField.model_validate(item)
+            for item in context.deps.payload.get(
+                "structural_catalog",
+                [],
+            )
+        ]
+        semantic_errors = validate_semantic_map(
+            output.semantic_map,
+            catalog,
+        )
+        if semantic_errors:
+            raise ModelRetry(
+                "Semantic-map validation failed:\n- " + "\n- ".join(semantic_errors[:12])
+            )
+        if context.deps.payload.get("semantic_map_required") and (
+            output.semantic_map is None or not output.semantic_map.bindings
+        ):
+            raise ModelRetry(
+                "Structured operational input requires a non-empty semantic "
+                "map using exact catalog paths."
+            )
+
         return output
 
     return agent
@@ -246,11 +327,11 @@ Rules:
   request or confirmed metadata supports them.
 - Do not rewrite or replace the user's objective with a different objective.
 - Negative and insufficiency findings are valid.
-- Use data_science_report for an ambiguous request such as "understand the
-  dataset and report its strongest findings". Select event_report only when
-  the user explicitly asks for an event/game report or the experiment
-  configuration supplies that contract. Genre controls communication, never
-  factual permission.
+- For a generic request, honour the controller-selected genre derived from the
+  sanitized semantic map. A high-confidence single event should remain an
+  event report; do not turn it into a flat-table data-science report. Explicit
+  user instructions and experiment configuration still take priority. Genre
+  controls communication, never factual permission.
 - Use neutral perspective by default. Subject-centred perspective may
   prioritise verified facts about an explicitly named subject, but it must not
   change numbers, claim permissions, or evaluative strength.
@@ -263,6 +344,39 @@ Rules:
 - An event report must request the event_result, leading_performance, and
   main_contrast content slots only when their required capabilities are
   available. It must not treat reference text as operational evidence.
+- When a semantic map is supplied, create generic evidence queries using only
+  semantic binding IDs. Use `retrieve` for context, `compare` for participant
+  measures, and `rank` for entity measures. Do not hard-code field aliases or
+  domain-specific extraction rules.
+- Every field whose name ends in `_binding_id` or `_binding_ids` must contain
+  only exact `binding_id` strings from the supplied ID-only semantic binding
+  catalogue. Never put a path pattern, label or column name in those fields.
+- Follow these generic query shapes:
+  * `event_context`: retrieve one or more event-level context/time/location
+    value IDs; no entity ID is required.
+  * `event_status`: retrieve one or more event-level status value IDs.
+  * `event_outcome`: compare exactly one participant-level outcome value ID and
+    set `entity_binding_id` to a participant-identifier ID.
+  * `entity_ranking`: rank exactly one entity-level measure value ID, set
+    `entity_binding_id` to an entity-identifier ID and optionally set
+    `group_binding_id` to a participant-identifier ID.
+  * `participant_comparison` or `event_contrast`: compare exactly one
+    participant-level measure value ID and set `entity_binding_id` to a
+    participant-identifier ID.
+- Query only measures present in the semantic binding catalogue. The broader
+  structural catalog is not permission to reference an unbound measure.
+- Query questions are pre-result analytical questions. Do not place observed
+  values, winners, rankings or conclusions in a query.
+- For a supported event report, normally query event context, the outcome
+  measure, one or more salient entity rankings, and participant contrasts.
+- Keep an event plan selective: use at most 10 evidence queries, including no
+  more than three entity rankings and four participant comparisons. Do not
+  query the same measure/entity combination twice under different names or
+  repeat event context as a data-quality query.
+- Use these evidence types exactly: event_outcome for outcome comparison;
+  event_context or event_status for context retrieval; entity_ranking for ranking;
+  entity_performance for entity performance; and participant_comparison or
+  event_contrast for participant comparisons.
 - Do not place a result, statistic, double-double, hat-trick, dominance claim,
   or other predicted conclusion in an insight objective.
 - Set frozen=true.
@@ -301,9 +415,8 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
             table_name: set(columns)
             for table_name, columns in context.deps.payload["columns"].items()
         }
-        allow_experimental = context.deps.payload[
-            "allow_experimental_targets"
-        ]
+        allow_experimental = context.deps.payload["allow_experimental_targets"]
+        selected_report_genre = context.deps.payload.get("selected_report_genre")
 
         if not output.frozen:
             raise ModelRetry("Set frozen=true.")
@@ -317,6 +430,14 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
         if not output.tasks:
             raise ModelRetry(
                 "Create at least one investigation task."
+            )
+
+        if (
+            selected_report_genre
+            and output.report_specification.genre.value != selected_report_genre
+        ):
+            raise ModelRetry(
+                f"Use the controller-selected report genre exactly: {selected_report_genre}."
             )
 
         seen: set[str] = set()
@@ -447,10 +568,18 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
                 "configuration."
             )
 
-        if user_request and re.search(
-            r"\b(understand|overview|summari[sz]e|describe|report findings|strongest findings)\b",
-            user_request,
-            re.IGNORECASE,
+        if (
+            user_request
+            and output.report_specification.genre
+            not in {
+                ReportGenre.EVENT_REPORT,
+                ReportGenre.SPORTS_GAME_REPORT,
+            }
+            and re.search(
+                r"\b(understand|overview|summari[sz]e|describe|report findings|strongest findings)\b",
+                user_request,
+                re.IGNORECASE,
+            )
         ):
             required = set(output.report_specification.required_components)
             expected = {
@@ -463,6 +592,145 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
                 raise ModelRetry(
                     "General dataset-understanding reports must require overview, "
                     "data quality, strongest relationships, and limitations/next steps."
+                )
+
+        semantic_map_payload = context.deps.payload.get("semantic_map")
+        semantic_map = (
+            InputSemanticMap.model_validate(semantic_map_payload) if semantic_map_payload else None
+        )
+        structural_catalog = [
+            StructuralField.model_validate(item)
+            for item in context.deps.payload.get(
+                "structural_catalog",
+                [],
+            )
+        ]
+        query_errors = validate_evidence_queries(
+            output.evidence_queries,
+            semantic_map,
+            structural_catalog,
+            task_ids={task.task_id for task in output.tasks},
+            available=available_capabilities,
+            task_capabilities={
+                task.task_id: task.capability
+                for task in output.tasks
+            },
+        )
+        if query_errors:
+            binding_guide = (
+                ", ".join(
+                    f"{binding.binding_id}={binding.label} "
+                    f"({binding.role.value}/{binding.level.value})"
+                    for binding in semantic_map.bindings
+                )
+                if semantic_map is not None
+                else "none"
+            )
+            raise ModelRetry(
+                "Evidence-query validation failed:\n- "
+                + "\n- ".join(query_errors[:12])
+                + "\nUse only these exact binding IDs: "
+                + binding_guide
+            )
+        if len(output.evidence_queries) > output.maximum_facts:
+            raise ModelRetry(
+                "The number of evidence queries must not exceed the fact "
+                "budget because each query requires verifier review."
+            )
+
+        if (
+            selected_report_genre
+            in {
+                ReportGenre.EVENT_REPORT.value,
+                ReportGenre.SPORTS_GAME_REPORT.value,
+            }
+            and semantic_map is not None
+            and semantic_map.bindings
+        ):
+            if len(output.evidence_queries) > 10:
+                raise ModelRetry(
+                    "Event plans may contain at most 10 selective evidence queries."
+                )
+
+            ranking_count = sum(
+                query.evidence_type == "entity_ranking"
+                for query in output.evidence_queries
+            )
+            if ranking_count > 3:
+                raise ModelRetry(
+                    "Event plans may contain at most three entity-ranking queries."
+                )
+
+            comparison_count = sum(
+                query.evidence_type
+                in {"participant_comparison", "event_contrast"}
+                for query in output.evidence_queries
+            )
+            if comparison_count > 4:
+                raise ModelRetry(
+                    "Event plans may contain at most four participant-comparison "
+                    "queries."
+                )
+
+            query_signatures: set[
+                tuple[str, tuple[str, ...], str | None, str | None]
+            ] = set()
+            duplicate_query_ids: list[str] = []
+            for query in output.evidence_queries:
+                signature = (
+                    query.operation.value,
+                    tuple(query.value_binding_ids),
+                    query.entity_binding_id,
+                    query.group_binding_id,
+                )
+                if signature in query_signatures:
+                    duplicate_query_ids.append(query.query_id)
+                query_signatures.add(signature)
+            if duplicate_query_ids:
+                raise ModelRetry(
+                    "Remove duplicate semantic queries for the same operation, "
+                    "measure and entity bindings: "
+                    + ", ".join(duplicate_query_ids)
+                )
+
+            query_capabilities = {query.capability for query in output.evidence_queries}
+            required_query_capabilities = available_capabilities & {
+                EvidenceCapability.EVENT_OUTCOME,
+                EvidenceCapability.RANKING,
+                EvidenceCapability.GROUP_COMPARISON,
+            }
+            missing_query_capabilities = required_query_capabilities - query_capabilities
+            if missing_query_capabilities:
+                raise ModelRetry(
+                    "The event plan is missing supported semantic query "
+                    "capabilities: "
+                    + ", ".join(
+                        sorted(capability.value for capability in missing_query_capabilities)
+                    )
+                )
+
+            binding_roles = {binding.role for binding in semantic_map.bindings}
+            query_evidence_types = {query.evidence_type for query in output.evidence_queries}
+            required_evidence_types: set[str] = set()
+            if (
+                SemanticRole.OUTCOME_MEASURE in binding_roles
+                and EvidenceCapability.EVENT_OUTCOME in available_capabilities
+            ):
+                required_evidence_types.add("event_outcome")
+            if binding_roles & {
+                SemanticRole.CONTEXT,
+                SemanticRole.TIME,
+                SemanticRole.LOCATION,
+            }:
+                required_evidence_types.add("event_context")
+            if SemanticRole.STATUS in binding_roles:
+                required_evidence_types.add("event_status")
+
+            missing_evidence_types = required_evidence_types - query_evidence_types
+            if missing_evidence_types:
+                raise ModelRetry(
+                    "The event plan is missing supported semantic evidence "
+                    "types: " + ", ".join(sorted(missing_evidence_types))
                 )
 
         return output
@@ -494,6 +762,14 @@ Rules:
 - Do not promote small or weak effects to main findings when stronger unused
   evidence is available.
 - Do not copy internal prohibited interpretations into fact_summary.
+- For generic semantic-query evidence, use the query's semantic label,
+  operation and structured metrics to propose the directly supported fact.
+  The executor intentionally does not author winner, ranking or comparison
+  sentences. Do not merely repeat "validated semantic query result".
+- A compare result may be described only in the direction shown by its ordered
+  records. A rank result must preserve the supplied order, values and tie
+  annotations. Compose identities only from the supplied entity, group and
+  context values.
 """
 
 
@@ -532,6 +808,26 @@ def build_evidence_agent(settings: Settings) -> Agent:
             output,
             ledger,
         )
+        required_query_evidence_ids = {
+            item.evidence_id
+            for item in ledger.items
+            if item.query_id is not None
+            and item.eligible_for_writer
+        }
+        covered_evidence_ids = {
+            evidence_id
+            for candidate in output.candidates
+            for evidence_id in candidate.evidence_ids
+        }
+        missing_query_evidence_ids = (
+            required_query_evidence_ids - covered_evidence_ids
+        )
+        if missing_query_evidence_ids:
+            errors.append(
+                "Create at least one atomic fact candidate for every "
+                "writer-eligible semantic query result. Missing evidence "
+                f"IDs: {sorted(missing_query_evidence_ids)}"
+            )
 
         if errors:
             raise ModelRetry(
@@ -559,6 +855,9 @@ Reject:
 - facts derived from excluded evidence;
 - predictive or forecast interpretations without validation;
 - causal wording without a verified causal design.
+- reversed ordering, winner/loser labels, ranking positions or comparison
+  direction relative to semantic-query metrics;
+- event meanings not licensed by the query's semantic label and capability.
 
 Judge every candidate independently.
 
@@ -1948,6 +2247,18 @@ chronology, comeback leadership, dominance, milestones, audience, venue,
 season context or historical significance. Neutral perspective is the
 default; subject-centred perspective changes selection only, never facts.
 
+For an event report, lead with the supported result when available, integrate
+supported date, venue and status as context, then relate salient entity
+performances and participant-level contrasts. End with a short event-scoped
+limitation. Do not discuss wrapper row counts, constant columns, missingness,
+correlation, regression, statistical power, feature removal or predictive
+modelling unless the user explicitly requested that analysis. A single event
+can still support within-event comparison and ranking. Phrase the limitation
+in event terms: the comparisons describe only the supplied event, do not
+establish why the result occurred and do not support claims about broader
+performance. Avoid generic boilerplate about "observed associations" or
+"unadjusted group comparisons" in an event report.
+
 You have freedom over:
 - wording;
 - structure;
@@ -2083,9 +2394,15 @@ The controller will materialise Markdown and sentence support
 deterministically.
 
 Each factual sentence must list its supporting fact IDs.
+List the fact IDs supporting the title in `title_fact_ids`. A factual title
+must not introduce an entity, value or result absent from those facts.
 Every backticked table or column name and every visible number must be
 supported by those same fact IDs. When a sentence combines facts, cite every
 fact needed for all of its named entities and values.
+Use no more than eight fact IDs for the title or any sentence and no more than
+four insight IDs per sentence. Return no more than eight sections or twelve
+sentences per section. Never create placeholder IDs, ID ranges or exhaustive
+sequences of IDs.
 Non-factual transitions may be marked non_factual_transition and must not
 cite fact IDs.
 """
@@ -2161,6 +2478,59 @@ def build_writer_agent(settings: Settings) -> Agent:
         )
 
         errors: list[str] = []
+
+        unknown_title_fact_ids = set(output.title_fact_ids) - valid_fact_ids
+        if unknown_title_fact_ids:
+            errors.append(f"The title uses unknown fact IDs: {sorted(unknown_title_fact_ids)}")
+        title_entities = {
+            entity
+            for fact in ledger.writer_ready_facts
+            for entity in fact.entities
+            if len(entity.strip()) >= 3
+        }
+        factual_title = bool(
+            re.search(r"(?<!\w)\d+(?:[.,]\d+)?", output.title)
+            or (
+                FACTUAL_TITLE_PATTERN.search(output.title)
+                and any(
+                    entity.casefold() in output.title.casefold()
+                    for entity in title_entities
+                )
+            )
+        )
+        if factual_title and not output.title_fact_ids:
+            errors.append("A factual title must list supporting title_fact_ids.")
+        if output.title_fact_ids and not unknown_title_fact_ids:
+            supported_title_entities = {
+                entity
+                for fact_id in output.title_fact_ids
+                for entity in fact_lookup[fact_id].entities
+            }
+            mentioned_title_entities = {
+                entity
+                for entity in title_entities
+                if entity.casefold() in output.title.casefold()
+            }
+            unsupported_title_entities = (
+                mentioned_title_entities - supported_title_entities
+            )
+            if factual_title and unsupported_title_entities:
+                errors.append(
+                    "The title contains entities unsupported by its facts: "
+                    f"{sorted(unsupported_title_entities)}"
+                )
+            errors.extend(
+                writer_sentence_grounding_errors(
+                    sentence=WriterSentenceDraft(
+                        text=output.title,
+                        fact_ids=output.title_fact_ids,
+                        support_type=SupportType.DIRECT,
+                    ),
+                    fact_lookup=fact_lookup,
+                    insight_lookup={},
+                    sentence_label="Title",
+                )
+            )
 
         if not output.sections:
             errors.append(
@@ -3168,28 +3538,50 @@ def fallback_execution_plan(
     tasks: list[InvestigationTask] = []
     available_capabilities = available_capabilities or []
     explicit_event_request = event_report_requested(request)
+    explicit_data_science_request = bool(
+        re.search(
+            r"\b(data[- ]science report|statistical analysis)\b",
+            request,
+            re.IGNORECASE,
+        )
+    )
+    structured_event = bool(
+        input_structure is not None
+        and input_structure.shape == InputShape.EVENT_RECORD
+        and input_structure.confidence >= 0.7
+    )
     report_genre = (
         ReportGenre.EVENT_REPORT
         if explicit_event_request
         else (
-            report_genre_override
-            if report_genre_override is not None
+            ReportGenre.DATA_SCIENCE_REPORT
+            if explicit_data_science_request
             else (
-                ReportGenre.DATASET_OVERVIEW
-                if re.search(
-                    r"\bdataset overview\b",
-                    request,
-                    re.IGNORECASE,
+                report_genre_override
+                if report_genre_override is not None
+                else (
+                    ReportGenre.EVENT_REPORT
+                    if structured_event
+                    else (
+                        ReportGenre.DATASET_OVERVIEW
+                        if re.search(
+                            r"\bdataset overview\b",
+                            request,
+                            re.IGNORECASE,
+                        )
+                        else ReportGenre.DATA_SCIENCE_REPORT
+                    )
                 )
-                else ReportGenre.DATA_SCIENCE_REPORT
             )
         )
     )
 
-    if explicit_event_request:
+    if explicit_event_request or explicit_data_science_request:
         selection_source = ReportSelectionSource.EXPLICIT_USER_REQUEST
     elif report_genre_override is not None:
         selection_source = ReportSelectionSource.EXPERIMENT_CONFIGURATION
+    elif structured_event:
+        selection_source = ReportSelectionSource.STRUCTURED_INFERENCE
     else:
         selection_source = ReportSelectionSource.FALLBACK
 
@@ -3236,7 +3628,7 @@ def fallback_execution_plan(
                     table_name=event_table.table_name,
                     columns=[column.name for column in event_table.columns],
                     capability=capability,
-                    input_fields=["teams"],
+                    input_fields=[column.name for column in event_table.columns],
                     entity_scope=input_structure.entity_levels if input_structure else [],
                     expected_evidence_types=evidence_types,
                     required_evidence=evidence_types,
@@ -3244,9 +3636,7 @@ def fallback_execution_plan(
                         ClaimPermission.DESCRIPTIVE,
                         ClaimPermission.COMPARATIVE,
                     ],
-                    answerability_note=(
-                        "Answerable through deterministic structured-event extraction."
-                    ),
+                    answerability_note=("Answerable from verified structured-event evidence."),
                 )
             )
 
@@ -3273,6 +3663,12 @@ def fallback_execution_plan(
     )
 
     for table in profile.tables:
+        if report_genre in {
+            ReportGenre.EVENT_REPORT,
+            ReportGenre.SPORTS_GAME_REPORT,
+        }:
+            continue
+
         tasks.append(
             InvestigationTask(
                 task_id=f"TASK_{len(tasks) + 1:03d}",
@@ -3499,14 +3895,30 @@ def fallback_execution_plan(
                     else "Summarise the strongest supported findings."
                 )
             ),
-            target_length_words=settings.writer_target_words,
-            maximum_main_findings=settings.writer_max_main_findings,
+            target_length_words=(
+                min(settings.writer_target_words, 450)
+                if report_genre
+                in {
+                    ReportGenre.EVENT_REPORT,
+                    ReportGenre.SPORTS_GAME_REPORT,
+                }
+                else settings.writer_target_words
+            ),
+            maximum_main_findings=(
+                min(settings.writer_max_main_findings, 6)
+                if report_genre
+                in {
+                    ReportGenre.EVENT_REPORT,
+                    ReportGenre.SPORTS_GAME_REPORT,
+                }
+                else settings.writer_max_main_findings
+            ),
             preferred_sections=(
                 [
-                    "Result and game narrative",
-                    "Leading performances",
-                    "Decisive team contrasts",
-                    "Limitations",
+                    "Event overview",
+                    "Key performances",
+                    "Participant contrasts",
+                    "Scope limitations",
                 ]
                 if report_genre
                 in {
@@ -3522,7 +3934,6 @@ def fallback_execution_plan(
             ),
             required_components=(
                 [
-                    ReportComponent.DATASET_OVERVIEW,
                     ReportComponent.STRONGEST_RELATIONSHIPS,
                     ReportComponent.LIMITATIONS_NEXT_STEPS,
                 ]
@@ -3541,6 +3952,8 @@ def fallback_execution_plan(
             required_content_slots=(
                 [
                     "event_result",
+                    "event_context",
+                    "event_status",
                     "leading_performance",
                     "main_contrast",
                 ]
@@ -3558,7 +3971,6 @@ def fallback_execution_plan(
             ),
             optional_content_slots=(
                 [
-                    "event_status",
                     "secondary_performance",
                 ]
                 if report_genre
@@ -3573,6 +3985,7 @@ def fallback_execution_plan(
                     "unsupported_chronology",
                     "unsupported_milestone",
                     "unsupported_historical_significance",
+                    "unsupported_causality",
                 ]
                 if report_genre
                 in {
@@ -3591,8 +4004,20 @@ def fallback_execution_plan(
                 }
                 else 0.8
             ),
-            include_negative_findings=True,
-            include_methodological_details=True,
+            include_negative_findings=(
+                report_genre
+                not in {
+                    ReportGenre.EVENT_REPORT,
+                    ReportGenre.SPORTS_GAME_REPORT,
+                }
+            ),
+            include_methodological_details=(
+                report_genre
+                not in {
+                    ReportGenre.EVENT_REPORT,
+                    ReportGenre.SPORTS_GAME_REPORT,
+                }
+            ),
             prioritisation_rule=(
                 "Prefer high-confidence, methodologically strong, user-relevant "
                 "findings. Omit negligible effects and repetitive metadata."

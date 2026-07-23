@@ -11,6 +11,7 @@ from .schemas import (
     InputRepresentationStatus,
     InputShape,
     InputStructureProfile,
+    StructuralField,
 )
 
 
@@ -142,6 +143,98 @@ def _key_overlap(rows: list[Mapping[str, Any]]) -> float:
         union = left_keys | right_keys
         overlaps.append(len(left_keys & right_keys) / max(len(union), 1))
     return sum(overlaps) / len(overlaps)
+
+
+def _homogeneous_record_mapping(value: Mapping[str, Any]) -> bool:
+    if len(value) < 2 or not all(isinstance(child, Mapping) for child in value.values()):
+        return False
+
+    children = [dict(child) for child in value.values()]
+    return _key_overlap(children) >= 0.6
+
+
+def build_structural_catalog(
+    structured_inputs: Mapping[str, Any],
+    *,
+    maximum_fields: int = 500,
+    maximum_samples: int = 3,
+) -> list[StructuralField]:
+    """Build a compact, value-bearing schema from sanitized structured input."""
+
+    entries: dict[tuple[str, str], dict[str, Any]] = {}
+
+    def value_type(value: Any) -> str:
+        if value is None:
+            return "null"
+        if isinstance(value, bool):
+            return "boolean"
+        if isinstance(value, int):
+            return "integer"
+        if isinstance(value, float):
+            return "number"
+        if isinstance(value, str):
+            return "string"
+        return type(value).__name__
+
+    def sample_value(value: Any) -> str:
+        text = str(value)
+        return text if len(text) <= 120 else text[:117] + "..."
+
+    def add_leaf(table_name: str, path: str, value: Any) -> None:
+        key = (table_name, path)
+        entry = entries.setdefault(
+            key,
+            {
+                "types": set(),
+                "samples": [],
+                "count": 0,
+            },
+        )
+        entry["types"].add(value_type(value))
+        entry["count"] += 1
+        sample = sample_value(value)
+        if sample not in entry["samples"] and len(entry["samples"]) < maximum_samples:
+            entry["samples"].append(sample)
+
+    def visit(table_name: str, value: Any, prefix: str, depth: int) -> None:
+        if depth > 12 or len(entries) >= maximum_fields:
+            return
+
+        if isinstance(value, Mapping):
+            if _homogeneous_record_mapping(value):
+                wildcard = f"{prefix}.*" if prefix else "*"
+                for child in list(value.values())[:50]:
+                    visit(table_name, child, wildcard, depth + 1)
+                return
+
+            for raw_key, child in value.items():
+                child_path = f"{prefix}.{raw_key}" if prefix else str(raw_key)
+                visit(table_name, child, child_path, depth + 1)
+            return
+
+        if isinstance(value, list):
+            wildcard = f"{prefix}.*" if prefix else "*"
+            for child in value[:50]:
+                visit(table_name, child, wildcard, depth + 1)
+            if not value:
+                add_leaf(table_name, prefix, value)
+            return
+
+        add_leaf(table_name, prefix, value)
+
+    for table_name, payload in structured_inputs.items():
+        visit(str(table_name), payload, "", 0)
+
+    return [
+        StructuralField(
+            table_name=table_name,
+            path_pattern=path,
+            value_types=sorted(entry["types"]),
+            sample_values=entry["samples"],
+            occurrence_count=entry["count"],
+        )
+        for (table_name, path), entry in sorted(entries.items())
+    ][:maximum_fields]
 
 
 def _probable_reference_paths(payload: Any, event_like: bool) -> list[str]:

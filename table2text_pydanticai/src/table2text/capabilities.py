@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -8,8 +9,14 @@ from .schemas import (
     CapabilityDefinition,
     ClaimPermission,
     EvidenceCapability,
+    EvidenceOperation,
+    EvidenceQuery,
+    InputSemanticMap,
     InputShape,
     RecommendedUse,
+    SemanticLevel,
+    SemanticRole,
+    StructuralField,
 )
 from .structure import find_participant_container, normalise_key
 
@@ -95,6 +102,34 @@ CAPABILITY_REGISTRY: dict[EvidenceCapability, CapabilityDefinition] = {
     ),
 }
 
+QUERY_EVIDENCE_TYPES: dict[EvidenceCapability, set[str]] = {
+    EvidenceCapability.DATASET_PROFILE: {
+        "event_context",
+        "event_status",
+    },
+    EvidenceCapability.EVENT_OUTCOME: {
+        "event_outcome",
+        "event_context",
+        "event_status",
+    },
+    EvidenceCapability.ENTITY_PERFORMANCE: {"entity_performance"},
+    EvidenceCapability.RANKING: {"entity_ranking"},
+    EvidenceCapability.GROUP_COMPARISON: {
+        "participant_comparison",
+        "event_contrast",
+    },
+}
+
+QUERY_OPERATIONS: dict[str, EvidenceOperation] = {
+    "event_outcome": EvidenceOperation.COMPARE,
+    "event_context": EvidenceOperation.RETRIEVE,
+    "event_status": EvidenceOperation.RETRIEVE,
+    "entity_performance": EvidenceOperation.RETRIEVE,
+    "entity_ranking": EvidenceOperation.RANK,
+    "participant_comparison": EvidenceOperation.COMPARE,
+    "event_contrast": EvidenceOperation.COMPARE,
+}
+
 
 ENTITY_CONTAINER_NAMES = {
     "entities",
@@ -174,6 +209,9 @@ class CapabilityEvidence:
     user_relevance: float
     salience: float
     recommended_use: RecommendedUse
+    semantic_level: SemanticLevel = SemanticLevel.DATASET
+    semantic_binding_ids: list[str] = field(default_factory=list)
+    query_id: str | None = None
     limitations: list[str] = field(default_factory=list)
     prohibited_interpretations: list[str] = field(default_factory=list)
 
@@ -410,7 +448,10 @@ def extract_event_participants(payload: Any) -> list[EventParticipant]:
     return participants
 
 
-def available_capabilities(bundle: Any) -> list[EvidenceCapability]:
+def available_capabilities(
+    bundle: Any,
+    semantic_map: InputSemanticMap | None = None,
+) -> list[EvidenceCapability]:
     shape = getattr(getattr(bundle, "input_structure", None), "shape", None)
     capabilities = [EvidenceCapability.DATASET_PROFILE]
 
@@ -429,23 +470,95 @@ def available_capabilities(bundle: Any) -> list[EvidenceCapability]:
             ]
         )
 
-    participants = [
-        participant
-        for payload in getattr(bundle, "structured_inputs", {}).values()
-        for participant in extract_event_participants(payload)
-    ]
-    if len(participants) >= 2:
-        if all(participant.score is not None for participant in participants):
-            capabilities.append(EvidenceCapability.EVENT_OUTCOME)
-        if any(participant.entities for participant in participants):
-            capabilities.extend(
-                [
-                    EvidenceCapability.ENTITY_PERFORMANCE,
-                    EvidenceCapability.RANKING,
-                ]
+    if semantic_map is not None and semantic_map.bindings:
+        semantic_shape = semantic_map.input_shape
+        roles_by_table: dict[str, set[SemanticRole]] = {}
+        for binding in semantic_map.bindings:
+            roles_by_table.setdefault(binding.table_name, set()).add(
+                binding.role
             )
-        if len([participant for participant in participants if participant.metrics]) >= 2:
+        role_sets = list(roles_by_table.values())
+        if (
+            semantic_shape == InputShape.EVENT_RECORD
+            and any(
+                {
+                    SemanticRole.PARTICIPANT_IDENTIFIER,
+                    SemanticRole.OUTCOME_MEASURE,
+                }.issubset(roles)
+                for roles in role_sets
+            )
+        ):
+            capabilities.append(EvidenceCapability.EVENT_OUTCOME)
+        if (
+            semantic_shape in {
+                InputShape.ENTITY_COLLECTION,
+                InputShape.EVENT_RECORD,
+            }
+            and any(
+                SemanticRole.ENTITY_IDENTIFIER in roles
+                and bool(
+                    roles
+                    & {
+                        SemanticRole.PERFORMANCE_MEASURE,
+                        SemanticRole.MEASURE,
+                    }
+                )
+                for roles in role_sets
+            )
+        ):
+            capabilities.append(EvidenceCapability.RANKING)
+        if (
+            semantic_shape == InputShape.EVENT_RECORD
+            and any(
+                {
+                    SemanticRole.PARTICIPANT_IDENTIFIER,
+                    SemanticRole.ENTITY_IDENTIFIER,
+                }.issubset(roles)
+                and bool(
+                    roles
+                    & {
+                        SemanticRole.PERFORMANCE_MEASURE,
+                        SemanticRole.MEASURE,
+                    }
+                )
+                for roles in role_sets
+            )
+        ):
+            capabilities.append(EvidenceCapability.ENTITY_PERFORMANCE)
+        if (
+            semantic_shape == InputShape.EVENT_RECORD
+            and any(
+                SemanticRole.PARTICIPANT_IDENTIFIER in roles
+                and bool(
+                    roles
+                    & {
+                        SemanticRole.PERFORMANCE_MEASURE,
+                        SemanticRole.OUTCOME_MEASURE,
+                        SemanticRole.MEASURE,
+                    }
+                )
+                for roles in role_sets
+            )
+        ):
             capabilities.append(EvidenceCapability.GROUP_COMPARISON)
+    else:
+        participants = [
+            participant
+            for payload in getattr(bundle, "structured_inputs", {}).values()
+            for participant in extract_event_participants(payload)
+        ]
+        if len(participants) >= 2:
+            if all(participant.score is not None for participant in participants):
+                capabilities.append(EvidenceCapability.EVENT_OUTCOME)
+            if any(participant.entities for participant in participants):
+                capabilities.extend(
+                    [
+                        EvidenceCapability.ENTITY_PERFORMANCE,
+                        EvidenceCapability.RANKING,
+                    ]
+                )
+            if len([participant for participant in participants if participant.metrics]) >= 2:
+                capabilities.append(EvidenceCapability.GROUP_COMPARISON)
 
     return list(dict.fromkeys(capabilities))
 
@@ -741,5 +854,555 @@ def event_capability_evidence(payload: Any) -> list[CapabilityEvidence]:
                     recommended_use=RecommendedUse.SUPPORTING_DETAIL,
                 )
             )
+
+    return evidence
+
+
+@dataclass(frozen=True)
+class PathMatch:
+    source_path: str
+    captures: tuple[str, ...]
+    value: Any
+
+
+def match_path_pattern(payload: Any, pattern: str) -> list[PathMatch]:
+    """Resolve a dot path containing mapping/list wildcards."""
+
+    parts = [part for part in pattern.split(".") if part]
+    matches: list[PathMatch] = []
+
+    def visit(
+        current: Any,
+        index: int,
+        path_parts: list[str],
+        captures: list[str],
+    ) -> None:
+        if index == len(parts):
+            matches.append(
+                PathMatch(
+                    source_path=".".join(path_parts),
+                    captures=tuple(captures),
+                    value=current,
+                )
+            )
+            return
+
+        part = parts[index]
+        if part == "*":
+            if isinstance(current, Mapping):
+                for key, child in current.items():
+                    visit(
+                        child,
+                        index + 1,
+                        [*path_parts, str(key)],
+                        [*captures, str(key)],
+                    )
+            elif isinstance(current, list):
+                for item_index, child in enumerate(current):
+                    visit(
+                        child,
+                        index + 1,
+                        [*path_parts, str(item_index)],
+                        [*captures, str(item_index)],
+                    )
+            return
+
+        if isinstance(current, Mapping) and part in current:
+            visit(
+                current[part],
+                index + 1,
+                [*path_parts, part],
+                captures,
+            )
+            return
+
+        if isinstance(current, list) and part.isdigit():
+            item_index = int(part)
+            if 0 <= item_index < len(current):
+                visit(
+                    current[item_index],
+                    index + 1,
+                    [*path_parts, part],
+                    captures,
+                )
+
+    visit(payload, 0, [], [])
+    return matches
+
+
+def validate_semantic_map(
+    semantic_map: InputSemanticMap | None,
+    structural_catalog: list[StructuralField],
+) -> list[str]:
+    if semantic_map is None:
+        return []
+
+    errors: list[str] = []
+    seen: set[str] = set()
+    catalog_paths = {(field.table_name, field.path_pattern) for field in structural_catalog}
+
+    for binding in semantic_map.bindings:
+        if binding.binding_id in seen:
+            errors.append(f"Duplicate semantic binding ID: {binding.binding_id}.")
+        seen.add(binding.binding_id)
+        if (binding.table_name, binding.path_pattern) not in catalog_paths:
+            errors.append(
+                f"Semantic binding {binding.binding_id} uses an unknown "
+                f"catalog path: {binding.table_name}:{binding.path_pattern}."
+            )
+
+    return errors
+
+
+def validate_evidence_queries(
+    queries: list[EvidenceQuery],
+    semantic_map: InputSemanticMap | None,
+    structural_catalog: list[StructuralField],
+    *,
+    task_ids: set[str],
+    available: set[EvidenceCapability],
+    task_capabilities: dict[str, EvidenceCapability | None] | None = None,
+) -> list[str]:
+    errors = validate_semantic_map(semantic_map, structural_catalog)
+    if semantic_map is None:
+        if queries:
+            errors.append("Evidence queries require an input semantic map.")
+        return errors
+
+    binding_lookup = {binding.binding_id: binding for binding in semantic_map.bindings}
+    catalog_lookup = {(field.table_name, field.path_pattern): field for field in structural_catalog}
+    seen_query_ids: set[str] = set()
+
+    for query in queries:
+        if query.query_id in seen_query_ids:
+            errors.append(f"Duplicate evidence query ID: {query.query_id}.")
+        seen_query_ids.add(query.query_id)
+
+        if re.search(r"(?<!\w)\d+(?:[.,]\d+)?", query.question):
+            errors.append(
+                f"Evidence query {query.query_id} contains a result value in "
+                "its pre-result analytical question."
+            )
+
+        if query.task_id not in task_ids:
+            errors.append(f"Evidence query {query.query_id} uses unknown task {query.task_id}.")
+        elif (
+            task_capabilities is not None
+            and task_capabilities.get(query.task_id) is not None
+            and task_capabilities[query.task_id] != query.capability
+        ):
+            errors.append(
+                f"Evidence query {query.query_id} does not match the capability "
+                f"of task {query.task_id}."
+            )
+        if query.capability not in available:
+            errors.append(
+                f"Evidence query {query.query_id} uses unavailable capability "
+                f"{query.capability.value}."
+            )
+        allowed_evidence_types = QUERY_EVIDENCE_TYPES.get(query.capability)
+        if allowed_evidence_types is not None and query.evidence_type not in allowed_evidence_types:
+            errors.append(
+                f"Evidence query {query.query_id} uses evidence_type "
+                f"{query.evidence_type!r}; allowed values for "
+                f"{query.capability.value} are "
+                f"{sorted(allowed_evidence_types)}."
+            )
+        expected_operation = QUERY_OPERATIONS.get(query.evidence_type)
+        if expected_operation is not None and query.operation != expected_operation:
+            errors.append(
+                f"Evidence query {query.query_id} must use operation "
+                f"{expected_operation.value!r} for evidence_type "
+                f"{query.evidence_type!r}."
+            )
+
+        referenced_ids = [
+            *query.value_binding_ids,
+            *query.context_binding_ids,
+            *([query.entity_binding_id] if query.entity_binding_id else []),
+            *([query.group_binding_id] if query.group_binding_id else []),
+        ]
+        unknown_ids = [
+            binding_id for binding_id in referenced_ids if binding_id not in binding_lookup
+        ]
+        if unknown_ids:
+            errors.append(
+                f"Evidence query {query.query_id} uses unknown semantic bindings: {unknown_ids}."
+            )
+            continue
+
+        wrong_table = [
+            binding_id
+            for binding_id in referenced_ids
+            if binding_lookup[binding_id].table_name != query.table_name
+        ]
+        if wrong_table:
+            errors.append(
+                f"Evidence query {query.query_id} mixes bindings from another table: {wrong_table}."
+            )
+
+        value_bindings = [
+            binding_lookup[binding_id]
+            for binding_id in query.value_binding_ids
+            if binding_id in binding_lookup
+        ]
+        entity_binding = (
+            binding_lookup.get(query.entity_binding_id)
+            if query.entity_binding_id
+            else None
+        )
+        allowed_value_roles = {
+            "event_outcome": {SemanticRole.OUTCOME_MEASURE},
+            "event_context": {
+                SemanticRole.CONTEXT,
+                SemanticRole.IDENTIFIER,
+                SemanticRole.LOCATION,
+                SemanticRole.METADATA,
+                SemanticRole.TIME,
+            },
+            "event_status": {SemanticRole.STATUS},
+            "entity_performance": {
+                SemanticRole.MEASURE,
+                SemanticRole.PERFORMANCE_MEASURE,
+            },
+            "entity_ranking": {
+                SemanticRole.MEASURE,
+                SemanticRole.PERFORMANCE_MEASURE,
+            },
+            "participant_comparison": {
+                SemanticRole.MEASURE,
+                SemanticRole.OUTCOME_MEASURE,
+                SemanticRole.PERFORMANCE_MEASURE,
+            },
+            "event_contrast": {
+                SemanticRole.MEASURE,
+                SemanticRole.OUTCOME_MEASURE,
+                SemanticRole.PERFORMANCE_MEASURE,
+            },
+        }.get(query.evidence_type)
+        if allowed_value_roles is not None:
+            invalid_value_bindings = [
+                binding.binding_id
+                for binding in value_bindings
+                if binding.role not in allowed_value_roles
+            ]
+            if invalid_value_bindings:
+                errors.append(
+                    f"Evidence query {query.query_id} uses semantically "
+                    f"incompatible value bindings: {invalid_value_bindings}."
+                )
+        expected_entity_level = {
+            "event_outcome": SemanticLevel.PARTICIPANT,
+            "participant_comparison": SemanticLevel.PARTICIPANT,
+            "event_contrast": SemanticLevel.PARTICIPANT,
+            "entity_performance": SemanticLevel.ENTITY,
+            "entity_ranking": SemanticLevel.ENTITY,
+        }.get(query.evidence_type)
+        if expected_entity_level is not None:
+            if entity_binding is None:
+                errors.append(
+                    f"Evidence query {query.query_id} requires an identifier "
+                    f"binding at semantic level {expected_entity_level.value!r}."
+                )
+            elif entity_binding.level != expected_entity_level:
+                errors.append(
+                    f"Evidence query {query.query_id} requires an identifier at "
+                    f"semantic level {expected_entity_level.value!r}."
+                )
+
+        if not query.value_binding_ids:
+            errors.append(f"Evidence query {query.query_id} has no value bindings.")
+        if query.operation in {
+            EvidenceOperation.COMPARE,
+            EvidenceOperation.RANK,
+        }:
+            if len(query.value_binding_ids) != 1:
+                errors.append(
+                    f"Evidence query {query.query_id} must use exactly one measure binding."
+                )
+            if query.entity_binding_id is None:
+                errors.append(
+                    f"Evidence query {query.query_id} requires an entity identifier binding."
+                )
+            for binding_id in query.value_binding_ids:
+                binding = binding_lookup.get(binding_id)
+                if binding is None:
+                    continue
+                field = catalog_lookup.get((binding.table_name, binding.path_pattern))
+                if field is not None and not set(field.value_types) & {
+                    "integer",
+                    "number",
+                }:
+                    errors.append(
+                        f"Evidence query {query.query_id} uses non-numeric "
+                        f"measure binding {binding_id}."
+                    )
+
+    return errors
+
+
+def _aligned_label(
+    match: PathMatch,
+    label_matches: list[PathMatch],
+) -> tuple[str | None, str | None]:
+    compatible = [
+        candidate
+        for candidate in label_matches
+        if candidate.captures == match.captures[: len(candidate.captures)]
+    ]
+    if not compatible:
+        return None, None
+    selected = max(compatible, key=lambda item: len(item.captures))
+    return str(selected.value), selected.source_path
+
+
+def _query_permissions(
+    operation: EvidenceOperation,
+) -> list[ClaimPermission]:
+    permissions = [ClaimPermission.DESCRIPTIVE]
+    if operation in {EvidenceOperation.COMPARE, EvidenceOperation.RANK}:
+        permissions.append(ClaimPermission.COMPARATIVE)
+    return permissions
+
+
+def semantic_query_evidence(
+    *,
+    table_name: str,
+    payload: Any,
+    semantic_map: InputSemanticMap,
+    queries: list[EvidenceQuery],
+) -> list[CapabilityEvidence]:
+    """Execute validated generic semantic queries without authoring claims."""
+
+    binding_lookup = {
+        binding.binding_id: binding
+        for binding in semantic_map.bindings
+        if binding.table_name == table_name
+    }
+    evidence: list[CapabilityEvidence] = []
+
+    def matches_for(binding_id: str) -> list[PathMatch]:
+        binding = binding_lookup[binding_id]
+        return match_path_pattern(payload, binding.path_pattern)
+
+    for query in queries:
+        if query.table_name != table_name:
+            continue
+        if any(
+            binding_id not in binding_lookup
+            for binding_id in [
+                *query.value_binding_ids,
+                *query.context_binding_ids,
+                *([query.entity_binding_id] if query.entity_binding_id else []),
+                *([query.group_binding_id] if query.group_binding_id else []),
+            ]
+        ):
+            continue
+
+        binding_ids = list(
+            dict.fromkeys(
+                [
+                    *query.value_binding_ids,
+                    *query.context_binding_ids,
+                    *([query.entity_binding_id] if query.entity_binding_id else []),
+                    *([query.group_binding_id] if query.group_binding_id else []),
+                ]
+            )
+        )
+        source_paths: list[str] = []
+        entity_scope: list[str] = []
+        metrics: dict[str, Any] = {
+            "operation": query.operation.value,
+            "semantic_label": query.semantic_label,
+            "question": query.question,
+        }
+
+        if query.operation == EvidenceOperation.RETRIEVE:
+            values: list[dict[str, Any]] = []
+            entity_matches = matches_for(query.entity_binding_id) if query.entity_binding_id else []
+            group_matches = matches_for(query.group_binding_id) if query.group_binding_id else []
+            context_matches = {
+                binding_id: matches_for(binding_id) for binding_id in query.context_binding_ids
+            }
+            for binding_id in query.value_binding_ids:
+                binding = binding_lookup[binding_id]
+                for match in matches_for(binding_id):
+                    entity, entity_path = _aligned_label(
+                        match,
+                        entity_matches,
+                    )
+                    group, group_path = _aligned_label(
+                        match,
+                        group_matches,
+                    )
+                    context: dict[str, Any] = {}
+                    context_paths: list[str] = []
+                    for context_id, candidates in context_matches.items():
+                        context_value, context_path = _aligned_label(
+                            match,
+                            candidates,
+                        )
+                        if context_value is not None:
+                            context[binding_lookup[context_id].label] = context_value
+                        if context_path is not None:
+                            context_paths.append(context_path)
+                    values.append(
+                        {
+                            "binding_id": binding_id,
+                            "label": binding.label,
+                            "role": binding.role.value,
+                            "value": match.value,
+                            "entity": entity,
+                            "group": group,
+                            "context": context,
+                            "source_path": match.source_path,
+                        }
+                    )
+                    entity_scope.extend(
+                        value for value in [entity, group, *context.values()] if value
+                    )
+                    source_paths.extend(
+                        path
+                        for path in [
+                            match.source_path,
+                            entity_path,
+                            group_path,
+                            *context_paths,
+                        ]
+                        if path
+                    )
+            if not values:
+                continue
+            metrics["values"] = values
+
+        else:
+            value_binding_id = query.value_binding_ids[0]
+            value_binding = binding_lookup[value_binding_id]
+            value_matches = [
+                match
+                for match in matches_for(value_binding_id)
+                if isinstance(match.value, (int, float)) and not isinstance(match.value, bool)
+            ]
+            entity_matches = matches_for(query.entity_binding_id or "")
+            group_matches = matches_for(query.group_binding_id) if query.group_binding_id else []
+            context_matches = {
+                binding_id: matches_for(binding_id) for binding_id in query.context_binding_ids
+            }
+            records: list[dict[str, Any]] = []
+
+            for value_match in value_matches:
+                entity, entity_path = _aligned_label(
+                    value_match,
+                    entity_matches,
+                )
+                if entity is None:
+                    continue
+                group, group_path = _aligned_label(
+                    value_match,
+                    group_matches,
+                )
+                context: dict[str, Any] = {}
+                context_paths: list[str] = []
+                for binding_id, candidates in context_matches.items():
+                    context_value, context_path = _aligned_label(
+                        value_match,
+                        candidates,
+                    )
+                    if context_value is not None:
+                        context[binding_lookup[binding_id].label] = context_value
+                    if context_path is not None:
+                        context_paths.append(context_path)
+
+                record = {
+                    "entity": entity,
+                    "group": group,
+                    "value": float(value_match.value),
+                    "measure": value_binding.label,
+                    "context": context,
+                    "source_path": value_match.source_path,
+                }
+                records.append(record)
+                entity_scope.extend(value for value in [entity, group, *context.values()] if value)
+                source_paths.extend(
+                    path
+                    for path in [
+                        value_match.source_path,
+                        entity_path,
+                        group_path,
+                        *context_paths,
+                    ]
+                    if path
+                )
+
+            if not records:
+                continue
+            ordered = sorted(
+                records,
+                key=lambda item: item["value"],
+                reverse=query.descending,
+            )
+            if query.operation == EvidenceOperation.RANK:
+                selected_records = ordered[: query.limit]
+                value_counts = {
+                    record["value"]: sum(
+                        candidate["value"] == record["value"]
+                        for candidate in records
+                    )
+                    for record in selected_records
+                }
+                ranking: list[dict[str, Any]] = []
+                previous_value: float | None = None
+                current_rank = 0
+                for index, record in enumerate(
+                    selected_records,
+                    start=1,
+                ):
+                    if record["value"] != previous_value:
+                        current_rank = index
+                        previous_value = record["value"]
+                    ranking.append(
+                        {
+                            **record,
+                            "rank": current_rank,
+                            "tied": value_counts[record["value"]] > 1,
+                        }
+                    )
+                metrics["ranking"] = ranking
+                metrics["ties_present"] = any(
+                    record["tied"] for record in ranking
+                )
+            else:
+                metrics["records"] = ordered
+                if len(ordered) >= 2:
+                    metrics["difference"] = abs(ordered[0]["value"] - ordered[-1]["value"])
+                    metrics["tied"] = ordered[0]["value"] == ordered[-1]["value"]
+
+        confidences = [binding_lookup[binding_id].confidence for binding_id in binding_ids]
+        evidence.append(
+            CapabilityEvidence(
+                capability=query.capability,
+                evidence_type=query.evidence_type,
+                finding=(f"Validated semantic query result for `{query.semantic_label}`."),
+                metrics=metrics,
+                source_paths=list(dict.fromkeys(source_paths)),
+                entity_scope=list(dict.fromkeys(entity_scope)),
+                practical_interpretation=query.question,
+                strength_label=f"semantic_{query.operation.value}",
+                claim_permissions=_query_permissions(query.operation),
+                factual_confidence=min(confidences, default=0.75),
+                methodological_strength=1.0,
+                user_relevance=query.user_relevance,
+                salience=query.salience,
+                recommended_use=query.recommended_use,
+                semantic_level=query.semantic_level,
+                semantic_binding_ids=binding_ids,
+                query_id=query.query_id,
+                limitations=["The result is limited to values present in the supplied record."],
+                prohibited_interpretations=[
+                    "Do not infer causality, chronology, or broader historical "
+                    "significance from this result."
+                ],
+            )
+        )
 
     return evidence

@@ -24,7 +24,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from .capabilities import event_capability_evidence
+from .capabilities import event_capability_evidence, semantic_query_evidence
 from .config import Settings
 from .data import DataBundle, classify_zero_risk, safe_hashable
 from .schemas import (
@@ -35,10 +35,12 @@ from .schemas import (
     EvidenceItem,
     EvidenceLedger,
     ExecutionPlan,
+    InputSemanticMap,
     InputShape,
     InvestigationTask,
     RecommendedUse,
     ReportGenre,
+    SemanticLevel,
     TargetStatus,
     ValidationStrategy,
     ZeroRisk,
@@ -103,6 +105,9 @@ class EvidenceBuilder:
         evidence_type: str | None = None,
         source_paths: list[str] | None = None,
         entity_scope: list[str] | None = None,
+        semantic_level: SemanticLevel = SemanticLevel.DATASET,
+        semantic_binding_ids: list[str] | None = None,
+        query_id: str | None = None,
     ) -> None:
         evidence_id = f"EVD_{len(self.items) + 1:04d}"
 
@@ -117,6 +122,9 @@ class EvidenceBuilder:
             evidence_type=evidence_type or strength_label,
             source_paths=source_paths or [],
             entity_scope=entity_scope or [],
+            semantic_level=semantic_level,
+            semantic_binding_ids=semantic_binding_ids or [],
+            query_id=query_id,
             finding=finding,
             metrics=metrics,
             source_tables=source_tables,
@@ -159,6 +167,7 @@ def event_analysis(
     bundle: DataBundle,
     plan: ExecutionPlan,
     builder: EvidenceBuilder,
+    semantic_map: InputSemanticMap | None = None,
 ) -> None:
     selected = set(plan.selected_capabilities)
     event_capabilities = {
@@ -177,8 +186,28 @@ def event_analysis(
     ]
     fallback_task_ids = [task.task_id for task in event_tasks]
 
+    semantic_map_available = bool(semantic_map is not None and semantic_map.bindings)
+    semantic_query_mode = bool(semantic_map_available and plan.evidence_queries)
+
+    if semantic_map_available and not plan.evidence_queries:
+        builder.execution_notes.append(
+            "The semantic event map was available, but the frozen plan "
+            "contained no validated evidence queries. Legacy field-alias "
+            "extraction was not used."
+        )
+        return
+
     for table_name, payload in bundle.structured_inputs.items():
-        records = event_capability_evidence(payload)
+        records = (
+            semantic_query_evidence(
+                table_name=table_name,
+                payload=payload,
+                semantic_map=semantic_map,
+                queries=plan.evidence_queries,
+            )
+            if semantic_query_mode and semantic_map is not None
+            else event_capability_evidence(payload)
+        )
         if not records:
             continue
 
@@ -199,7 +228,8 @@ def event_analysis(
             source_columns=list(bundle.tables[table_name].columns),
             source_paths=[],
             entity_scope=[],
-            method="Deterministic input-structure inspection.",
+            semantic_level=SemanticLevel.EVENT,
+            method="Validated input-structure inspection.",
             practical_interpretation=(
                 "The source is one event, not a flat sample of independent rows."
             ),
@@ -210,6 +240,12 @@ def event_analysis(
             user_relevance=0.9,
             salience=0.85,
             recommended_use=RecommendedUse.SUPPORTING_DETAIL,
+            eligible_for_writer=not semantic_query_mode,
+            exclusion_reason=(
+                "Container-level profile evidence is excluded from the semantic event Writer path."
+                if semantic_query_mode
+                else None
+            ),
         )
 
         for record in records:
@@ -232,11 +268,15 @@ def event_analysis(
                 finding=record.finding,
                 metrics=record.metrics,
                 source_tables=[table_name],
-                source_columns=["teams"],
+                source_columns=list(
+                    dict.fromkeys(path.split(".", 1)[0] for path in record.source_paths)
+                ),
                 source_paths=record.source_paths,
                 entity_scope=record.entity_scope,
                 method=(
-                    "Deterministic extraction from the structured event record."
+                    "Validated generic semantic-query execution."
+                    if semantic_query_mode
+                    else "Legacy structured-event extraction fallback."
                 ),
                 practical_interpretation=record.practical_interpretation,
                 strength_label=record.strength_label,
@@ -248,6 +288,9 @@ def event_analysis(
                 recommended_use=record.recommended_use,
                 limitations=record.limitations,
                 prohibited_interpretations=record.prohibited_interpretations,
+                semantic_level=record.semantic_level,
+                semantic_binding_ids=record.semantic_binding_ids,
+                query_id=record.query_id,
             )
 
 
@@ -2389,11 +2432,16 @@ def execute_plan(
     bundle: DataBundle,
     plan: ExecutionPlan,
     settings: Settings,
+    semantic_map: InputSemanticMap | None = None,
 ) -> EvidenceLedger:
     builder = EvidenceBuilder(bundle.fingerprint)
     event_input = bool(
-        bundle.input_structure
-        and bundle.input_structure.shape == InputShape.EVENT_RECORD
+        (bundle.input_structure and bundle.input_structure.shape == InputShape.EVENT_RECORD)
+        or (
+            semantic_map is not None
+            and semantic_map.input_shape == InputShape.EVENT_RECORD
+            and semantic_map.confidence >= 0.7
+        )
     )
     event_genre = plan.report_specification.genre in {
         ReportGenre.EVENT_REPORT,
@@ -2401,7 +2449,7 @@ def execute_plan(
     }
 
     if event_input:
-        event_analysis(bundle, plan, builder)
+        event_analysis(bundle, plan, builder, semantic_map)
 
     for route in plan.route_order:
         tasks = tasks_for_route(plan, route)
