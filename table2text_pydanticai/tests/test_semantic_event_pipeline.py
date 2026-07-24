@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
+from table2text.agents import validate_insight_candidates
 from table2text.analytics import execute_plan
 from table2text.audit import (
     assess_genre_quality,
@@ -13,17 +14,21 @@ from table2text.audit import (
     flatten_numbers,
     numbers_supported,
     scope_fact_ledger_for_genre,
+    select_event_priority_facts,
     validate_fact_candidates,
     validate_writer_output,
 )
 from table2text.capabilities import (
     available_capabilities,
     semantic_query_evidence,
+    validate_event_query_priorities,
     validate_evidence_queries,
+    validate_semantic_map,
 )
 from table2text.config import Settings
 from table2text.data import DataBundle, load_data
 from table2text.schemas import (
+    AnalyticalFunction,
     AnalysisRoute,
     AuditMode,
     ClaimPermission,
@@ -42,6 +47,10 @@ from table2text.schemas import (
     InputSemanticMap,
     InputShape,
     InputStructureProfile,
+    InsightCandidate,
+    InsightCandidateSet,
+    InsightType,
+    InterpretationLevel,
     InvestigationTask,
     QualityStatus,
     RecommendedUse,
@@ -102,6 +111,7 @@ def semantic_map() -> InputSemanticMap:
         role: SemanticRole,
         level: SemanticLevel,
         path: str,
+        analytical_function: AnalyticalFunction | None = None,
     ) -> SemanticBinding:
         return SemanticBinding(
             binding_id=binding_id,
@@ -113,6 +123,7 @@ def semantic_map() -> InputSemanticMap:
             description=f"Semantic interpretation of {label}.",
             confidence=0.98,
             evidence_basis="Observed path and values in the sanitized catalog.",
+            analytical_function=analytical_function,
         )
 
     return InputSemanticMap(
@@ -132,6 +143,7 @@ def semantic_map() -> InputSemanticMap:
                 SemanticRole.OUTCOME_MEASURE,
                 SemanticLevel.PARTICIPANT,
                 "sides.*.tally",
+                AnalyticalFunction.OUTCOME,
             ),
             binding(
                 "B_ATTEMPTS",
@@ -139,6 +151,7 @@ def semantic_map() -> InputSemanticMap:
                 SemanticRole.MEASURE,
                 SemanticLevel.PARTICIPANT,
                 "sides.*.attempts",
+                AnalyticalFunction.OUTCOME_COMPONENT,
             ),
             binding(
                 "B_ENTITY",
@@ -153,6 +166,7 @@ def semantic_map() -> InputSemanticMap:
                 SemanticRole.PERFORMANCE_MEASURE,
                 SemanticLevel.ENTITY,
                 "sides.*.members.*.alpha",
+                AnalyticalFunction.PERFORMANCE,
             ),
             binding(
                 "B_TIME",
@@ -311,6 +325,97 @@ def test_orchestrator_context_exposes_binding_ids_without_raw_paths():
         "path_pattern" not in item
         for item in context["semantic_binding_catalog"]
     )
+    assert next(
+        item
+        for item in context["semantic_binding_catalog"]
+        if item["binding_id"] == "B_ALPHA"
+    )["analytical_function"] == "performance"
+
+
+def test_event_semantic_map_reserves_substantive_entity_measures():
+    payload = renamed_event()
+    for side in payload["sides"].values():
+        for member in side["members"].values():
+            member["beta"] = 3
+            member["gamma"] = 2
+
+    errors = validate_semantic_map(
+        semantic_map(),
+        build_structural_catalog({"contest": payload}),
+    )
+
+    assert any(
+        "reserve substantive entity-performance bindings"
+        in error
+        for error in errors
+    )
+
+
+def test_event_query_priorities_reject_participation_substitution():
+    base = semantic_map()
+    alpha = next(
+        binding
+        for binding in base.bindings
+        if binding.binding_id == "B_ALPHA"
+    )
+    enriched = base.model_copy(
+        update={
+            "bindings": [
+                *base.bindings,
+                alpha.model_copy(
+                    update={
+                        "binding_id": "B_BETA",
+                        "label": "beta performance",
+                        "path_pattern": "sides.*.members.*.beta",
+                    }
+                ),
+                alpha.model_copy(
+                    update={
+                        "binding_id": "B_GAMMA",
+                        "label": "gamma performance",
+                        "path_pattern": "sides.*.members.*.gamma",
+                    }
+                ),
+                alpha.model_copy(
+                    update={
+                        "binding_id": "B_DURATION",
+                        "label": "participation duration",
+                        "path_pattern": (
+                            "sides.*.members.*.duration"
+                        ),
+                        "analytical_function": (
+                            AnalyticalFunction.PARTICIPATION
+                        ),
+                    }
+                ),
+            ]
+        }
+    )
+    duration_query = semantic_queries()[3].model_copy(
+        update={
+            "query_id": "QUERY_DURATION",
+            "semantic_label": "participation duration ranking",
+            "question": (
+                "Which entities recorded the greatest duration?"
+            ),
+            "value_binding_ids": ["B_DURATION"],
+        }
+    )
+
+    errors = validate_event_query_priorities(
+        [semantic_queries()[3], duration_query],
+        enriched,
+        "Understand the event and report its strongest findings.",
+    )
+
+    assert any(
+        "ranks participation measures" in error
+        for error in errors
+    )
+    assert any(
+        "distinct substantive entity-performance" in error
+        for error in errors
+    )
 
 
 def test_writer_draft_rejects_exhaustive_support_id_sequences():
@@ -369,6 +474,7 @@ def evidence_item(
     capability: EvidenceCapability,
     evidence_type: str,
     semantic_level: SemanticLevel,
+    analytical_function: AnalyticalFunction | None = None,
 ) -> EvidenceItem:
     return EvidenceItem(
         evidence_id=evidence_id,
@@ -377,6 +483,7 @@ def evidence_item(
         capability=capability,
         evidence_type=evidence_type,
         semantic_level=semantic_level,
+        analytical_function=analytical_function,
         finding="Supported evidence item.",
         metrics={"value": 12},
         source_tables=["contest"],
@@ -584,6 +691,145 @@ def test_event_writer_scope_excludes_flat_wrapper_profile_facts():
     assert [fact.fact_id for fact in scoped.writer_ready_facts] == ["FACT_EVENT"]
 
 
+def test_event_fact_selection_prefers_diverse_performance_over_participation():
+    items = [
+        evidence_item(
+            evidence_id="EVID_RESULT",
+            capability=EvidenceCapability.EVENT_OUTCOME,
+            evidence_type="event_outcome",
+            semantic_level=SemanticLevel.PARTICIPANT,
+            analytical_function=AnalyticalFunction.OUTCOME,
+        ),
+        *[
+            evidence_item(
+                evidence_id=f"EVID_PERFORMANCE_{index}",
+                capability=EvidenceCapability.RANKING,
+                evidence_type="entity_ranking",
+                semantic_level=SemanticLevel.ENTITY,
+                analytical_function=AnalyticalFunction.PERFORMANCE,
+            )
+            for index in range(1, 4)
+        ],
+        evidence_item(
+            evidence_id="EVID_PARTICIPATION",
+            capability=EvidenceCapability.RANKING,
+            evidence_type="entity_ranking",
+            semantic_level=SemanticLevel.ENTITY,
+            analytical_function=AnalyticalFunction.PARTICIPATION,
+        ),
+        evidence_item(
+            evidence_id="EVID_GENERAL_CONTRAST",
+            capability=EvidenceCapability.GROUP_COMPARISON,
+            evidence_type="event_contrast",
+            semantic_level=SemanticLevel.PARTICIPANT,
+            analytical_function=AnalyticalFunction.PERFORMANCE,
+        ),
+        *[
+            evidence_item(
+                evidence_id=f"EVID_CONTRAST_{index}",
+                capability=EvidenceCapability.GROUP_COMPARISON,
+                evidence_type="event_contrast",
+                semantic_level=SemanticLevel.PARTICIPANT,
+                analytical_function=(
+                    AnalyticalFunction.OUTCOME_COMPONENT
+                ),
+            )
+            for index in range(1, 4)
+        ],
+    ]
+    ledger = EvidenceLedger(
+        fingerprint="fixture",
+        items=items,
+    )
+    facts = [
+        verified_fact(
+            fact_id=f"FACT_{item.evidence_id}",
+            evidence=item,
+        )
+        for item in items
+    ]
+
+    priority, supporting = select_event_priority_facts(
+        facts=facts,
+        evidence=ledger,
+        settings=Settings(),
+        request=(
+            "Understand the event and report its strongest findings."
+        ),
+    )
+    selected_evidence_ids = {
+        evidence_id
+        for fact in [*priority, *supporting]
+        for evidence_id in fact.evidence_ids
+    }
+    priority_evidence_ids = {
+        evidence_id
+        for fact in priority
+        for evidence_id in fact.evidence_ids
+    }
+
+    assert "EVID_RESULT" in selected_evidence_ids
+    assert {
+        "EVID_PERFORMANCE_1",
+        "EVID_PERFORMANCE_2",
+        "EVID_PERFORMANCE_3",
+    }.issubset(selected_evidence_ids)
+    assert {
+        "EVID_CONTRAST_1",
+        "EVID_CONTRAST_2",
+        "EVID_CONTRAST_3",
+    }.issubset(priority_evidence_ids)
+    assert "EVID_GENERAL_CONTRAST" not in priority_evidence_ids
+    assert "EVID_PARTICIPATION" not in selected_evidence_ids
+
+
+def test_insight_rejects_unsupported_completeness_and_duplicate_claims():
+    event = evidence_item(
+        evidence_id="EVID_EVENT_CONTEXT",
+        capability=EvidenceCapability.EVENT_OUTCOME,
+        evidence_type="event_context",
+        semantic_level=SemanticLevel.EVENT,
+    )
+    fact = verified_fact(
+        fact_id="FACT_EVENT_CONTEXT",
+        evidence=event,
+    )
+    candidate = InsightCandidate(
+        insight_id="INS_EVENT_QUALITY",
+        statement=(
+            "The event record contains no missing data or duplicate rows."
+        ),
+        insight_type=InsightType.NARRATIVE_SUMMARY,
+        interpretation_level=InterpretationLevel.BOUNDED_INSIGHT,
+        source_fact_ids=[fact.fact_id],
+        source_evidence_ids=[event.evidence_id],
+        why_it_matters=(
+            "Every recorded field would therefore be available for "
+            "interpretation."
+        ),
+        supporting_summary="One event-context fact was supplied.",
+        claim_permissions=[ClaimPermission.DESCRIPTIVE],
+        confidence=0.9,
+        salience=0.8,
+    )
+
+    errors = validate_insight_candidates(
+        InsightCandidateSet(candidates=[candidate]),
+        FactLedger(writer_ready_facts=[fact]),
+        EvidenceLedger(fingerprint="fixture", items=[event]),
+        Settings(),
+    )
+
+    assert any(
+        "without missingness evidence" in error
+        for error in errors
+    )
+    assert any(
+        "without duplicate-row evidence" in error
+        for error in errors
+    )
+
+
 @pytest.mark.parametrize(
     "boilerplate",
     [
@@ -625,6 +871,56 @@ def test_event_quality_gate_rejects_flat_modelling_discussion(boilerplate):
 
     assert assessment.status == QualityStatus.REVISE
     assert any("flat-table profiling or modelling" in finding for finding in assessment.findings)
+
+
+def test_event_quality_gate_rejects_participation_substitution():
+    performance = evidence_item(
+        evidence_id="EVID_PERFORMANCE",
+        capability=EvidenceCapability.RANKING,
+        evidence_type="entity_ranking",
+        semantic_level=SemanticLevel.ENTITY,
+        analytical_function=AnalyticalFunction.PERFORMANCE,
+    )
+    participation = evidence_item(
+        evidence_id="EVID_PARTICIPATION",
+        capability=EvidenceCapability.RANKING,
+        evidence_type="entity_ranking",
+        semantic_level=SemanticLevel.ENTITY,
+        analytical_function=AnalyticalFunction.PARTICIPATION,
+    )
+    output = WriterOutput(
+        title="Event report",
+        markdown=(
+            "# Event report\n\n"
+            "One entity recorded the longest duration.\n"
+        ),
+        sentence_support=[
+            SentenceSupport(
+                sentence_id="SENT_0001",
+                sentence_text=(
+                    "One entity recorded the longest duration."
+                ),
+                fact_ids=["FACT_PARTICIPATION"],
+                evidence_ids=[participation.evidence_id],
+                support_type=SupportType.DIRECT,
+            )
+        ],
+    )
+
+    assessment = assess_genre_quality(
+        output,
+        event_report_specification(),
+        EvidenceLedger(
+            fingerprint="fixture",
+            items=[performance, participation],
+        ),
+    )
+
+    assert assessment.status == QualityStatus.REVISE
+    assert any(
+        "uses participation evidence" in finding
+        for finding in assessment.findings
+    )
 
 
 def test_factual_title_must_map_every_named_entity_to_its_facts():

@@ -9,7 +9,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .capabilities import participation_measure_requested
 from .schemas import (
+    AnalyticalFunction,
     AnalysisRoute,
     AuditAnnotation,
     AuditDecision,
@@ -48,7 +50,6 @@ from .schemas import (
     ReportQualityAssessment,
     ReviewDecision,
     SentenceSupport,
-    SemanticLevel,
     Severity,
     SupportMapPatch,
     SupportType,
@@ -2724,32 +2725,221 @@ def fact_is_relevant_to_genre(
     if not items:
         return False
 
+    event_evidence_types = {
+        "event_outcome",
+        "event_context",
+        "event_status",
+        "entity_ranking",
+        "entity_performance",
+        "participant_comparison",
+        "event_contrast",
+    }
     return any(
         item.eligible_for_writer
-        and (
-            item.semantic_level
-            in {
-                SemanticLevel.EVENT,
-                SemanticLevel.PARTICIPANT,
-                SemanticLevel.ENTITY,
-            }
-            or item.capability
-            in {
-                EvidenceCapability.EVENT_OUTCOME,
-                EvidenceCapability.ENTITY_PERFORMANCE,
-                EvidenceCapability.RANKING,
-            }
-            or (
-                item.capability == EvidenceCapability.GROUP_COMPARISON
-                and item.evidence_type
-                in {
-                    "participant_comparison",
-                    "event_contrast",
-                }
-            )
-        )
+        and item.evidence_type in event_evidence_types
         for item in items
     )
+
+
+def evidence_analytical_function(
+    item: EvidenceItem,
+) -> AnalyticalFunction | None:
+    if item.analytical_function is not None:
+        return item.analytical_function
+
+    value = item.metrics.get("analytical_function")
+    if not isinstance(value, str):
+        return None
+
+    try:
+        return AnalyticalFunction(value)
+    except ValueError:
+        return None
+
+
+def event_fact_slot(
+    fact: VerifiedFact,
+    evidence_lookup: dict[str, EvidenceItem],
+) -> str | None:
+    items = evidence_for_fact(fact, evidence_lookup)
+    evidence_types = {
+        item.evidence_type
+        for item in items
+    }
+
+    if "event_outcome" in evidence_types:
+        return "event_result"
+
+    if "event_status" in evidence_types:
+        return "event_status"
+
+    if "event_context" in evidence_types:
+        return "event_context"
+
+    if evidence_types & {"entity_ranking", "entity_performance"}:
+        if any(
+            evidence_analytical_function(item)
+            == AnalyticalFunction.PARTICIPATION
+            for item in items
+        ):
+            return "participation"
+
+        return "leading_performance"
+
+    if evidence_types & {
+        "participant_comparison",
+        "event_contrast",
+    }:
+        return "main_contrast"
+
+    return None
+
+
+def select_event_priority_facts(
+    *,
+    facts: list[VerifiedFact],
+    evidence: EvidenceLedger,
+    settings: Settings,
+    request: str,
+) -> tuple[list[VerifiedFact], list[VerifiedFact]]:
+    evidence_lookup = build_evidence_lookup(evidence)
+
+    def event_priority_score(
+        fact: VerifiedFact,
+    ) -> float:
+        analytical_functions = {
+            evidence_analytical_function(item)
+            for item in evidence_for_fact(
+                fact,
+                evidence_lookup,
+            )
+        }
+        component_bonus = (
+            0.20
+            if (
+                event_fact_slot(fact, evidence_lookup)
+                == "main_contrast"
+                and AnalyticalFunction.OUTCOME_COMPONENT
+                in analytical_functions
+            )
+            else 0.0
+        )
+
+        return (
+            evidence_priority_score_for_fact(
+                fact,
+                evidence_lookup,
+            )
+            + component_bonus
+        )
+
+    ranked = sorted(
+        facts,
+        key=event_priority_score,
+        reverse=True,
+    )
+    slot_limits = {
+        "event_result": 1,
+        "event_context": 1,
+        "event_status": 1,
+        "leading_performance": 3,
+        "main_contrast": 3,
+    }
+    participation_requested = participation_measure_requested(
+        request
+    )
+    selected: list[VerifiedFact] = []
+    selected_ids: set[str] = set()
+    slot_counts: Counter[str] = Counter()
+
+    for slot in (
+        "event_result",
+        "event_context",
+        "event_status",
+        "leading_performance",
+        "main_contrast",
+    ):
+        for fact in ranked:
+            if (
+                len(selected)
+                >= settings.writer_priority_fact_limit
+            ):
+                break
+
+            if fact.fact_id in selected_ids:
+                continue
+
+            if event_fact_slot(fact, evidence_lookup) != slot:
+                continue
+
+            if slot_counts[slot] >= slot_limits[slot]:
+                break
+
+            selected.append(fact)
+            selected_ids.add(fact.fact_id)
+            slot_counts[slot] += 1
+
+    substantive_available = any(
+        event_fact_slot(fact, evidence_lookup)
+        == "leading_performance"
+        for fact in ranked
+    )
+    supporting_slot_limits = {
+        "leading_performance": 1,
+        "main_contrast": 1,
+        "participation": 1,
+    }
+    supporting_counts: Counter[str] = Counter()
+    supporting: list[VerifiedFact] = []
+
+    for fact in ranked:
+        if (
+            len(supporting)
+            >= settings.writer_supporting_fact_limit
+        ):
+            break
+
+        if fact.fact_id in selected_ids:
+            continue
+
+        slot = event_fact_slot(fact, evidence_lookup)
+        if slot not in supporting_slot_limits:
+            continue
+
+        if (
+            slot == "participation"
+            and substantive_available
+            and not participation_requested
+        ):
+            continue
+
+        if supporting_counts[slot] >= supporting_slot_limits[slot]:
+            continue
+
+        supporting.append(fact)
+        supporting_counts[slot] += 1
+
+    return selected, supporting
+
+
+EVENT_PROFILE_INSIGHT_PATTERN = re.compile(
+    r"\b(missing(?:ness| data| values?)|duplicates?|rows?|columns?|"
+    r"constant columns?|correlations?|regressions?|"
+    r"statistical (?:modelling|modeling|power)|"
+    r"predictive (?:modelling|modeling)|feature sets?)\b",
+    re.IGNORECASE,
+)
+
+
+def event_insight_is_relevant(
+    insight: VerifiedInsight,
+    request: str,
+) -> bool:
+    text = f"{insight.statement} {insight.why_it_matters}"
+    if not EVENT_PROFILE_INSIGHT_PATTERN.search(text):
+        return True
+
+    return bool(EVENT_PROFILE_INSIGHT_PATTERN.search(request))
 
 
 def scope_fact_ledger_for_genre(
@@ -2793,27 +2983,46 @@ def build_writer_evidence_pack(
     )
     facts = scoped_fact_ledger.writer_ready_facts
 
-    priority = select_balanced_priority_facts(
-        facts=facts,
-        evidence=evidence,
-        required_components=plan.report_specification.required_components,
-        settings=settings,
-    )
-    priority_ids = {
-        fact.fact_id
-        for fact in priority
+    event_genre = plan.report_specification.genre in {
+        ReportGenre.EVENT_REPORT,
+        ReportGenre.SPORTS_GAME_REPORT,
     }
-    ranked_facts = sorted(
-        facts,
-        key=lambda fact: evidence_priority_score_for_fact(fact, evidence_lookup),
-        reverse=True,
-    )
-    supporting = [
-        fact
-        for fact in ranked_facts
-        if fact.fact_id not in priority_ids
-        and fact.recommended_use != RecommendedUse.OMIT_UNLESS_REQUESTED
-    ][: settings.writer_supporting_fact_limit]
+
+    if event_genre:
+        priority, supporting = select_event_priority_facts(
+            facts=facts,
+            evidence=evidence,
+            settings=settings,
+            request=request,
+        )
+    else:
+        priority = select_balanced_priority_facts(
+            facts=facts,
+            evidence=evidence,
+            required_components=(
+                plan.report_specification.required_components
+            ),
+            settings=settings,
+        )
+        priority_ids = {
+            fact.fact_id
+            for fact in priority
+        }
+        ranked_facts = sorted(
+            facts,
+            key=lambda fact: evidence_priority_score_for_fact(
+                fact,
+                evidence_lookup,
+            ),
+            reverse=True,
+        )
+        supporting = [
+            fact
+            for fact in ranked_facts
+            if fact.fact_id not in priority_ids
+            and fact.recommended_use
+            != RecommendedUse.OMIT_UNLESS_REQUESTED
+        ][: settings.writer_supporting_fact_limit]
 
     limitations = sorted(
         [
@@ -2827,7 +3036,13 @@ def build_writer_evidence_pack(
         ],
         key=lambda fact: evidence_priority_score_for_fact(fact, evidence_lookup),
         reverse=True,
-    )[: settings.max_priority_limitation_facts]
+    )[
+        : (
+            1
+            if event_genre
+            else settings.max_priority_limitation_facts
+        )
+    ]
 
     recommendations = sorted(
         [
@@ -2858,12 +3073,20 @@ def build_writer_evidence_pack(
                 for insight in insight_ledger.verified_insights
                 if insight.source_fact_ids
                 and set(insight.source_fact_ids).issubset(scoped_fact_ids)
+                and (
+                    not event_genre
+                    or event_insight_is_relevant(insight, request)
+                )
             ],
             "hypothesis_only_insights": [
                 insight
                 for insight in insight_ledger.hypothesis_only_insights
                 if insight.source_fact_ids
                 and set(insight.source_fact_ids).issubset(scoped_fact_ids)
+                and (
+                    not event_genre
+                    or event_insight_is_relevant(insight, request)
+                )
             ],
         }
     )
@@ -4260,7 +4483,9 @@ def assess_genre_quality(
             elif slot == "leading_performance" and item.capability in {
                 EvidenceCapability.ENTITY_PERFORMANCE,
                 EvidenceCapability.RANKING,
-            }:
+            } and evidence_analytical_function(item) != (
+                AnalyticalFunction.PARTICIPATION
+            ):
                 matches.add(evidence_id)
             elif slot == "main_contrast" and item.evidence_type in {
                 "participant_comparison",
@@ -4349,6 +4574,54 @@ def assess_genre_quality(
             "Remove wrapper-level profiling and modelling discussion; use the "
             "supported event context, performances and participant contrasts."
         )
+
+    if report_specification.genre in {
+        ReportGenre.EVENT_REPORT,
+        ReportGenre.SPORTS_GAME_REPORT,
+    } and not participation_measure_requested(
+        " ".join(
+            [
+                report_specification.report_purpose,
+                report_specification.communication_goal,
+            ]
+        )
+    ):
+        available_substantive = {
+            evidence_id
+            for evidence_id, item in evidence_lookup.items()
+            if item.evidence_type
+            in {
+                "entity_ranking",
+                "entity_performance",
+            }
+            and evidence_analytical_function(item)
+            != AnalyticalFunction.PARTICIPATION
+        }
+        used_participation = {
+            evidence_id
+            for evidence_id, item in evidence_lookup.items()
+            if evidence_id in used_evidence_ids
+            and item.evidence_type
+            in {
+                "entity_ranking",
+                "entity_performance",
+            }
+            and evidence_analytical_function(item)
+            == AnalyticalFunction.PARTICIPATION
+        }
+        omitted_substantive = (
+            available_substantive - used_evidence_ids
+        )
+
+        if used_participation and omitted_substantive:
+            findings.append(
+                "The event report uses participation evidence while available "
+                "substantive entity-performance evidence is omitted."
+            )
+            recommendations.append(
+                "Prioritise distinct substantive performances over duration or "
+                "exposure unless participation was explicitly requested."
+            )
 
     return GenreQualityAssessment(
         status=(QualityStatus.REVISE if findings else QualityStatus.PASS),

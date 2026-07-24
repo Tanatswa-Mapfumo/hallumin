@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .schemas import (
+    AnalyticalFunction,
     CapabilityDefinition,
     ClaimPermission,
     EvidenceCapability,
@@ -131,6 +132,17 @@ QUERY_OPERATIONS: dict[str, EvidenceOperation] = {
 }
 
 
+PARTICIPATION_REQUEST_PATTERN = re.compile(
+    r"\b(duration|time played|playing time|minutes played|seconds played|"
+    r"participation|exposure|attendance|appearances?)\b",
+    re.IGNORECASE,
+)
+
+
+def participation_measure_requested(request: str) -> bool:
+    return bool(PARTICIPATION_REQUEST_PATTERN.search(request))
+
+
 ENTITY_CONTAINER_NAMES = {
     "entities",
     "members",
@@ -211,6 +223,7 @@ class CapabilityEvidence:
     recommended_use: RecommendedUse
     semantic_level: SemanticLevel = SemanticLevel.DATASET
     semantic_binding_ids: list[str] = field(default_factory=list)
+    analytical_function: AnalyticalFunction | None = None
     query_id: str | None = None
     limitations: list[str] = field(default_factory=list)
     prohibited_interpretations: list[str] = field(default_factory=list)
@@ -939,6 +952,7 @@ def validate_semantic_map(
 
     errors: list[str] = []
     seen: set[str] = set()
+    seen_paths: set[tuple[str, str]] = set()
     catalog_paths = {(field.table_name, field.path_pattern) for field in structural_catalog}
 
     for binding in semantic_map.bindings:
@@ -950,6 +964,266 @@ def validate_semantic_map(
                 f"Semantic binding {binding.binding_id} uses an unknown "
                 f"catalog path: {binding.table_name}:{binding.path_pattern}."
             )
+
+        binding_path = (binding.table_name, binding.path_pattern)
+        if binding_path in seen_paths:
+            errors.append(
+                f"Semantic binding {binding.binding_id} repeats catalog path "
+                f"{binding.table_name}:{binding.path_pattern}."
+            )
+        seen_paths.add(binding_path)
+
+    if semantic_map.input_shape != InputShape.EVENT_RECORD:
+        return errors
+
+    measure_roles = {
+        SemanticRole.OUTCOME_MEASURE,
+        SemanticRole.PERFORMANCE_MEASURE,
+        SemanticRole.MEASURE,
+    }
+    missing_function_ids = [
+        binding.binding_id
+        for binding in semantic_map.bindings
+        if binding.role in measure_roles
+        and binding.analytical_function is None
+    ]
+    if missing_function_ids:
+        errors.append(
+            "Event measure bindings must declare analytical_function: "
+            + ", ".join(missing_function_ids)
+            + "."
+        )
+
+    invalid_outcome_ids = [
+        binding.binding_id
+        for binding in semantic_map.bindings
+        if binding.role == SemanticRole.OUTCOME_MEASURE
+        and binding.analytical_function != AnalyticalFunction.OUTCOME
+    ]
+    if invalid_outcome_ids:
+        errors.append(
+            "Event outcome bindings must use analytical function 'outcome': "
+            + ", ".join(invalid_outcome_ids)
+            + "."
+        )
+
+    invalid_function_ids = [
+        binding.binding_id
+        for binding in semantic_map.bindings
+        if binding.analytical_function
+        in {
+            AnalyticalFunction.OUTCOME,
+            AnalyticalFunction.OUTCOME_COMPONENT,
+            AnalyticalFunction.PERFORMANCE,
+            AnalyticalFunction.PARTICIPATION,
+        }
+        and binding.role not in measure_roles
+    ]
+    if invalid_function_ids:
+        errors.append(
+            "Measure analytical functions cannot be assigned to non-measure "
+            "bindings: "
+            + ", ".join(invalid_function_ids)
+            + "."
+        )
+
+    count_limits = [
+        (
+            "event identifiers",
+            1,
+            lambda item: item.role == SemanticRole.IDENTIFIER
+            and item.level == SemanticLevel.EVENT,
+        ),
+        ("time bindings", 3, lambda item: item.role == SemanticRole.TIME),
+        ("location bindings", 2, lambda item: item.role == SemanticRole.LOCATION),
+        (
+            "participant identifiers",
+            2,
+            lambda item: item.role == SemanticRole.PARTICIPANT_IDENTIFIER,
+        ),
+        (
+            "event status bindings",
+            1,
+            lambda item: item.role == SemanticRole.STATUS
+            and item.level == SemanticLevel.EVENT,
+        ),
+        (
+            "participant contrast measures",
+            6,
+            lambda item: item.level == SemanticLevel.PARTICIPANT
+            and item.role in measure_roles
+            and item.analytical_function != AnalyticalFunction.OUTCOME,
+        ),
+        (
+            "entity measures",
+            6,
+            lambda item: item.level == SemanticLevel.ENTITY
+            and item.role in measure_roles,
+        ),
+    ]
+    for label, maximum, predicate in count_limits:
+        count = sum(predicate(binding) for binding in semantic_map.bindings)
+        if count > maximum:
+            errors.append(
+                f"Event semantic map contains {count} {label}; keep at most "
+                f"{maximum} so report-critical measures remain available."
+            )
+
+    entity_measure_groups: dict[tuple[str, str], set[str]] = {}
+    for binding in semantic_map.bindings:
+        if binding.role != SemanticRole.ENTITY_IDENTIFIER:
+            continue
+        parent_path = binding.path_pattern.rsplit(".", 1)[0]
+        key = (binding.table_name, parent_path)
+        entity_measure_groups.setdefault(key, set())
+
+    numeric_types = {"integer", "number"}
+    for key in entity_measure_groups:
+        table_name, parent_path = key
+        entity_measure_groups[key] = {
+            field.path_pattern
+            for field in structural_catalog
+            if field.table_name == table_name
+            and field.path_pattern.rsplit(".", 1)[0] == parent_path
+            and set(field.value_types) & numeric_types
+        }
+
+    substantive_functions = {
+        AnalyticalFunction.PERFORMANCE,
+        AnalyticalFunction.OUTCOME_COMPONENT,
+    }
+    for (table_name, parent_path), available_paths in entity_measure_groups.items():
+        required = min(3, len(available_paths))
+        if required == 0:
+            continue
+        selected = {
+            binding.path_pattern
+            for binding in semantic_map.bindings
+            if binding.table_name == table_name
+            and binding.path_pattern.rsplit(".", 1)[0] == parent_path
+            and binding.level == SemanticLevel.ENTITY
+            and binding.analytical_function in substantive_functions
+        }
+        if len(selected) < required:
+            errors.append(
+                "Event semantic map must reserve substantive entity-performance "
+                f"bindings under {table_name}:{parent_path}; found {len(selected)} "
+                f"but the catalog supports at least {required}."
+            )
+
+    substantive_entity_count = sum(
+        binding.level == SemanticLevel.ENTITY
+        and binding.analytical_function in substantive_functions
+        for binding in semantic_map.bindings
+    )
+    participation_entity_count = sum(
+        binding.level == SemanticLevel.ENTITY
+        and binding.analytical_function == AnalyticalFunction.PARTICIPATION
+        for binding in semantic_map.bindings
+    )
+    if substantive_entity_count and participation_entity_count > 1:
+        errors.append(
+            "Event semantic map may keep at most one entity participation measure "
+            "when substantive performance measures are available."
+        )
+
+    return errors
+
+
+def validate_event_query_priorities(
+    queries: list[EvidenceQuery],
+    semantic_map: InputSemanticMap | None,
+    request: str,
+) -> list[str]:
+    if semantic_map is None or semantic_map.input_shape != InputShape.EVENT_RECORD:
+        return []
+    if participation_measure_requested(request):
+        return []
+
+    binding_lookup = {
+        binding.binding_id: binding
+        for binding in semantic_map.bindings
+    }
+    substantive_ids = {
+        binding.binding_id
+        for binding in semantic_map.bindings
+        if binding.level == SemanticLevel.ENTITY
+        and binding.analytical_function
+        in {
+            AnalyticalFunction.PERFORMANCE,
+            AnalyticalFunction.OUTCOME_COMPONENT,
+        }
+    }
+    entity_queries = [
+        query
+        for query in queries
+        if query.evidence_type
+        in {"entity_ranking", "entity_performance"}
+    ]
+    ranking_queries = [
+        query
+        for query in entity_queries
+        if query.evidence_type == "entity_ranking"
+    ]
+    participation_queries = [
+        query.query_id
+        for query in entity_queries
+        if any(
+            binding_lookup.get(binding_id) is not None
+            and binding_lookup[binding_id].analytical_function
+            == AnalyticalFunction.PARTICIPATION
+            for binding_id in query.value_binding_ids
+        )
+    ]
+    errors: list[str] = []
+    if substantive_ids and participation_queries:
+        errors.append(
+            "Event plan ranks participation measures even though substantive "
+            "entity-performance measures are available: "
+            + ", ".join(participation_queries)
+            + "."
+        )
+
+    queried_substantive_ids = {
+        binding_id
+        for query in ranking_queries
+        for binding_id in query.value_binding_ids
+        if binding_id in substantive_ids
+    }
+    required = min(3, len(substantive_ids))
+    if len(queried_substantive_ids) < required:
+        errors.append(
+            "Event plan must rank distinct substantive entity-performance "
+            f"measures when available; found {len(queried_substantive_ids)} "
+            f"but {required} are required."
+        )
+
+    component_ids = {
+        binding.binding_id
+        for binding in semantic_map.bindings
+        if binding.level == SemanticLevel.PARTICIPANT
+        and binding.analytical_function
+        == AnalyticalFunction.OUTCOME_COMPONENT
+    }
+    comparison_queries = [
+        query
+        for query in queries
+        if query.evidence_type
+        in {"participant_comparison", "event_contrast"}
+    ]
+    queried_component_ids = {
+        binding_id
+        for query in comparison_queries
+        for binding_id in query.value_binding_ids
+        if binding_id in component_ids
+    }
+    required_components = min(2, len(component_ids))
+    if len(queried_component_ids) < required_components:
+        errors.append(
+            "Event plan must compare distinct participant-level outcome "
+            f"components when available; found {len(queried_component_ids)} "
+            f"but {required_components} are required."
+        )
 
     return errors
 
@@ -1216,6 +1490,24 @@ def semantic_query_evidence(
             "semantic_label": query.semantic_label,
             "question": query.question,
         }
+        value_functions = {
+            binding_id: binding_lookup[binding_id].analytical_function
+            for binding_id in query.value_binding_ids
+            if binding_lookup[binding_id].analytical_function is not None
+        }
+        query_function = (
+            next(iter(value_functions.values()))
+            if len(set(value_functions.values())) == 1
+            else None
+        )
+        if value_functions:
+            metrics["analytical_functions"] = {
+                binding_id: analytical_function.value
+                for binding_id, analytical_function
+                in value_functions.items()
+            }
+        if query_function is not None:
+            metrics["analytical_function"] = query_function.value
 
         if query.operation == EvidenceOperation.RETRIEVE:
             values: list[dict[str, Any]] = []
@@ -1251,6 +1543,11 @@ def semantic_query_evidence(
                             "binding_id": binding_id,
                             "label": binding.label,
                             "role": binding.role.value,
+                            "analytical_function": (
+                                binding.analytical_function.value
+                                if binding.analytical_function is not None
+                                else None
+                            ),
                             "value": match.value,
                             "entity": entity,
                             "group": group,
@@ -1396,6 +1693,7 @@ def semantic_query_evidence(
                 recommended_use=query.recommended_use,
                 semantic_level=query.semantic_level,
                 semantic_binding_ids=binding_ids,
+                analytical_function=query_function,
                 query_id=query.query_id,
                 limitations=["The result is limited to values present in the supplied record."],
                 prohibited_interpretations=[

@@ -171,6 +171,11 @@ def build_orchestrator_prompt_context(
                 "label": binding.label,
                 "role": binding.role.value,
                 "level": binding.level.value,
+                "analytical_function": (
+                    binding.analytical_function.value
+                    if binding.analytical_function is not None
+                    else None
+                ),
                 "unit": binding.unit,
             }
             for binding in semantic_map.bindings

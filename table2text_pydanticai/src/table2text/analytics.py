@@ -28,6 +28,7 @@ from .capabilities import event_capability_evidence, semantic_query_evidence
 from .config import Settings
 from .data import DataBundle, classify_zero_risk, safe_hashable
 from .schemas import (
+    AnalyticalFunction,
     AnalysisRoute,
     AnalyticalRecommendation,
     ClaimPermission,
@@ -107,6 +108,7 @@ class EvidenceBuilder:
         entity_scope: list[str] | None = None,
         semantic_level: SemanticLevel = SemanticLevel.DATASET,
         semantic_binding_ids: list[str] | None = None,
+        analytical_function: AnalyticalFunction | None = None,
         query_id: str | None = None,
     ) -> None:
         evidence_id = f"EVD_{len(self.items) + 1:04d}"
@@ -124,6 +126,7 @@ class EvidenceBuilder:
             entity_scope=entity_scope or [],
             semantic_level=semantic_level,
             semantic_binding_ids=semantic_binding_ids or [],
+            analytical_function=analytical_function,
             query_id=query_id,
             finding=finding,
             metrics=metrics,
@@ -290,6 +293,7 @@ def event_analysis(
                 prohibited_interpretations=record.prohibited_interpretations,
                 semantic_level=record.semantic_level,
                 semantic_binding_ids=record.semantic_binding_ids,
+                analytical_function=record.analytical_function,
                 query_id=record.query_id,
             )
 

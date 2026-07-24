@@ -26,7 +26,11 @@ from .audit import (
     validate_repair_candidate,
 )
 from .config import Settings
-from .capabilities import validate_evidence_queries, validate_semantic_map
+from .capabilities import (
+    validate_event_query_priorities,
+    validate_evidence_queries,
+    validate_semantic_map,
+)
 from .schemas import (
     AnalysisRoute,
     AuditDecision,
@@ -161,12 +165,26 @@ Label wildcard bindings collectively, such as "Participant name" or "Entity
 points"; never label a wildcard as one particular member such as home,
 visitor, first or second.
 
+For every event measure, assign `analytical_function` as a semantic judgement:
+- `outcome` is the aggregate measure that determines the recorded event result;
+- `outcome_component` is a substantive participant or entity measure that
+  contributes to comparison but is not itself the aggregate result;
+- `performance` is a substantive recorded achievement or output;
+- `participation` is duration, exposure or presence rather than
+  substantive performance;
+- `context` is a measure whose purpose is descriptive context.
+Do not treat playing time, duration or exposure as performance. This
+classification interprets field meaning; it does not calculate a result.
+
 Prioritise bindings in this order:
 - event context, time, location and status;
 - participant and nested-entity identifiers;
 - participant-level event outcome measures;
-- no more than six salient participant-level measures for major contrasts;
-- no more than four salient entity-level measures for rankings or performance.
+- participant-level outcome components, then other salient measures for major
+  contrasts, with no more than six participant-level contrast measures;
+- three distinct substantive entity-level measures when the catalog supports
+  them, then at most one participation measure if space remains;
+- no more than six entity-level measures in total.
 
 For an event record, reserve space for report-critical roles before optional
 context: a human-readable participant identifier, a human-readable nested
@@ -177,6 +195,13 @@ Prefer human-readable names over technical IDs or codes. Do not spend the
 binding budget on technical record IDs, redundant name components, pre-event
 records, nested status flags or administrative fields while report-critical
 performance measures remain unbound.
+
+For event records, keep at most one event identifier, three time bindings, two
+location bindings, two participant identifiers, one event-status binding, six
+participant contrast measures excluding the aggregate outcome, and six entity
+measures. When a nested entity collection has at least three numeric measures,
+reserve at least three bindings for distinct substantive performance or
+outcome-component measures before optional participation measures.
 
 Omit low-value administrative fields and exhaustive period/component
 measures. For a nested single-event record, top-level constancy is expected:
@@ -368,7 +393,16 @@ Rules:
 - Query questions are pre-result analytical questions. Do not place observed
   values, winners, rankings or conclusions in a query.
 - For a supported event report, normally query event context, the outcome
-  measure, one or more salient entity rankings, and participant contrasts.
+  measure, three distinct substantive entity rankings when available, and
+  participant contrasts.
+- Treat the semantic binding's `analytical_function` as the content-priority
+  contract. Prefer `performance` and `outcome_component` for entity rankings.
+  Do not rank `participation` when substantive entity measures are available
+  unless the user's request explicitly asks about duration, exposure or
+  participation.
+- For participant contrasts, prefer distinct `outcome_component` measures
+  before general performance or context measures. Relate components as
+  descriptive contrasts only; do not imply that they caused the result.
 - Keep an event plan selective: use at most 10 evidence queries, including no
   more than three entity rankings and four participant comparisons. Do not
   query the same measure/entity combination twice under different names or
@@ -616,11 +650,23 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
                 for task in output.tasks
             },
         )
+        if selected_report_genre in {
+            ReportGenre.EVENT_REPORT.value,
+            ReportGenre.SPORTS_GAME_REPORT.value,
+        }:
+            query_errors.extend(
+                validate_event_query_priorities(
+                    output.evidence_queries,
+                    semantic_map,
+                    user_request or "",
+                )
+            )
         if query_errors:
             binding_guide = (
                 ", ".join(
                     f"{binding.binding_id}={binding.label} "
-                    f"({binding.role.value}/{binding.level.value})"
+                    f"({binding.role.value}/{binding.level.value}/"
+                    f"{binding.analytical_function.value if binding.analytical_function else 'none'})"
                     for binding in semantic_map.bindings
                 )
                 if semantic_map is not None
@@ -981,10 +1027,13 @@ Rules:
 21. For missingness, prefer the directly supported scope of the complete-case
    subset over an assumed bias mechanism. For duplicates, describe a possible
    influence only as a bounded methodological risk, never as a measured effect.
-22. Include limitations or alternative explanations where needed, but keep
+22. Do not claim that data are complete, contain no missing values, or contain
+   no duplicates unless the cited facts reference evidence that measured that
+   exact data-quality property.
+23. Include limitations or alternative explanations where needed, but keep
    unverified explanations in explicitly labelled hypothesis candidates.
-23. Prefer a few meaningful insights over many small restatements.
-24. Respect the configured candidate limit.
+24. Prefer a few meaningful insights over many small restatements.
+25. Respect the configured candidate limit.
 
 Return structured output only.
 """
@@ -1038,6 +1087,19 @@ HYPOTHESIS_LABEL_PATTERN = re.compile(
 
 UNIVERSAL_GENERALISATION_PATTERN = re.compile(
     r"\b(always|in general|universally|proves that|demonstrates that all)\b",
+    re.IGNORECASE,
+)
+
+MISSINGNESS_CLAIM_PATTERN = re.compile(
+    r"\b(no|without|zero)\s+missing(?:ness|\s+(?:data|values?))?\b|"
+    r"\bmissing(?:ness|\s+(?:data|values?))\b|"
+    r"\b(?:complete data|data (?:are|is|was|were) complete|completeness)\b",
+    re.IGNORECASE,
+)
+
+DUPLICATE_CLAIM_PATTERN = re.compile(
+    r"\b(no|without|zero)\s+(?:exact\s+)?duplicates?\b|"
+    r"\bduplicates?|deduplicat(?:e|ed|ion)\b",
     re.IGNORECASE,
 )
 
@@ -1225,6 +1287,37 @@ def _candidate_fact_lookup(
     }
 
 
+def _supports_data_quality_dimension(
+    *,
+    evidence_ids: set[str],
+    evidence_lookup: dict[str, Any],
+    dimension: str,
+) -> bool:
+    for evidence_id in evidence_ids:
+        item = evidence_lookup.get(evidence_id)
+        if item is None:
+            continue
+        if dimension == "missingness" and (
+            item.capability == EvidenceCapability.MISSINGNESS
+            or item.evidence_type == "missingness"
+            or any(
+                key in item.metrics
+                for key in {"missing_count", "missing_rate"}
+            )
+        ):
+            return True
+        if dimension == "duplicates" and (
+            item.capability == EvidenceCapability.DUPLICATES
+            or item.evidence_type == "duplicate_rows"
+            or any(
+                key in item.metrics
+                for key in {"duplicate_row_count", "duplicate_rate"}
+            )
+        ):
+            return True
+    return False
+
+
 def validate_insight_candidates(
     candidate_set: InsightCandidateSet,
     fact_ledger: FactLedger,
@@ -1312,15 +1405,38 @@ def validate_insight_candidates(
                 f"source facts: {unlinked_evidence_ids}"
             )
 
-        support_numbers = _insight_support_numbers(
-            facts,
-            evidence_ledger,
-        )
         writer_visible_text = " ".join(
             [
                 candidate.statement,
                 candidate.why_it_matters,
             ]
+        )
+        if MISSINGNESS_CLAIM_PATTERN.search(
+            writer_visible_text
+        ) and not _supports_data_quality_dimension(
+            evidence_ids=fact_evidence_ids,
+            evidence_lookup=evidence_lookup,
+            dimension="missingness",
+        ):
+            errors.append(
+                f"{candidate_id} makes a missingness or completeness claim "
+                "without missingness evidence."
+            )
+        if DUPLICATE_CLAIM_PATTERN.search(
+            writer_visible_text
+        ) and not _supports_data_quality_dimension(
+            evidence_ids=fact_evidence_ids,
+            evidence_lookup=evidence_lookup,
+            dimension="duplicates",
+        ):
+            errors.append(
+                f"{candidate_id} makes a duplicate-data claim without "
+                "duplicate-row evidence."
+            )
+
+        support_numbers = _insight_support_numbers(
+            facts,
+            evidence_ledger,
         )
         for field_name, field_text in {
             "statement": candidate.statement,

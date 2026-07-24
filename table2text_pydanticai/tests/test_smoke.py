@@ -4355,7 +4355,7 @@ def test_event_reference_never_reaches_operational_prompts_or_report(
         ReportGenre.EVENT_REPORT
     )
     assert result.genre_quality_assessment is not None
-    assert result.genre_quality_assessment.status == QualityStatus.REVISE
-    assert result.genre_quality_assessment.missing_supported_slots == ["event_status"]
+    assert result.genre_quality_assessment.status == QualityStatus.PASS
+    assert result.genre_quality_assessment.missing_supported_slots == []
     assert "Alpha defeated Beta 90-80" in result.final_writer_output.markdown
     assert "comeback" not in result.final_writer_output.markdown.lower()

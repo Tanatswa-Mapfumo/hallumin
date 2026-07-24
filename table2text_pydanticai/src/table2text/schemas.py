@@ -80,6 +80,14 @@ class SemanticRole(str, Enum):
     METADATA = "metadata"
 
 
+class AnalyticalFunction(str, Enum):
+    OUTCOME = "outcome"
+    OUTCOME_COMPONENT = "outcome_component"
+    PERFORMANCE = "performance"
+    PARTICIPATION = "participation"
+    CONTEXT = "context"
+
+
 class SemanticLevel(str, Enum):
     DATASET = "dataset"
     EVENT = "event"
@@ -296,6 +304,7 @@ class SemanticBinding(StrictModel):
     confidence: float = Field(ge=0.0, le=1.0)
     evidence_basis: str
     unit: str | None = None
+    analytical_function: AnalyticalFunction | None = None
 
 
 class InputSemanticMap(StrictModel):
@@ -607,6 +616,7 @@ class EvidenceItem(StrictModel):
     entity_scope: list[str] = Field(default_factory=list)
     semantic_level: SemanticLevel = SemanticLevel.DATASET
     semantic_binding_ids: list[str] = Field(default_factory=list)
+    analytical_function: AnalyticalFunction | None = None
     query_id: str | None = None
 
     finding: str
