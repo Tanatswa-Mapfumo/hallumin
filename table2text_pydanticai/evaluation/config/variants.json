@@ -1,0 +1,90 @@
+{
+  "variants": [
+    {
+      "variant_id": "single_agent_baseline",
+      "enabled": false,
+      "backend": "callable",
+      "description": "Configure callable_path with a direct single-agent generation function.",
+      "settings_overrides": {},
+      "callable_path": "table2text.evaluation_backends.single_agent_baseline",
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    },
+    {
+      "variant_id": "full_system",
+      "enabled": true,
+      "backend": "table2text",
+      "description": "Current full multi-agent system.",
+      "settings_overrides": {},
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    },
+    {
+      "variant_id": "insight_synthesis_off",
+      "enabled": true,
+      "backend": "table2text",
+      "description": "Full system with insight synthesis disabled.",
+      "settings_overrides": {
+        "enable_insight_synthesis": false
+      },
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    },
+    {
+      "variant_id": "verifier_off",
+      "enabled": false,
+      "backend": "precomputed",
+      "description": "Enable after the operational pipeline exposes a verifier feature flag, or provide precomputed outputs.",
+      "settings_overrides": {},
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": "evaluation/generations/verifier_off.jsonl",
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    },
+    {
+      "variant_id": "auditor_off",
+      "enabled": false,
+      "backend": "precomputed",
+      "description": "Enable after generating outputs with the final Auditor and repair stages disabled.",
+      "settings_overrides": {},
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": "evaluation/generations/auditor_off.jsonl",
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    },
+    {
+      "variant_id": "auditor_detection_only",
+      "enabled": false,
+      "backend": "precomputed",
+      "description": "Auditor detects issues but does not repair them.",
+      "settings_overrides": {},
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": "evaluation/generations/auditor_detection_only.jsonl",
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    }
+  ]
+}

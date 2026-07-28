@@ -5,6 +5,59 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+_DOTENV_LOADED_KEYS: set[str] = set()
+
+
+def _candidate_env_files() -> list[Path]:
+    cwd = Path.cwd()
+    package_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        *(directory / ".env" for directory in reversed([cwd, *cwd.parents])),
+        package_root / ".env",
+    ]
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved not in seen:
+            unique.append(candidate)
+            seen.add(resolved)
+    return unique
+
+
+def _parse_env_line(line: str) -> tuple[str, str] | None:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    if stripped.startswith("export "):
+        stripped = stripped[len("export ") :].strip()
+    if "=" not in stripped:
+        return None
+    key, value = stripped.split("=", 1)
+    key = key.strip()
+    value = value.strip()
+    if not key:
+        return None
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    return key, value
+
+
+def load_env_files(paths: list[Path] | None = None) -> None:
+    for path in paths or _candidate_env_files():
+        if not path.exists() or not path.is_file():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            parsed = _parse_env_line(line)
+            if parsed is None:
+                continue
+            key, value = parsed
+            if key in os.environ and key not in _DOTENV_LOADED_KEYS:
+                continue
+            os.environ[key] = value
+            _DOTENV_LOADED_KEYS.add(key)
+
+
 def env_bool(name: str, default: bool) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -15,6 +68,18 @@ def env_bool(name: str, default: bool) -> bool:
 def env_int(name: str, default: int) -> int:
     value = os.getenv(name)
     return default if value is None else int(value)
+
+
+def env_optional_int(
+    name: str,
+    default: int | None = None,
+) -> int | None:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    if value.strip().lower() in {"", "none", "null", "unlimited", "uncapped"}:
+        return None
+    return int(value)
 
 
 def env_float(name: str, default: float) -> float:
@@ -47,15 +112,16 @@ class Settings:
     max_forecast_test_points: int = 2_000
 
     writer_target_words: int = 650
-    writer_max_main_findings: int = 8
+    writer_max_words: int | None = None
+    writer_max_main_findings: int | None = None
     repair_candidates_per_sentence: int = 3
     writer_quality_revision_rounds: int = 1
-    writer_priority_fact_limit: int = 10
-    writer_supporting_fact_limit: int = 20
+    writer_priority_fact_limit: int | None = None
+    writer_supporting_fact_limit: int | None = None
 
     enable_insight_synthesis: bool = True
-    max_insight_candidates: int = 6
-    max_verified_main_insights: int = 4
+    max_insight_candidates: int | None = None
+    max_verified_main_insights: int | None = None
     min_insight_confidence: float = 0.75
     min_insight_salience: float = 0.65
     min_facts_per_bounded_insight: int = 2
@@ -73,22 +139,8 @@ class Settings:
     maximum_recovered_group_comparison_facts: int = 2
     maximum_recovered_modelling_facts: int = 1
 
-    max_priority_dataset_overview_facts: int = 2
-    max_priority_data_quality_facts: int = 3
-    max_priority_correlation_facts: int = 3
-    max_priority_group_comparison_facts: int = 2
-    max_priority_predictive_facts: int = 1
-    max_priority_forecast_facts: int = 1
-    max_priority_limitation_facts: int = 2
-
     minimum_main_finding_score: float = 0.65
     minimum_main_effect_strength: str = "moderate"
-
-    maximum_data_quality_findings: int = 3
-    maximum_association_findings: int = 4
-    maximum_predictive_findings: int = 1
-    maximum_forecast_findings: int = 1
-    maximum_limitation_findings: int = 3
 
     minimum_report_word_ratio: float = 0.45
     minimum_report_word_floor: int = 160
@@ -106,24 +158,50 @@ class Settings:
     auditor_model: str = "ollama:gemma3:12b"
 
     def __post_init__(self) -> None:
-        if self.max_insight_candidates <= 0:
+        if (
+            self.max_insight_candidates is not None
+            and self.max_insight_candidates <= 0
+        ):
             raise ValueError(
                 "max_insight_candidates must be positive."
             )
 
-        if self.max_verified_main_insights <= 0:
+        if (
+            self.max_verified_main_insights is not None
+            and self.max_verified_main_insights <= 0
+        ):
             raise ValueError(
                 "max_verified_main_insights must be positive."
             )
 
         if (
-            self.max_verified_main_insights
+            self.max_verified_main_insights is not None
+            and self.max_insight_candidates is not None
+            and self.max_verified_main_insights
             > self.max_insight_candidates
         ):
             raise ValueError(
                 "max_verified_main_insights cannot exceed "
                 "max_insight_candidates."
             )
+
+        if (
+            self.writer_max_words is not None
+            and self.writer_max_words < 150
+        ):
+            raise ValueError(
+                "writer_max_words must be at least 150."
+            )
+
+        for field_name, value in {
+            "writer_max_main_findings": self.writer_max_main_findings,
+            "writer_priority_fact_limit": self.writer_priority_fact_limit,
+            "writer_supporting_fact_limit": self.writer_supporting_fact_limit,
+        }.items():
+            if value is not None and value <= 0:
+                raise ValueError(
+                    f"{field_name} must be positive when configured."
+                )
 
         for field_name, value in {
             "min_insight_confidence": self.min_insight_confidence,
@@ -141,6 +219,8 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        load_env_files()
+
         output_mode = os.getenv(
             "T2T_STRUCTURED_OUTPUT_MODE",
             "native",
@@ -193,9 +273,11 @@ class Settings:
                 "T2T_WRITER_TARGET_WORDS",
                 650,
             ),
-            writer_max_main_findings=env_int(
+            writer_max_words=env_optional_int(
+                "T2T_WRITER_MAX_WORDS",
+            ),
+            writer_max_main_findings=env_optional_int(
                 "T2T_WRITER_MAX_MAIN_FINDINGS",
-                8,
             ),
             repair_candidates_per_sentence=env_int(
                 "T2T_REPAIR_CANDIDATES_PER_SENTENCE",
@@ -205,25 +287,21 @@ class Settings:
                 env_int("T2T_WRITER_QUALITY_REVISION_ROUNDS", 1),
                 1,
             ),
-            writer_priority_fact_limit=env_int(
+            writer_priority_fact_limit=env_optional_int(
                 "T2T_WRITER_PRIORITY_FACT_LIMIT",
-                10,
             ),
-            writer_supporting_fact_limit=env_int(
+            writer_supporting_fact_limit=env_optional_int(
                 "T2T_WRITER_SUPPORTING_FACT_LIMIT",
-                20,
             ),
             enable_insight_synthesis=env_bool(
                 "T2T_ENABLE_INSIGHT_SYNTHESIS",
                 True,
             ),
-            max_insight_candidates=env_int(
+            max_insight_candidates=env_optional_int(
                 "T2T_MAX_INSIGHT_CANDIDATES",
-                6,
             ),
-            max_verified_main_insights=env_int(
+            max_verified_main_insights=env_optional_int(
                 "T2T_MAX_VERIFIED_MAIN_INSIGHTS",
-                4,
             ),
             min_insight_confidence=env_float(
                 "T2T_MIN_INSIGHT_CONFIDENCE",
@@ -277,34 +355,6 @@ class Settings:
                 "T2T_MAXIMUM_RECOVERED_MODELLING_FACTS",
                 1,
             ),
-            max_priority_dataset_overview_facts=env_int(
-                "T2T_MAX_PRIORITY_DATASET_OVERVIEW_FACTS",
-                2,
-            ),
-            max_priority_data_quality_facts=env_int(
-                "T2T_MAX_PRIORITY_DATA_QUALITY_FACTS",
-                3,
-            ),
-            max_priority_correlation_facts=env_int(
-                "T2T_MAX_PRIORITY_CORRELATION_FACTS",
-                3,
-            ),
-            max_priority_group_comparison_facts=env_int(
-                "T2T_MAX_PRIORITY_GROUP_COMPARISON_FACTS",
-                2,
-            ),
-            max_priority_predictive_facts=env_int(
-                "T2T_MAX_PRIORITY_PREDICTIVE_FACTS",
-                1,
-            ),
-            max_priority_forecast_facts=env_int(
-                "T2T_MAX_PRIORITY_FORECAST_FACTS",
-                1,
-            ),
-            max_priority_limitation_facts=env_int(
-                "T2T_MAX_PRIORITY_LIMITATION_FACTS",
-                2,
-            ),
             minimum_main_finding_score=env_float(
                 "T2T_MINIMUM_MAIN_FINDING_SCORE",
                 0.65,
@@ -312,26 +362,6 @@ class Settings:
             minimum_main_effect_strength=os.getenv(
                 "T2T_MINIMUM_MAIN_EFFECT_STRENGTH",
                 "moderate",
-            ),
-            maximum_data_quality_findings=env_int(
-                "T2T_MAX_DATA_QUALITY_FINDINGS",
-                3,
-            ),
-            maximum_association_findings=env_int(
-                "T2T_MAX_ASSOCIATION_FINDINGS",
-                4,
-            ),
-            maximum_predictive_findings=env_int(
-                "T2T_MAX_PREDICTIVE_FINDINGS",
-                1,
-            ),
-            maximum_forecast_findings=env_int(
-                "T2T_MAX_FORECAST_FINDINGS",
-                1,
-            ),
-            maximum_limitation_findings=env_int(
-                "T2T_MAX_LIMITATION_FINDINGS",
-                3,
             ),
             minimum_report_word_ratio=env_float(
                 "T2T_MINIMUM_REPORT_WORD_RATIO",

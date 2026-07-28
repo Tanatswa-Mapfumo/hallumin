@@ -175,6 +175,87 @@ def _columnar_mapping(payload: dict[str, Any]) -> bool:
     )
 
 
+def _highlight_pairs(value: Any) -> set[tuple[int, int]]:
+    pairs: set[tuple[int, int]] = set()
+    if not isinstance(value, list):
+        return pairs
+
+    for item in value:
+        if (
+            isinstance(item, list | tuple)
+            and len(item) >= 2
+            and isinstance(item[0], int)
+            and isinstance(item[1], int)
+        ):
+            pairs.add((item[0], item[1]))
+
+    return pairs
+
+
+def _benchmark_cell_table(payload: dict[str, Any]) -> pd.DataFrame | None:
+    if not payload.get("__table2text_benchmark_example__"):
+        return None
+
+    source_payload = payload.get("source_payload")
+    if not isinstance(source_payload, dict):
+        return None
+
+    table = source_payload.get("table")
+    if not isinstance(table, list):
+        table = payload.get("parent_table")
+
+    if not isinstance(table, list):
+        return None
+
+    highlighted = _highlight_pairs(source_payload.get("highlighted_cells"))
+    page_title = (
+        source_payload.get("table_page_title")
+        or source_payload.get("page_title")
+    )
+    section_title = (
+        source_payload.get("table_section_title")
+        or source_payload.get("table_title")
+    )
+
+    records: list[dict[str, Any]] = []
+    for row_index, table_row in enumerate(table):
+        if not isinstance(table_row, list):
+            continue
+        for column_index, cell in enumerate(table_row):
+            if isinstance(cell, dict):
+                value = cell.get("value", "")
+                is_header = bool(cell.get("is_header", False))
+                row_span = cell.get("row_span")
+                column_span = cell.get("column_span")
+            else:
+                value = cell
+                is_header = False
+                row_span = None
+                column_span = None
+
+            records.append(
+                {
+                    "page_title": page_title,
+                    "section_title": section_title,
+                    "row_index": row_index,
+                    "column_index": column_index,
+                    "cell_value": value,
+                    "is_header": is_header,
+                    "is_highlighted": (row_index, column_index) in highlighted,
+                    "row_span": row_span,
+                    "column_span": column_span,
+                    "task_family": payload.get("task_family"),
+                    "output_mode": payload.get("output_mode"),
+                    "request": payload.get("request"),
+                }
+            )
+
+    if not records:
+        return None
+
+    return pd.DataFrame(records)
+
+
 def load_json_tables(
     path: Path,
     payload: Any | None = None,
@@ -182,6 +263,11 @@ def load_json_tables(
     if payload is None:
         with path.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
+
+    if isinstance(payload, dict):
+        benchmark_table = _benchmark_cell_table(payload)
+        if benchmark_table is not None:
+            return {path.stem: benchmark_table}
 
     if isinstance(payload, list):
         return {path.stem: pd.json_normalize(payload)}

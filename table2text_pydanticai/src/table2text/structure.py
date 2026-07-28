@@ -44,6 +44,21 @@ def normalise_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", value.casefold()).strip("_")
 
 
+def _looks_numeric(value: Any) -> bool:
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return True
+    if isinstance(value, str):
+        return bool(
+            re.fullmatch(
+                r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)",
+                value.strip().replace(",", ""),
+            )
+        )
+    return False
+
+
 def _mapping_looks_like_collection(value: Any) -> bool:
     if not isinstance(value, Mapping) or len(value) < 2:
         return False
@@ -64,9 +79,7 @@ def _contains_identity_or_metrics(value: Mapping[str, Any]) -> bool:
             continue
         for key, child in current.items():
             key_name = normalise_key(str(key))
-            if key_name in OUTCOME_FIELD_NAMES and isinstance(
-                child, (int, float)
-            ) and not isinstance(child, bool):
+            if key_name in OUTCOME_FIELD_NAMES and _looks_numeric(child):
                 return True
             if isinstance(child, Mapping):
                 stack.append((child, depth + 1))
@@ -324,10 +337,14 @@ def _shape_for_payload(payload: Any) -> tuple[InputShape, str | None, list[str]]
 
 
 def _path_parts(path: str) -> list[str]:
+    if path.strip() in {"", "$"}:
+        return []
     return [part for part in path.split(".") if part]
 
 
 def get_path(payload: Any, path: str) -> tuple[bool, Any]:
+    if path.strip() in {"", "$"}:
+        return True, payload
     current = payload
     for part in _path_parts(path):
         if not isinstance(current, Mapping) or part not in current:
@@ -339,6 +356,9 @@ def get_path(payload: Any, path: str) -> tuple[bool, Any]:
 def set_path(target: dict[str, Any], path: str, value: Any) -> None:
     parts = _path_parts(path)
     if not parts:
+        if isinstance(value, Mapping):
+            target.clear()
+            target.update(copy.deepcopy(dict(value)))
         return
     current = target
     for part in parts[:-1]:
@@ -355,6 +375,7 @@ def remove_path(payload: Any, path: str) -> None:
         return
     parts = _path_parts(path)
     if not parts:
+        payload.clear()
         return
     current: Any = payload
     for part in parts[:-1]:
@@ -373,11 +394,14 @@ def apply_field_policy(
         return copy.deepcopy(payload)
 
     if policy.operational_input_paths:
-        operational: dict[str, Any] = {}
-        for path in policy.operational_input_paths:
-            found, value = get_path(payload, path)
-            if found:
-                set_path(operational, path, value)
+        if any(path.strip() in {"", "$"} for path in policy.operational_input_paths):
+            operational = copy.deepcopy(dict(payload))
+        else:
+            operational: dict[str, Any] = {}
+            for path in policy.operational_input_paths:
+                found, value = get_path(payload, path)
+                if found:
+                    set_path(operational, path, value)
     else:
         operational = copy.deepcopy(dict(payload))
 

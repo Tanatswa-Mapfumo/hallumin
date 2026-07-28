@@ -31,6 +31,7 @@ from .schemas import (
     FactLedger,
     FactReview,
     GenreQualityAssessment,
+    InsightContribution,
     InsightLedger,
     InsightType,
     InsightVerificationStatus,
@@ -65,8 +66,12 @@ from .config import Settings
 
 
 NUMBER_PATTERN = re.compile(
-    r"(?<![\w.])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?"
+    r"(?<![\w.])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?(?!\w|\.(?=\d))"
 )
+
+ABBREVIATION_DOT_PLACEHOLDER = "__T2T_ABBR_DOT__"
+INITIALISM_PATTERN = re.compile(r"\b(?:[A-Z]\.){2,}")
+SINGLE_INITIAL_PATTERN = re.compile(r"\b([A-Z])\.(?=\s+[A-Z][a-z])")
 
 CAUSAL_PATTERN = re.compile(
     r"\b(caused|causes|causing|drives?|drove|driven by|led to|effect of|"
@@ -582,6 +587,30 @@ def numbers_supported(
     )
 
 
+def protect_sentence_abbreviations(text: str) -> str:
+    def replace_initialism(match: re.Match[str]) -> str:
+        return match.group(0).replace(
+            ".",
+            ABBREVIATION_DOT_PLACEHOLDER,
+        )
+
+    protected = INITIALISM_PATTERN.sub(
+        replace_initialism,
+        text,
+    )
+    return SINGLE_INITIAL_PATTERN.sub(
+        rf"\1{ABBREVIATION_DOT_PLACEHOLDER}",
+        protected,
+    )
+
+
+def restore_sentence_abbreviations(text: str) -> str:
+    return text.replace(
+        ABBREVIATION_DOT_PLACEHOLDER,
+        ".",
+    )
+
+
 def split_markdown_sentences(markdown: str) -> list[str]:
     sentences: list[str] = []
 
@@ -597,6 +626,7 @@ def split_markdown_sentences(markdown: str) -> list[str]:
             continue
 
         line = re.sub(r"^[-*]\s+", "", line)
+        line = protect_sentence_abbreviations(line)
 
         parts = re.split(
             r"(?<=[.!?])\s+(?=[A-Z0-9`])",
@@ -604,7 +634,7 @@ def split_markdown_sentences(markdown: str) -> list[str]:
         )
 
         sentences.extend(
-            part.strip()
+            restore_sentence_abbreviations(part.strip())
             for part in parts
             if part.strip()
         )
@@ -654,6 +684,394 @@ def evidence_for_fact(
         for evidence_id in fact.evidence_ids
         if evidence_id in lookup
     ]
+
+
+EVENT_CONTENT_UNIT_DEFINITIONS = {
+    "event_result": {
+        "description": "State the supported event result or outcome.",
+        "evidence_types": {"event_outcome"},
+        "minimum": 1,
+    },
+    "event_context": {
+        "description": "Include supplied event-level time or location context.",
+        "evidence_types": {"event_context"},
+        "minimum": 1,
+    },
+    "event_status": {
+        "description": "Include supplied event status when available.",
+        "evidence_types": {"event_status"},
+        "minimum": 1,
+    },
+    "leading_performance": {
+        "description": (
+            "Use leading entity rankings or entity-performance facts."
+        ),
+        "evidence_types": {"entity_ranking", "entity_performance"},
+        "minimum": 2,
+    },
+    "main_contrast": {
+        "description": "Use participant-level contrasts supported by evidence.",
+        "evidence_types": {
+            "participant_comparison",
+            "event_contrast",
+            "group_comparison",
+        },
+        "minimum": 2,
+    },
+    "secondary_performance": {
+        "description": "Use additional supported entity rankings if available.",
+        "evidence_types": {"entity_ranking", "entity_performance"},
+        "minimum": 1,
+    },
+}
+
+
+EVENT_NARRATIVE_CONNECTOR_PATTERN = re.compile(
+    r"\b("
+    r"while|whereas|despite|although|however|but|in contrast|compared with|"
+    r"compared to|than|more|fewer|less|higher|lower|advantage|margin|"
+    r"followed by|also|both|combined|concentrated|balanced"
+    r")\b",
+    re.IGNORECASE,
+)
+
+EVENT_SCOPE_LIMITATION_PATTERN = re.compile(
+    r"\b("
+    r"describe(?:s|d)? only|supplied event|single event|this event|"
+    r"this game|broader performance|broader outcomes|generaliz|"
+    r"does not establish why|do not establish why|does not imply|"
+    r"do not imply|not evidence of causal|scope limitations?|"
+    r"rankings? (?:are|is) limited"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _fact_ids_for_evidence_types(
+    *,
+    facts: list[VerifiedFact],
+    evidence_lookup: dict[str, EvidenceItem],
+    evidence_types: set[str],
+) -> list[str]:
+    return [
+        fact.fact_id
+        for fact in facts
+        if any(
+            item.evidence_type in evidence_types
+            for item in evidence_for_fact(
+                fact,
+                evidence_lookup,
+            )
+        )
+    ]
+
+
+def _insight_ids_for_fact_ids(
+    *,
+    insights: list[VerifiedInsight],
+    fact_ids: set[str],
+) -> list[str]:
+    return [
+        insight.insight_id
+        for insight in insights
+        if set(insight.source_fact_ids) & fact_ids
+    ]
+
+
+def sentence_support_narrative_stats(
+    sentence_support: list[Any],
+) -> dict[str, int]:
+    stats = {
+        "synthesis_sentences": 0,
+        "insight_sentences": 0,
+        "connective_sentences": 0,
+        "scope_limitation_sentences": 0,
+    }
+
+    for support in sentence_support:
+        text = (
+            getattr(support, "sentence_text", None)
+            or getattr(support, "text", "")
+            or ""
+        )
+        fact_ids = set(getattr(support, "fact_ids", []))
+        evidence_ids = set(getattr(support, "evidence_ids", []))
+        insight_ids = set(getattr(support, "insight_ids", []))
+        support_type = getattr(support, "support_type", None)
+        interpretation_level = getattr(
+            support,
+            "interpretation_level",
+            None,
+        )
+
+        support_item_count = len(fact_ids | evidence_ids) + len(insight_ids)
+        is_insight_sentence = bool(insight_ids) and (
+            interpretation_level == InterpretationLevel.BOUNDED_INSIGHT
+        )
+        is_synthesis_sentence = (
+            support_type == SupportType.MULTI_FACT_SYNTHESIS
+            or is_insight_sentence
+            or support_item_count >= 2
+        )
+
+        if is_synthesis_sentence:
+            stats["synthesis_sentences"] += 1
+            if EVENT_NARRATIVE_CONNECTOR_PATTERN.search(text):
+                stats["connective_sentences"] += 1
+
+        if is_insight_sentence:
+            stats["insight_sentences"] += 1
+
+        if EVENT_SCOPE_LIMITATION_PATTERN.search(text):
+            stats["scope_limitation_sentences"] += 1
+
+    return stats
+
+
+def event_scope_limitation_present(
+    writer_output: WriterOutput,
+) -> bool:
+    return bool(
+        EVENT_SCOPE_LIMITATION_PATTERN.search(
+            writer_output.markdown
+        )
+    )
+
+
+def build_writer_content_requirements(
+    *,
+    report_specification: Any,
+    fact_ledger: FactLedger,
+    evidence: EvidenceLedger,
+    insight_ledger: InsightLedger,
+    settings: Settings,
+) -> dict[str, Any]:
+    minimum_words = minimum_useful_report_words(
+        target_words=report_specification.target_length_words,
+        required_component_count=len(
+            report_specification.required_components
+        ),
+        settings=settings,
+    )
+
+    event_report = report_specification.genre in {
+        ReportGenre.EVENT_REPORT,
+        ReportGenre.SPORTS_GAME_REPORT,
+    }
+    if not event_report:
+        return {
+            "minimum_word_count": minimum_words,
+            "enforce_minimum_words": False,
+            "units": [],
+        }
+
+    lookup = build_evidence_lookup(evidence)
+    facts = fact_ledger.writer_ready_facts
+    insights = [
+        insight
+        for insight in insight_ledger.verified_insights
+        if insight.verification_status
+        in {
+            InsightVerificationStatus.VERIFIED,
+            InsightVerificationStatus.VERIFIED_WITH_CAVEAT,
+        }
+    ]
+
+    units: list[dict[str, Any]] = []
+    ordered_slots = [
+        *report_specification.required_content_slots,
+        *report_specification.optional_content_slots,
+    ]
+    for slot in dict.fromkeys(ordered_slots):
+        definition = EVENT_CONTENT_UNIT_DEFINITIONS.get(slot)
+        if definition is None:
+            continue
+
+        candidate_fact_ids = _fact_ids_for_evidence_types(
+            facts=facts,
+            evidence_lookup=lookup,
+            evidence_types=set(definition["evidence_types"]),
+        )
+        if not candidate_fact_ids:
+            continue
+
+        minimum_items = min(
+            int(definition["minimum"]),
+            len(candidate_fact_ids),
+        )
+        units.append(
+            {
+                "unit_id": slot,
+                "description": definition["description"],
+                "minimum_items": minimum_items,
+                "candidate_fact_ids": candidate_fact_ids,
+                "candidate_insight_ids": _insight_ids_for_fact_ids(
+                    insights=insights,
+                    fact_ids=set(candidate_fact_ids),
+                ),
+            }
+        )
+
+    substantive_unit_count = sum(
+        1
+        for unit in units
+        if unit["unit_id"]
+        in {
+            "event_result",
+            "event_context",
+            "leading_performance",
+            "main_contrast",
+        }
+    )
+    main_contrast_available = any(
+        unit["unit_id"] == "main_contrast"
+        and len(unit.get("candidate_fact_ids", [])) >= 2
+        for unit in units
+    )
+    insight_available = any(
+        unit.get("candidate_insight_ids")
+        for unit in units
+    )
+    enforce_narrative = bool(
+        substantive_unit_count >= 3
+        and len(facts) >= 5
+    )
+
+    return {
+        "minimum_word_count": minimum_words,
+        "enforce_minimum_words": bool(
+            enforce_narrative
+        ),
+        "narrative_requirements": {
+            "enforce": enforce_narrative,
+            "minimum_synthesis_sentences": 2,
+            "minimum_insight_sentences": 1 if insight_available else 0,
+            "minimum_connective_sentences": (
+                1 if main_contrast_available else 0
+            ),
+            "minimum_scope_limitations": 1,
+        },
+        "units": units,
+    }
+
+
+def content_requirement_errors(
+    *,
+    used_fact_ids: set[str],
+    used_insight_ids: set[str],
+    word_count: int,
+    requirements: dict[str, Any] | None,
+    narrative_stats: dict[str, int] | None = None,
+    include_word_count: bool = True,
+) -> list[str]:
+    if not requirements:
+        return []
+
+    errors: list[str] = []
+    minimum_words = requirements.get("minimum_word_count")
+    if (
+        include_word_count
+        and requirements.get("enforce_minimum_words")
+        and minimum_words is not None
+        and word_count < int(minimum_words)
+    ):
+        errors.append(
+            f"The draft contains {word_count} words; at least "
+            f"{minimum_words} words are required while supported content "
+            "remains available."
+            )
+
+    narrative = requirements.get("narrative_requirements") or {}
+    if narrative.get("enforce") and narrative_stats is not None:
+        for field, stat_key, label in [
+            (
+                "minimum_synthesis_sentences",
+                "synthesis_sentences",
+                "multi-fact or insight-backed narrative sentences",
+            ),
+            (
+                "minimum_insight_sentences",
+                "insight_sentences",
+                "verified insight-backed narrative sentences",
+            ),
+            (
+                "minimum_connective_sentences",
+                "connective_sentences",
+                "contrastive or connective narrative sentences",
+            ),
+            (
+                "minimum_scope_limitations",
+                "scope_limitation_sentences",
+                "event-scoped limitation sentences",
+            ),
+        ]:
+            minimum = int(narrative.get(field, 0) or 0)
+            if minimum <= 0:
+                continue
+            observed = int(
+                narrative_stats.get(
+                    stat_key,
+                    0,
+                )
+            )
+            if observed < minimum:
+                errors.append(
+                    f"The event draft uses {observed} {label}, but "
+                    f"{minimum} are required when supported event material "
+                    "is available."
+                )
+
+    for unit in requirements.get("units", []):
+        candidate_fact_ids = set(unit.get("candidate_fact_ids", []))
+        candidate_insight_ids = set(unit.get("candidate_insight_ids", []))
+        if not candidate_fact_ids and not candidate_insight_ids:
+            continue
+        covered_items = (
+            candidate_fact_ids & used_fact_ids
+        ) | (
+            candidate_insight_ids & used_insight_ids
+        )
+        minimum_items = int(unit.get("minimum_items", 1))
+        if len(covered_items) < minimum_items:
+            errors.append(
+                f"Content unit `{unit.get('unit_id')}` uses "
+                f"{len(covered_items)} supported item(s), but "
+                f"{minimum_items} are required: "
+                f"{unit.get('description')}"
+            )
+
+    return errors
+
+
+def writer_output_content_requirement_errors(
+    *,
+    writer_output: WriterOutput,
+    requirements: dict[str, Any] | None,
+    include_word_count: bool = False,
+) -> list[str]:
+    used_fact_ids = {
+        *writer_output.title_fact_ids,
+        *[
+            fact_id
+            for support in writer_output.sentence_support
+            for fact_id in support.fact_ids
+        ],
+    }
+    used_insight_ids = {
+        insight_id
+        for support in writer_output.sentence_support
+        for insight_id in support.insight_ids
+    }
+    return content_requirement_errors(
+        used_fact_ids=used_fact_ids,
+        used_insight_ids=used_insight_ids,
+        word_count=writer_output_word_count(writer_output),
+        requirements=requirements,
+        narrative_stats=sentence_support_narrative_stats(
+            writer_output.sentence_support
+        ),
+        include_word_count=include_word_count,
+    )
 
 
 def fact_support_numbers(
@@ -1295,7 +1713,7 @@ def collect_entity_strings(value: Any) -> set[str]:
 
 def fallback_fact_candidates(
     evidence: EvidenceLedger,
-    maximum_facts: int,
+    maximum_facts: int | None,
 ) -> FactCandidateSet:
     eligible_items = [
         item
@@ -1314,6 +1732,11 @@ def fallback_fact_candidates(
         reverse=True,
     )
 
+    selected_items = (
+        ranked
+        if maximum_facts is None
+        else ranked[:maximum_facts]
+    )
     candidates = [
         FactCandidate(
             candidate_id=f"CAN_{index:04d}",
@@ -1330,10 +1753,7 @@ def fallback_fact_candidates(
             recommended_use=item.recommended_use,
             eligible_for_writer=True,
         )
-        for index, item in enumerate(
-            ranked[:maximum_facts],
-            start=1,
-        )
+        for index, item in enumerate(selected_items, start=1)
     ]
 
     return FactCandidateSet(
@@ -1591,6 +2011,12 @@ def evidence_subtype(
     label = normalise_strength_label(
         item.strength_label
     )
+
+    if item.evidence_type == "event_context":
+        return "event_context"
+
+    if item.evidence_type == "event_status":
+        return "event_status"
 
     if item.capability == EvidenceCapability.EVENT_OUTCOME:
         return "event_outcome"
@@ -1892,7 +2318,12 @@ def eligible_for_deterministic_fact_recovery(
     if subtype == "dataset_overview":
         return True
 
-    if subtype in {"event_outcome", "entity_performance"}:
+    if subtype in {
+        "event_context",
+        "event_status",
+        "event_outcome",
+        "entity_performance",
+    }:
         return True
 
     if subtype == "data_quality":
@@ -2018,6 +2449,7 @@ def augment_fact_ledger_for_report_coverage(
     fact_ledger: FactLedger,
     evidence: EvidenceLedger,
     required_components: list[ReportComponent],
+    required_content_slots: list[str] | None = None,
     settings: Settings,
 ) -> FactLedger:
     """
@@ -2083,6 +2515,8 @@ def augment_fact_ledger_for_report_coverage(
             .maximum_recovered_modelling_facts
         ),
         "causal_feasibility": 1,
+        "event_context": 2,
+        "event_status": 2,
         "event_outcome": 2,
         "entity_performance": 4,
     }
@@ -2168,6 +2602,26 @@ def augment_fact_ledger_for_report_coverage(
                     return True
 
         return False
+
+    slot_subtypes = {
+        "event_context": "event_context",
+        "event_status": "event_status",
+        "event_result": "event_outcome",
+        "leading_performance": "entity_performance",
+        "main_contrast": "group_comparison",
+        "secondary_performance": "entity_performance",
+    }
+
+    for slot in required_content_slots or []:
+        subtype = slot_subtypes.get(slot)
+        if subtype is None:
+            continue
+        if (
+            existing_counts[subtype]
+            + recovered_counts[subtype]
+            == 0
+        ):
+            recover_best(subtype)
 
     if (
         ReportComponent.DATASET_OVERVIEW
@@ -2315,42 +2769,6 @@ def select_balanced_priority_facts(
     selected_ids: set[str] = set()
     subtype_counts: Counter[str] = Counter()
 
-    subtype_limits = {
-        "dataset_overview": (
-            settings
-            .max_priority_dataset_overview_facts
-        ),
-        "data_quality": (
-            settings
-            .max_priority_data_quality_facts
-        ),
-        "correlation": (
-            settings
-            .max_priority_correlation_facts
-        ),
-        "group_comparison": (
-            settings
-            .max_priority_group_comparison_facts
-        ),
-        "predictive_validation": (
-            settings
-            .max_priority_predictive_facts
-        ),
-        "forecast_validation": (
-            settings
-            .max_priority_forecast_facts
-        ),
-        "causal_feasibility": (
-            settings
-            .max_priority_limitation_facts
-        ),
-        "event_outcome": 2,
-        "entity_performance": 4,
-        "association_other": 1,
-        "descriptive_detail": 1,
-        "other": 1,
-    }
-
     def primary_subtype(
         fact: VerifiedFact,
     ) -> str:
@@ -2393,12 +2811,6 @@ def select_balanced_priority_facts(
             return False
 
         subtype = primary_subtype(fact)
-
-        if (
-            subtype_counts[subtype]
-            >= subtype_limits.get(subtype, 1)
-        ):
-            return False
 
         if (
             require_priority_eligibility
@@ -2552,11 +2964,11 @@ def select_balanced_priority_facts(
     # Add only high-quality eligible facts. Do not fill with weak facts.
     for fact in ranked:
         if (
-            len(selected)
+            settings.writer_priority_fact_limit is not None
+            and len(selected)
             >= settings.writer_priority_fact_limit
         ):
             break
-
         add_fact(
             fact,
             require_priority_eligibility=True,
@@ -2654,7 +3066,7 @@ def build_reader_facing_limitations(
 def select_priority_verified_insights(
     *,
     insight_ledger: InsightLedger,
-    maximum: int,
+    maximum: int | None,
 ) -> tuple[list[VerifiedInsight], list[VerifiedInsight]]:
     eligible = [
         insight
@@ -2680,8 +3092,10 @@ def select_priority_verified_insights(
     selected_ids: set[str] = set()
     selected_types: set[InsightType] = set()
 
+    priority_limit = maximum or len(ranked)
+
     for _, insight in ranked:
-        if len(priority) >= maximum:
+        if len(priority) >= priority_limit:
             break
         if insight.insight_type in selected_types:
             continue
@@ -2690,7 +3104,7 @@ def select_priority_verified_insights(
         selected_types.add(insight.insight_type)
 
     for _, insight in ranked:
-        if len(priority) >= maximum:
+        if len(priority) >= priority_limit:
             break
         if insight.insight_id in selected_ids:
             continue
@@ -2838,19 +3252,8 @@ def select_event_priority_facts(
         key=event_priority_score,
         reverse=True,
     )
-    slot_limits = {
-        "event_result": 1,
-        "event_context": 1,
-        "event_status": 1,
-        "leading_performance": 3,
-        "main_contrast": 3,
-    }
-    participation_requested = participation_measure_requested(
-        request
-    )
     selected: list[VerifiedFact] = []
     selected_ids: set[str] = set()
-    slot_counts: Counter[str] = Counter()
 
     for slot in (
         "event_result",
@@ -2858,66 +3261,24 @@ def select_event_priority_facts(
         "event_status",
         "leading_performance",
         "main_contrast",
+        "participation",
     ):
         for fact in ranked:
-            if (
-                len(selected)
-                >= settings.writer_priority_fact_limit
-            ):
-                break
-
             if fact.fact_id in selected_ids:
                 continue
 
             if event_fact_slot(fact, evidence_lookup) != slot:
                 continue
 
-            if slot_counts[slot] >= slot_limits[slot]:
-                break
-
             selected.append(fact)
             selected_ids.add(fact.fact_id)
-            slot_counts[slot] += 1
 
-    substantive_available = any(
-        event_fact_slot(fact, evidence_lookup)
-        == "leading_performance"
-        for fact in ranked
-    )
-    supporting_slot_limits = {
-        "leading_performance": 1,
-        "main_contrast": 1,
-        "participation": 1,
-    }
-    supporting_counts: Counter[str] = Counter()
     supporting: list[VerifiedFact] = []
-
     for fact in ranked:
-        if (
-            len(supporting)
-            >= settings.writer_supporting_fact_limit
-        ):
-            break
-
         if fact.fact_id in selected_ids:
             continue
 
-        slot = event_fact_slot(fact, evidence_lookup)
-        if slot not in supporting_slot_limits:
-            continue
-
-        if (
-            slot == "participation"
-            and substantive_available
-            and not participation_requested
-        ):
-            continue
-
-        if supporting_counts[slot] >= supporting_slot_limits[slot]:
-            continue
-
         supporting.append(fact)
-        supporting_counts[slot] += 1
 
     return selected, supporting
 
@@ -3022,7 +3383,11 @@ def build_writer_evidence_pack(
             if fact.fact_id not in priority_ids
             and fact.recommended_use
             != RecommendedUse.OMIT_UNLESS_REQUESTED
-        ][: settings.writer_supporting_fact_limit]
+        ]
+        if settings.writer_supporting_fact_limit is not None:
+            supporting = supporting[
+                : settings.writer_supporting_fact_limit
+            ]
 
     limitations = sorted(
         [
@@ -3036,13 +3401,7 @@ def build_writer_evidence_pack(
         ],
         key=lambda fact: evidence_priority_score_for_fact(fact, evidence_lookup),
         reverse=True,
-    )[
-        : (
-            1
-            if event_genre
-            else settings.max_priority_limitation_facts
-        )
-    ]
+    )
 
     recommendations = sorted(
         [
@@ -3852,6 +4211,15 @@ def accept_writer_quality_revision(
         ),
         settings=settings,
     )
+    maximum_words = (
+        report_specification.maximum_length_words
+        or report_specification.target_length_words
+    )
+
+    if after_words > maximum_words:
+        reasons.append(
+            "The revision exceeds the configured report word ceiling."
+        )
 
     if (
         before_missing > 0
@@ -3943,17 +4311,18 @@ def fallback_writer(
         }
     )
 
-    maximum = (
-        pack.report_specification
-        .maximum_main_findings
-    )
+    priority_facts = pack.priority_facts
+    if pack.report_specification.maximum_main_findings is not None:
+        priority_facts = priority_facts[
+            : pack.report_specification.maximum_main_findings
+        ]
 
     selected = list(
         {
             fact.fact_id: fact
             for fact in (
-                pack.priority_facts[:maximum]
-                + pack.limitation_facts[:2]
+                priority_facts
+                + pack.limitation_facts
             )
         }.values()
     )
@@ -4356,6 +4725,7 @@ def assess_report_component_coverage(
         ReportComponent,
         list[str],
     ] = defaultdict(list)
+    component_covered_without_facts: set[ReportComponent] = set()
 
     for component in required_components:
         support_by_component[component]
@@ -4400,18 +4770,22 @@ def assess_report_component_coverage(
             ReportComponent
             .LIMITATIONS_NEXT_STEPS
             in required_components
-            and supported_facts
             and limitation_language.search(
                 support.sentence_text
             )
         ):
-            support_by_component[
-                ReportComponent
-                .LIMITATIONS_NEXT_STEPS
-            ].extend(
-                fact.fact_id
-                for fact in supported_facts
-            )
+            if supported_facts:
+                support_by_component[
+                    ReportComponent
+                    .LIMITATIONS_NEXT_STEPS
+                ].extend(
+                    fact.fact_id
+                    for fact in supported_facts
+                )
+            else:
+                component_covered_without_facts.add(
+                    ReportComponent.LIMITATIONS_NEXT_STEPS
+                )
 
     assessments: list[
         ReportComponentAssessment
@@ -4423,11 +4797,15 @@ def assess_report_component_coverage(
                 support_by_component[component]
             )
         )
+        covered = (
+            bool(fact_ids)
+            or component in component_covered_without_facts
+        )
 
         assessments.append(
             ReportComponentAssessment(
                 component=component,
-                covered=bool(fact_ids),
+                covered=covered,
                 supporting_fact_ids=fact_ids,
                 explanation=(
                     "At least one report sentence is "
@@ -4435,9 +4813,14 @@ def assess_report_component_coverage(
                     "this component."
                     if fact_ids
                     else (
-                        "No supported report sentence "
-                        "clearly covers this required "
-                        "component."
+                        "A scoped non-factual caveat clearly covers "
+                        "this component."
+                        if covered
+                        else (
+                            "No supported report sentence "
+                            "clearly covers this required "
+                            "component."
+                        )
                     )
                 ),
             )
@@ -4464,6 +4847,10 @@ def assess_genre_quality(
     report_specification: Any,
     evidence: EvidenceLedger,
 ) -> GenreQualityAssessment:
+    event_report = report_specification.genre in {
+        ReportGenre.EVENT_REPORT,
+        ReportGenre.SPORTS_GAME_REPORT,
+    }
     evidence_lookup = {
         item.evidence_id: item
         for item in evidence.items
@@ -4541,6 +4928,18 @@ def assess_genre_quality(
         ):
             covered_slots.append("limitation")
 
+    supported_slot_set = set(supported_slots)
+    event_material_available = event_report and {
+        "event_result",
+        "leading_performance",
+        "main_contrast",
+    }.issubset(supported_slot_set)
+
+    if event_material_available:
+        supported_slots.append("scope_limitations")
+        if event_scope_limitation_present(writer_output):
+            covered_slots.append("scope_limitations")
+
     missing = [
         slot
         for slot in required_slots
@@ -4554,10 +4953,7 @@ def assess_genre_quality(
         "Use the available verified evidence to cover each missing content slot."
     ] if missing else []
 
-    if report_specification.genre in {
-        ReportGenre.EVENT_REPORT,
-        ReportGenre.SPORTS_GAME_REPORT,
-    } and re.search(
+    if event_report and re.search(
         r"\b(rows?|columns?|constant columns?|missingness|schema|"
         r"correlations?|regressions?|statistical modelling|statistical modeling|"
         r"predictive modelling|predictive modeling|statistical power|"
@@ -4575,10 +4971,38 @@ def assess_genre_quality(
             "supported event context, performances and participant contrasts."
         )
 
-    if report_specification.genre in {
-        ReportGenre.EVENT_REPORT,
-        ReportGenre.SPORTS_GAME_REPORT,
-    } and not participation_measure_requested(
+    if event_material_available:
+        narrative_stats = sentence_support_narrative_stats(
+            writer_output.sentence_support
+        )
+        if narrative_stats["synthesis_sentences"] < 2:
+            findings.append(
+                "The event report lists supported facts without enough "
+                "multi-fact or insight-backed narrative synthesis."
+            )
+            recommendations.append(
+                "Relate the supported result, performances and participant "
+                "contrasts in connected event prose."
+            )
+        if narrative_stats["connective_sentences"] < 1:
+            findings.append(
+                "The event report does not clearly connect supported "
+                "participant contrasts into a narrative comparison."
+            )
+            recommendations.append(
+                "Use bounded connective wording such as while, compared with "
+                "or despite when the verified facts support a contrast."
+            )
+        if narrative_stats["scope_limitation_sentences"] < 1:
+            findings.append(
+                "The event report omits an event-scoped limitation."
+            )
+            recommendations.append(
+                "Add a short caveat that the comparisons describe only the "
+                "supplied event and do not explain why the result occurred."
+            )
+
+    if event_report and not participation_measure_requested(
         " ".join(
             [
                 report_specification.report_purpose,
@@ -5941,9 +6365,14 @@ def deterministic_audit(
             "Start with a concrete dataset overview or leading supported finding."
         )
 
-    if word_count > report_specification.target_length_words * 1.5:
+    maximum_words = (
+        report_specification.maximum_length_words
+        or report_specification.target_length_words
+    )
+    if word_count > maximum_words:
         quality_findings.append(
-            "The report substantially exceeds the planned target length."
+            f"The report contains {word_count} words and exceeds the "
+            f"{maximum_words}-word ceiling."
         )
         quality_recommendations.append(
             "Remove low-priority detail and consolidate methodological caveats."
@@ -5959,20 +6388,59 @@ def deterministic_audit(
             f"The report contains {word_count} words, below the minimum useful "
             f"coverage threshold of {minimum_words}."
         )
+        if report_specification.genre in {
+            ReportGenre.EVENT_REPORT,
+            ReportGenre.SPORTS_GAME_REPORT,
+        }:
+            coverage_target = (
+                "the supported event result, context, leading performances, "
+                "participant contrasts, and scope caveats"
+            )
+        else:
+            coverage_target = (
+                "the required dataset overview, quality, relationship, and "
+                "limitation components"
+            )
         quality_recommendations.append(
-            "Expand the report using verified facts covering the required dataset "
-            "overview, quality, relationship, and limitation components."
+            f"Expand the report using verified facts covering {coverage_target}."
         )
 
+    content_requirements = build_writer_content_requirements(
+        report_specification=report_specification,
+        fact_ledger=fact_ledger,
+        evidence=evidence,
+        insight_ledger=insight_ledger,
+        settings=settings,
+    )
+    for content_error in writer_output_content_requirement_errors(
+        writer_output=writer_output,
+        requirements=content_requirements,
+        include_word_count=False,
+    ):
+        quality_findings.append(content_error)
+        quality_recommendations.append(
+            "Use the controller-enforced content requirements to include "
+            "the supported event material before adding lower-priority prose."
+        )
+
+    configured_fact_limits = [
+        limit
+        for limit in {
+            report_specification.maximum_main_findings,
+            report_specification.maximum_supporting_facts,
+        }
+        if limit is not None
+    ]
     if (
-        len(writer_output.selected_fact_ids)
-        > report_specification.maximum_main_findings + 4
+        configured_fact_limits
+        and len(writer_output.selected_fact_ids)
+        > max(configured_fact_limits)
     ):
         quality_findings.append(
-            "The report uses more facts than the planned finding budget."
+            "The report uses more facts than the configured report budget."
         )
         quality_recommendations.append(
-            "Prioritise headline and main findings and omit weak supporting details."
+            "Prioritise headline findings and omit weaker supporting detail."
         )
 
     used_verified_insight_ids = {
@@ -5996,6 +6464,17 @@ def deterministic_audit(
     insights_without_implication = []
     for insight_id in used_verified_insight_ids:
         insight = verified_insights[insight_id]
+        if (
+            report_specification.genre
+            in {
+                ReportGenre.EVENT_REPORT,
+                ReportGenre.SPORTS_GAME_REPORT,
+            }
+            or
+            insight.contribution
+            != InsightContribution.ANALYTICAL_IMPLICATION
+        ):
+            continue
         mapped_sentences = [
             support.sentence_text
             for support in writer_output.sentence_support
@@ -6052,17 +6531,6 @@ def deterministic_audit(
             )
 
     if (
-        len(used_verified_insight_ids)
-        > settings.max_verified_main_insights
-    ):
-        quality_findings.append(
-            "The report exceeds its configured verified insight budget."
-        )
-        quality_recommendations.append(
-            "Retain the most salient non-duplicate verified insights."
-        )
-
-    if (
         report_specification.genre
         in {
             ReportGenre.EVENT_REPORT,
@@ -6083,8 +6551,8 @@ def deterministic_audit(
         )
         if not game_content or profile_dominant:
             quality_findings.append(
-                "The sports game report reads like a dataset profile rather "
-                "than communicating the supported result and performances."
+                "The event report reads like a dataset profile rather than "
+                "communicating the supported result and performances."
             )
             quality_recommendations.append(
                 "Prioritise the supported result, salient performances and "
@@ -6140,9 +6608,17 @@ def deterministic_audit(
         + " ".join(entity.lower() for entity in fact.entities)
         for fact in fact_ledger.writer_ready_facts
     )
+    allowed_unit_terms = set()
+    if report_specification.genre in {
+        ReportGenre.EVENT_REPORT,
+        ReportGenre.SPORTS_GAME_REPORT,
+    }:
+        allowed_unit_terms.update({"event", "events"})
+
     unsupported_unit_terms = [
         term
         for term in UNSANCTIONED_UNIT_TERMS
+        if term not in allowed_unit_terms
         if re.search(rf"\b{re.escape(term)}\b", writer_output.markdown, re.IGNORECASE)
         and term not in fact_text
     ]

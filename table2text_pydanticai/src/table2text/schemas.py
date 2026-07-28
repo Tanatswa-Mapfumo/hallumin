@@ -135,6 +135,12 @@ class InsightType(str, Enum):
     NARRATIVE_SUMMARY = "narrative_summary"
 
 
+class InsightContribution(str, Enum):
+    ANALYTICAL_IMPLICATION = "analytical_implication"
+    EVENT_SYNTHESIS = "event_synthesis"
+    DESCRIPTIVE_SYNTHESIS = "descriptive_synthesis"
+
+
 class InsightVerificationStatus(str, Enum):
     VERIFIED = "verified"
     VERIFIED_WITH_CAVEAT = "verified_with_caveat"
@@ -310,10 +316,7 @@ class SemanticBinding(StrictModel):
 class InputSemanticMap(StrictModel):
     input_shape: InputShape
     record_description: str
-    bindings: list[SemanticBinding] = Field(
-        default_factory=list,
-        max_length=24,
-    )
+    bindings: list[SemanticBinding] = Field(default_factory=list)
     recommended_report_genre: ReportGenre | None = None
     report_rationale: str = ""
     confidence: float = Field(ge=0.0, le=1.0)
@@ -450,7 +453,13 @@ class ReportSpecification(StrictModel):
     )
 
     target_length_words: int = Field(ge=150, le=2_500)
-    maximum_main_findings: int = Field(ge=2, le=20)
+    maximum_length_words: int | None = Field(
+        default=None,
+        ge=150,
+        le=2_500,
+    )
+    maximum_main_findings: int | None = Field(default=None, ge=2)
+    maximum_supporting_facts: int | None = Field(default=None, ge=2)
 
     preferred_sections: list[str] = Field(default_factory=list)
     required_components: list[ReportComponent] = Field(default_factory=list)
@@ -522,7 +531,6 @@ class EvidenceQuery(StrictModel):
 
     value_binding_ids: list[str] = Field(
         default_factory=list,
-        max_length=8,
         description=(
             "Exact SemanticBinding.binding_id values only; never field paths "
             "or semantic labels."
@@ -544,14 +552,13 @@ class EvidenceQuery(StrictModel):
     )
     context_binding_ids: list[str] = Field(
         default_factory=list,
-        max_length=8,
         description=(
             "Exact SemanticBinding.binding_id values for optional context only; "
             "never field paths."
         ),
     )
 
-    limit: int = Field(default=3, ge=1, le=20)
+    limit: int = Field(default=3, ge=1)
     descending: bool = True
 
     recommended_use: RecommendedUse = RecommendedUse.MAIN_FINDING
@@ -580,7 +587,7 @@ class ExecutionPlan(StrictModel):
     )
 
     revision_limit: int = Field(ge=0, le=3)
-    maximum_facts: int = Field(ge=1, le=150)
+    maximum_facts: int | None = Field(default=None, ge=1)
 
     frozen: bool = True
     rationale: str
@@ -746,15 +753,19 @@ class InsightCandidate(StrictModel):
     statement: str
     insight_type: InsightType
     interpretation_level: InterpretationLevel
+    contribution: InsightContribution = (
+        InsightContribution.ANALYTICAL_IMPLICATION
+    )
 
     source_fact_ids: list[str] = Field(default_factory=list)
     source_evidence_ids: list[str] = Field(default_factory=list)
 
-    why_it_matters: str = Field(
-        min_length=1,
+    why_it_matters: str | None = Field(
+        default=None,
         description=(
-            "The evidence-bounded analytical implication: why the related "
-            "findings matter without proposing an unverified explanation."
+            "For analytical reports, the evidence-bounded implication. For "
+            "event and descriptive synthesis this may be omitted because the "
+            "supported relationship itself can provide the reader value."
         ),
     )
     supporting_summary: str
@@ -806,6 +817,9 @@ class VerifiedInsight(StrictModel):
     statement: str
     insight_type: InsightType
     interpretation_level: InterpretationLevel
+    contribution: InsightContribution = (
+        InsightContribution.ANALYTICAL_IMPLICATION
+    )
 
     source_fact_ids: list[str] = Field(default_factory=list)
     source_evidence_ids: list[str] = Field(default_factory=list)
@@ -813,11 +827,11 @@ class VerifiedInsight(StrictModel):
         default_factory=list
     )
 
-    why_it_matters: str = Field(
-        min_length=1,
+    why_it_matters: str | None = Field(
+        default=None,
         description=(
-            "The verified analytical implication, kept separate from direct "
-            "findings and hypotheses."
+            "The verified analytical implication when the contribution "
+            "requires one; event and descriptive synthesis may omit it."
         ),
     )
     limitations: list[str] = Field(default_factory=list)
@@ -836,12 +850,21 @@ class InsightRejection(StrictModel):
     reasons: list[str] = Field(default_factory=list)
 
 
+class InsightVerificationFailure(StrictModel):
+    insight_id: str
+    candidate: InsightCandidate
+    reasons: list[str] = Field(default_factory=list)
+
+
 class InsightLedger(StrictModel):
     verified_insights: list[VerifiedInsight] = Field(default_factory=list)
     hypothesis_only_insights: list[VerifiedInsight] = Field(
         default_factory=list
     )
     rejected_insights: list[InsightRejection] = Field(default_factory=list)
+    unverified_insights: list[InsightVerificationFailure] = Field(
+        default_factory=list
+    )
     verifier_notes: list[str] = Field(default_factory=list)
     synthesis_enabled: bool = True
     fallback_reason: str | None = None
@@ -922,15 +945,9 @@ class SentenceSupport(StrictModel):
 class WriterSentenceDraft(StrictModel):
     text: str = Field(min_length=1)
 
-    fact_ids: list[str] = Field(
-        default_factory=list,
-        max_length=8,
-    )
+    fact_ids: list[str] = Field(default_factory=list)
 
-    insight_ids: list[str] = Field(
-        default_factory=list,
-        max_length=4,
-    )
+    insight_ids: list[str] = Field(default_factory=list)
     interpretation_level: InterpretationLevel = InterpretationLevel.FINDING
 
     support_type: SupportType
@@ -939,28 +956,16 @@ class WriterSentenceDraft(StrictModel):
 class WriterSectionDraft(StrictModel):
     heading: str = Field(min_length=1)
 
-    sentences: list[WriterSentenceDraft] = Field(
-        default_factory=list,
-        max_length=12,
-    )
+    sentences: list[WriterSentenceDraft] = Field(default_factory=list)
 
 
 class WriterAgentDraft(StrictModel):
     title: str = Field(min_length=1)
-    title_fact_ids: list[str] = Field(
-        default_factory=list,
-        max_length=8,
-    )
+    title_fact_ids: list[str] = Field(default_factory=list)
 
-    sections: list[WriterSectionDraft] = Field(
-        default_factory=list,
-        max_length=8,
-    )
+    sections: list[WriterSectionDraft] = Field(default_factory=list)
 
-    writer_notes: list[str] = Field(
-        default_factory=list,
-        max_length=8,
-    )
+    writer_notes: list[str] = Field(default_factory=list)
 
 
 class WriterOutput(StrictModel):

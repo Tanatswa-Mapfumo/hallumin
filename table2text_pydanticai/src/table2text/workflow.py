@@ -24,9 +24,13 @@ from .agents import (
     fallback_execution_plan,
     fallback_understanding,
     materialise_insight_ledger,
+    validate_insight_verification,
 )
 from .analytics import execute_plan
-from .capabilities import available_capabilities
+from .capabilities import (
+    available_capabilities,
+    normalise_event_evidence_queries,
+)
 from .audit import (
     accept_writer_quality_revision,
     apply_repair_proposal,
@@ -36,6 +40,7 @@ from .audit import (
     augment_fact_ledger_for_report_coverage,
     assess_report_components,
     build_profile_support_registry,
+    build_writer_content_requirements,
     build_writer_evidence_pack,
     compact_json,
     decide_release_status,
@@ -280,16 +285,14 @@ def report_contract_fields(
                 "Participant contrasts",
                 "Scope limitations",
             ],
-            "required_components": [
-                ReportComponent.STRONGEST_RELATIONSHIPS,
-                ReportComponent.LIMITATIONS_NEXT_STEPS,
-            ],
+            "required_components": [],
             "required_content_slots": [
                 "event_result",
                 "event_context",
                 "event_status",
                 "leading_performance",
                 "main_contrast",
+                "scope_limitations",
             ],
             "optional_content_slots": [
                 "secondary_performance",
@@ -416,6 +419,7 @@ def exception_cause_chain(
 def build_compact_writer_payload(
     pack: WriterEvidencePack,
     allow_hypotheses_in_report: bool = False,
+    content_requirements: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     facts_by_id = {
         fact.fact_id: fact
@@ -484,6 +488,9 @@ def build_compact_writer_payload(
         "reader_facing_limitations": (
             pack.reader_facing_limitations
         ),
+        "content_requirements": (
+            content_requirements or {}
+        ),
         "internal_prohibited_interpretations": (
             pack
             .internal_prohibited_interpretations
@@ -528,10 +535,12 @@ def build_compact_insight_payload(
                 for interpretation in fact.prohibited_interpretations
             )
         ),
-        "limits": {
-            "max_insight_candidates": settings.max_insight_candidates,
-            "max_verified_main_insights": (
-                settings.max_verified_main_insights
+        "selection_policy": {
+            "candidate_count": "uncapped",
+            "verified_insight_count": "uncapped",
+            "report_word_ceiling": (
+                plan.report_specification.maximum_length_words
+                or plan.report_specification.target_length_words
             ),
             "min_facts_per_bounded_insight": (
                 settings.min_facts_per_bounded_insight
@@ -551,6 +560,7 @@ def build_writer_quality_revision_prompt(
     current_output: WriterOutput,
     missing_components: list[ReportComponent],
     quality_findings: list[str],
+    content_requirements: dict[str, Any],
     settings: Settings,
 ) -> str:
     used_fact_ids = set(
@@ -561,6 +571,19 @@ def build_writer_quality_revision_prompt(
         fact
         for fact in writer_pack.priority_facts
         if fact.fact_id not in used_fact_ids
+    ]
+    used_insight_ids = {
+        insight_id
+        for support in current_output.sentence_support
+        for insight_id in support.insight_ids
+    }
+    unused_verified_insights = [
+        insight
+        for insight in [
+            *writer_pack.priority_verified_insights,
+            *writer_pack.supporting_verified_insights,
+        ]
+        if insight.insight_id not in used_insight_ids
     ]
 
     current_word_count = len(
@@ -573,6 +596,10 @@ def build_writer_quality_revision_prompt(
     target_words = (
         writer_pack.report_specification
         .target_length_words
+    )
+    maximum_words = (
+        writer_pack.report_specification.maximum_length_words
+        or target_words
     )
 
     minimum_words = min(
@@ -591,13 +618,32 @@ def build_writer_quality_revision_prompt(
             * 45,
         ),
     )
+    event_report = (
+        writer_pack.report_specification.genre
+        in {
+            ReportGenre.EVENT_REPORT,
+            ReportGenre.SPORTS_GAME_REPORT,
+        }
+    )
+    writing_goal = (
+        "event-report writing"
+        if event_report
+        else "data-science writing"
+    )
+    component_guidance = (
+        "required event result, context, performance, contrast, and scope slots"
+        if event_report
+        else "required dataset overview, quality, relationship, and limitation components"
+    )
 
     return (
         "Revise the complete report once for task fulfilment and natural "
-        "data-science writing before factual audit.\n\n"
+        f"{writing_goal} before factual audit.\n\n"
         "This is a Writer quality revision, not a factual repair.\n\n"
         "Do not merely rephrase the existing short report.\n"
-        "Use the unused verified priority facts to cover missing sections.\n"
+        "Use unused verified facts and insights to cover missing sections and "
+        "add non-duplicative synthesis.\n"
+        f"Do not exceed {maximum_words} words.\n"
         "Do not invent calculations or facts.\n"
         "Do not calculate statistics.\n"
         "Do not introduce new numbers, entities, categories, metadata, "
@@ -606,7 +652,7 @@ def build_writer_quality_revision_prompt(
         "Do not expose internal control fields such as Finding:, Strength:, "
         "Important Note:, Interpretation Notes:, Recommended Use:, or Global "
         "Prohibited Interpretations.\n"
-        "Use natural data-science prose and consolidate shared caveats.\n"
+        f"Use {writing_goal} and consolidate shared caveats.\n"
         "Prefer strong and moderate evidence over small effects.\n"
         "Preserve each supplied qualitative strength classification exactly "
         "and consistently.\n"
@@ -618,8 +664,13 @@ def build_writer_quality_revision_prompt(
         "Every factual sentence must list its supporting fact IDs.\n\n"
         f"Current word count: {current_word_count}\n"
         f"Minimum useful word count: {minimum_words}\n"
+        f"Maximum word count: {maximum_words}\n"
         f"Available priority facts: {len(writer_pack.priority_facts)}\n"
         f"Unused priority facts: {len(unused_priority_facts)}\n\n"
+        f"Unused verified insights: {len(unused_verified_insights)}\n\n"
+        "Controller-enforced content requirements:\n"
+        + compact_json(content_requirements)
+        + "\n\n"
         "Missing components:\n"
         + (
             "\n".join(
@@ -639,12 +690,16 @@ def build_writer_quality_revision_prompt(
             else "- None"
         )
         + "\n\nUnused verified priority facts:\n"
+        + f"\nUse verified support to cover the {component_guidance}.\n"
         + compact_json(unused_priority_facts)
+        + "\n\nUnused verified insights:\n"
+        + compact_json(unused_verified_insights)
         + "\n\nCompact Writer evidence pack:\n"
         + compact_json(
             build_compact_writer_payload(
                 writer_pack,
                 settings.allow_hypotheses_in_report,
+                content_requirements,
             )
         )
         + "\n\nCurrent Writer output:\n"
@@ -1339,20 +1394,17 @@ class Table2TextWorkflow:
                 "selection_source": selection_source,
                 "selection_confidence": selection_confidence,
                 "target_length_words": (
-                    min(
-                        plan.report_specification.target_length_words,
-                        450,
-                    )
-                    if selected_genre in EVENT_GENRES
-                    else plan.report_specification.target_length_words
+                    plan.report_specification.target_length_words
+                ),
+                "maximum_length_words": (
+                    self.settings.writer_max_words
+                    or plan.report_specification.target_length_words
                 ),
                 "maximum_main_findings": (
-                    min(
-                        plan.report_specification.maximum_main_findings,
-                        6,
-                    )
-                    if selected_genre in EVENT_GENRES
-                    else plan.report_specification.maximum_main_findings
+                    self.settings.writer_max_main_findings
+                ),
+                "maximum_supporting_facts": (
+                    self.settings.writer_supporting_fact_limit
                 ),
                 "required_components": list(
                     dict.fromkeys(
@@ -1388,6 +1440,7 @@ class Table2TextWorkflow:
                     plan.revision_limit,
                     self.settings.max_revision_rounds,
                 ),
+                "maximum_facts": None,
                 "insight_objectives": (
                     plan.insight_objectives
                     if self.settings.enable_insight_synthesis
@@ -1406,6 +1459,22 @@ class Table2TextWorkflow:
             capabilities=capabilities,
             genre=selected_genre,
         )
+        if (
+            selected_genre in EVENT_GENRES
+            and semantic_map is not None
+            and semantic_map.bindings
+        ):
+            plan = plan.model_copy(
+                update={
+                    "evidence_queries": normalise_event_evidence_queries(
+                        queries=plan.evidence_queries,
+                        semantic_map=semantic_map,
+                        tasks=plan.tasks,
+                        available_capabilities=set(capabilities),
+                        request=request,
+                    )
+                }
+            )
         manifest = manifest.model_copy(
             update={"report_genre": selected_genre}
         )
@@ -1434,8 +1503,15 @@ class Table2TextWorkflow:
             prompt=(
                 "Create atomic fact candidates from this rich evidence ledger.\n\n"
                 + compact_json(evidence_ledger)
-                + "\n\nMaximum facts:\n"
-                + str(plan.maximum_facts)
+                + "\n\nFact selection policy:\n"
+                + (
+                    "Retain every distinct, writer-eligible supported fact."
+                    if plan.maximum_facts is None
+                    else (
+                        "Retain no more than "
+                        f"{plan.maximum_facts} facts."
+                    )
+                )
             ),
             dependencies=AgentDependencies(
                 run_id=run_id,
@@ -1518,6 +1594,10 @@ class Table2TextWorkflow:
                 required_components=(
                     plan.report_specification
                     .required_components
+                ),
+                required_content_slots=(
+                    plan.report_specification
+                    .required_content_slots
                 ),
                 settings=self.settings,
             )
@@ -1730,37 +1810,268 @@ class Table2TextWorkflow:
                             )
                         )
 
+                        verification_notes: list[str] = []
+                        valid_records = []
+                        unresolved_candidates = list(
+                            insight_candidates.candidates
+                        )
+
                         if verifier_error is not None:
-                            insight_ledger = empty_insight_ledger(
-                                synthesis_enabled=True,
-                                fallback_reason=(
-                                    "Fact Verifier second-pass insight review "
-                                    f"failed: {verifier_error}"
-                                ),
+                            verification_notes.append(
+                                "Batch insight verification failed: "
+                                + verifier_error
                             )
                         else:
                             try:
-                                insight_verification = (
+                                batch_verification = (
                                     InsightVerificationResult.model_validate(
                                         raw_insight_verification
                                     )
                                 )
-                                insight_ledger = materialise_insight_ledger(
-                                    candidates=insight_candidates,
-                                    verification=insight_verification,
-                                    fact_ledger=genre_scoped_fact_ledger,
-                                    evidence_ledger=evidence_ledger,
-                                    settings=self.settings,
+                            except Exception as error:
+                                verification_notes.append(
+                                    "Batch insight verification could not be "
+                                    "parsed: "
+                                    f"{type(error).__name__}: {error}"
+                                )
+                            else:
+                                batch_errors = validate_insight_verification(
+                                    batch_verification,
+                                    insight_candidates,
+                                    genre_scoped_fact_ledger,
+                                    evidence_ledger,
+                                    self.settings,
+                                    plan.report_specification.genre,
+                                )
+                                verification_notes.extend(batch_errors)
+                                unresolved_ids = {
+                                    candidate.insight_id
+                                    for candidate
+                                    in insight_candidates.candidates
+                                    if any(
+                                        candidate.insight_id in error
+                                        for error in batch_errors
+                                    )
+                                    or sum(
+                                        record.insight_id
+                                        == candidate.insight_id
+                                        for record
+                                        in batch_verification.records
+                                    )
+                                    != 1
+                                }
+                                valid_records = [
+                                    record
+                                    for record in batch_verification.records
+                                    if record.insight_id
+                                    not in unresolved_ids
+                                    and record.insight_id
+                                    in {
+                                        candidate.insight_id
+                                        for candidate
+                                        in insight_candidates.candidates
+                                    }
+                                ]
+                                unresolved_candidates = [
+                                    candidate
+                                    for candidate
+                                    in insight_candidates.candidates
+                                    if candidate.insight_id in unresolved_ids
+                                ]
+                                verification_notes.extend(
+                                    batch_verification.verifier_notes
+                                )
+
+                        for retry_index, candidate in enumerate(
+                            unresolved_candidates,
+                            start=1,
+                        ):
+                            candidate_set = InsightCandidateSet(
+                                candidates=[candidate]
+                            )
+                            candidate_fact_ids = set(
+                                candidate.source_fact_ids
+                            )
+                            candidate_facts = [
+                                fact
+                                for fact
+                                in genre_scoped_fact_ledger.writer_ready_facts
+                                if fact.fact_id in candidate_fact_ids
+                            ]
+                            candidate_evidence_ids = {
+                                evidence_id
+                                for fact in candidate_facts
+                                for evidence_id in fact.evidence_ids
+                            }
+                            candidate_evidence_ids.update(
+                                candidate.source_evidence_ids
+                            )
+                            candidate_evidence = [
+                                item
+                                for item in evidence_ledger.items
+                                if item.evidence_id
+                                in candidate_evidence_ids
+                            ]
+                            retry_output, retry_error = (
+                                await self.run_optional_insight_agent(
+                                    stage=(
+                                        "verifier.insight_verification.retry."
+                                        f"{retry_index:03d}"
+                                    ),
+                                    agent=(
+                                        self
+                                        .verifier_insight_verification_agent
+                                    ),
+                                    prompt=(
+                                        "Review this one bounded insight "
+                                        "candidate independently. Return "
+                                        "exactly one verification record."
+                                        "\n\nCandidate:\n"
+                                        + compact_json(candidate_set)
+                                        + "\n\nWriter-ready facts:\n"
+                                        + compact_json(candidate_facts)
+                                        + "\n\nReferenced deterministic "
+                                        "evidence:\n"
+                                        + compact_json(candidate_evidence)
+                                        + "\n\nReport specification:\n"
+                                        + compact_json(
+                                            plan.report_specification
+                                        )
+                                    ),
+                                    dependencies=AgentDependencies(
+                                        run_id=run_id,
+                                        payload={
+                                            "insight_candidates": (
+                                                candidate_set.model_dump(
+                                                    mode="json"
+                                                )
+                                            ),
+                                            "fact_ledger": (
+                                                genre_scoped_fact_ledger
+                                                .model_dump(mode="json")
+                                            ),
+                                            "evidence_ledger": (
+                                                evidence_ledger.model_dump(
+                                                    mode="json"
+                                                )
+                                            ),
+                                        },
+                                    ),
+                                    store=store,
+                                )
+                            )
+                            if retry_error is not None:
+                                verification_notes.append(
+                                    f"{candidate.insight_id} verification "
+                                    f"retry failed: {retry_error}"
+                                )
+                                continue
+
+                            try:
+                                retry_verification = (
+                                    InsightVerificationResult.model_validate(
+                                        retry_output
+                                    )
                                 )
                             except Exception as error:
-                                insight_ledger = empty_insight_ledger(
-                                    synthesis_enabled=True,
-                                    fallback_reason=(
-                                        "Deterministic Insight Ledger "
-                                        "materialisation failed: "
-                                        f"{type(error).__name__}: {error}"
-                                    ),
+                                verification_notes.append(
+                                    f"{candidate.insight_id} verification "
+                                    "retry could not be parsed: "
+                                    f"{type(error).__name__}: {error}"
                                 )
+                                continue
+
+                            retry_errors = validate_insight_verification(
+                                retry_verification,
+                                candidate_set,
+                                genre_scoped_fact_ledger,
+                                evidence_ledger,
+                                self.settings,
+                                plan.report_specification.genre,
+                            )
+                            matching_records = [
+                                record
+                                for record
+                                in retry_verification.records
+                                if record.insight_id
+                                == candidate.insight_id
+                            ]
+                            if retry_errors or len(matching_records) != 1:
+                                verification_notes.extend(retry_errors)
+                                if len(matching_records) != 1:
+                                    verification_notes.append(
+                                        f"{candidate.insight_id} verification "
+                                        "retry did not return exactly one "
+                                        "matching record."
+                                    )
+                                continue
+
+                            valid_records.append(matching_records[0])
+                            verification_notes = [
+                                note
+                                for note in verification_notes
+                                if candidate.insight_id not in note
+                            ]
+                            verification_notes.append(
+                                f"{candidate.insight_id} was recovered by "
+                                "individual verification."
+                            )
+                            verification_notes.extend(
+                                retry_verification.verifier_notes
+                            )
+
+                        if len(valid_records) == len(
+                            insight_candidates.candidates
+                        ):
+                            verification_notes = [
+                                note
+                                for note in verification_notes
+                                if not note.startswith(
+                                    "Batch insight verification"
+                                )
+                            ]
+
+                        insight_verification = InsightVerificationResult(
+                            records=valid_records,
+                            verifier_notes=list(
+                                dict.fromkeys(verification_notes)
+                            ),
+                        )
+                        try:
+                            insight_ledger = materialise_insight_ledger(
+                                candidates=insight_candidates,
+                                verification=insight_verification,
+                                fact_ledger=genre_scoped_fact_ledger,
+                                evidence_ledger=evidence_ledger,
+                                settings=self.settings,
+                                report_genre=(
+                                    plan.report_specification.genre
+                                ),
+                            )
+                            if (
+                                not insight_ledger.verified_insights
+                                and insight_ledger.unverified_insights
+                                and not insight_ledger.rejected_insights
+                            ):
+                                insight_ledger = insight_ledger.model_copy(
+                                    update={
+                                        "fallback_reason": (
+                                            "No insight candidate received a "
+                                            "usable verifier review; the "
+                                            "Writer continued with verified "
+                                            "facts."
+                                        )
+                                    }
+                                )
+                        except Exception as error:
+                            insight_ledger = empty_insight_ledger(
+                                synthesis_enabled=True,
+                                fallback_reason=(
+                                    "Deterministic Insight Ledger "
+                                    "materialisation failed: "
+                                    f"{type(error).__name__}: {error}"
+                                ),
+                            )
 
         store.save_json(
             "07_insight_candidates.json",
@@ -1779,7 +2090,7 @@ class Table2TextWorkflow:
             "completed" if insight_ledger.fallback_reason is None else "fallback",
             {
                 "synthesis_enabled": insight_ledger.synthesis_enabled,
-                "verified_main_insight_count": len(
+                "verified_insight_count": len(
                     insight_ledger.verified_insights
                 ),
                 "hypothesis_only_count": len(
@@ -1787,6 +2098,9 @@ class Table2TextWorkflow:
                 ),
                 "rejected_count": len(
                     insight_ledger.rejected_insights
+                ),
+                "unverified_count": len(
+                    insight_ledger.unverified_insights
                 ),
                 "fallback_reason": insight_ledger.fallback_reason,
             },
@@ -1804,10 +2118,24 @@ class Table2TextWorkflow:
             available_capabilities=capabilities,
         )
         store.save_json("08_writer_evidence_pack.json", writer_pack)
+        writer_content_requirements = build_writer_content_requirements(
+            report_specification=plan.report_specification,
+            fact_ledger=genre_scoped_fact_ledger,
+            evidence=evidence_ledger,
+            insight_ledger=writer_pack.insight_ledger,
+            settings=self.settings,
+        )
+        store.save_json(
+            "08_writer_content_requirements.json",
+            writer_content_requirements,
+        )
 
         writer_prompt = (
             "Write the final report for the selected report contract from the "
             "compact verified-fact package below.\n\n"
+            "The `content_requirements` field is a controller-enforced "
+            "coverage checklist. Use the required supported items and meet "
+            "the minimum useful word count when it is enforced.\n\n"
             "Return structured sections and sentences. Do not return "
             "a Markdown field or construct a separate support map; the "
             "controller will create both deterministically.\n\n"
@@ -1815,6 +2143,7 @@ class Table2TextWorkflow:
                 build_compact_writer_payload(
                     writer_pack,
                     self.settings.allow_hypotheses_in_report,
+                    writer_content_requirements,
                 )
             )
         )
@@ -1844,6 +2173,13 @@ class Table2TextWorkflow:
                         "report_genre": plan.report_specification.genre.value,
                         "report_perspective": (
                             plan.report_specification.perspective.value
+                        ),
+                        "maximum_length_words": (
+                            plan.report_specification.maximum_length_words
+                            or plan.report_specification.target_length_words
+                        ),
+                        "writer_content_requirements": (
+                            writer_content_requirements
                         ),
                     },
                 ),
@@ -1968,7 +2304,8 @@ class Table2TextWorkflow:
         quality_revised_writer_output: WriterOutput | None = None
         needs_quality_revision = (
             bool(missing_components)
-            or initial_quality_audit.quality_assessment.status == QualityStatus.REVISE
+            or initial_quality_audit.quality_assessment.status
+            != QualityStatus.PASS
             or initial_genre_quality.status == QualityStatus.REVISE
         )
 
@@ -1991,6 +2328,9 @@ class Table2TextWorkflow:
                             *initial_quality_audit.quality_assessment.findings,
                             *initial_genre_quality.findings,
                         ]
+                    ),
+                    content_requirements=(
+                        writer_content_requirements
                     ),
                     settings=self.settings,
                 ),
@@ -2015,6 +2355,13 @@ class Table2TextWorkflow:
                         ),
                         "report_perspective": (
                             plan.report_specification.perspective.value
+                        ),
+                        "maximum_length_words": (
+                            plan.report_specification.maximum_length_words
+                            or plan.report_specification.target_length_words
+                        ),
+                        "writer_content_requirements": (
+                            writer_content_requirements
                         ),
                     },
                 ),

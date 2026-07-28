@@ -15,13 +15,17 @@ from table2text.audit import (
     apply_support_map_patches,
     assess_genre_quality,
     build_profile_support_registry,
+    build_writer_content_requirements,
     build_writer_evidence_pack,
+    content_requirement_errors,
     decide_release_status,
     deterministic_audit,
     fallback_writer,
     materialise_writer_output,
     merge_quality_assessments,
     merge_audit_proposal,
+    select_priority_verified_insights,
+    sentence_support_narrative_stats,
     split_markdown_sentences,
     validate_repair_candidate,
     validate_writer_output,
@@ -53,12 +57,13 @@ from table2text.schemas import (
     FactLedger,
     InsightCandidate,
     InsightCandidateSet,
+    InsightContribution,
     InsightLedger,
+    InsightVerificationStatus,
     InsightRejection,
     InsightType,
     InsightVerificationRecord,
     InsightVerificationResult,
-    InsightVerificationStatus,
     InvestigationTask,
     InputRepresentationStatus,
     InputShape,
@@ -541,6 +546,170 @@ def test_approximate_number_is_allowed():
     )
 
     assert audit.decision == AuditDecision.PASS
+
+
+def _supporting_fact_budget_fixture(
+    count: int,
+) -> tuple[FactLedger, EvidenceLedger, list[str], list[str]]:
+    evidence_items: list[EvidenceItem] = []
+    facts: list[VerifiedFact] = []
+
+    for index in range(count):
+        evidence_id = f"EVD_BUDGET_{index:04d}"
+        fact_id = f"FACT_BUDGET_{index:04d}"
+        evidence_items.append(
+            EvidenceItem(
+                evidence_id=evidence_id,
+                route=AnalysisRoute.DESCRIPTIVE,
+                task_ids=["TASK_BUDGET"],
+                capability=EvidenceCapability.DATASET_PROFILE,
+                evidence_type="supporting_context",
+                finding="Verified source evidence supports the summary.",
+                method="Synthetic regression fixture.",
+                practical_interpretation=(
+                    "The evidence can be used as support for reader-facing prose."
+                ),
+                strength_label="direct",
+                claim_permissions=[ClaimPermission.DESCRIPTIVE],
+                factual_confidence=1.0,
+                methodological_strength=1.0,
+                user_relevance=1.0,
+                salience=1.0,
+                recommended_use=RecommendedUse.SUPPORTING_DETAIL,
+            )
+        )
+        facts.append(
+            VerifiedFact(
+                fact_id=fact_id,
+                source_candidate_id=f"CAN_{fact_id}",
+                fact_summary=(
+                    "Verified source evidence supports the summary."
+                ),
+                evidence_ids=[evidence_id],
+                source_capabilities=[
+                    EvidenceCapability.DATASET_PROFILE,
+                ],
+                claim_permissions=[ClaimPermission.DESCRIPTIVE],
+                factual_confidence=1.0,
+                methodological_strength=1.0,
+                user_relevance=1.0,
+                salience=1.0,
+                recommended_use=RecommendedUse.SUPPORTING_DETAIL,
+            )
+        )
+
+    return (
+        FactLedger(writer_ready_facts=facts),
+        EvidenceLedger(
+            fingerprint="support-budget",
+            items=evidence_items,
+        ),
+        [fact.fact_id for fact in facts],
+        [item.evidence_id for item in evidence_items],
+    )
+
+
+def test_report_facts_are_uncapped_by_default():
+    ledger, evidence, fact_ids, evidence_ids = (
+        _supporting_fact_budget_fixture(12)
+    )
+    sentence = (
+        "Verified source evidence supports a focused reader summary with "
+        "enough detail to connect context, evidence, and limitations clearly"
+    )
+    sentence_count = 9
+    markdown = "# Supported Summary\n\n" + " ".join(
+        f"{sentence}."
+        for _ in range(sentence_count)
+    )
+    support = [
+        SentenceSupport(
+            sentence_id=f"SENT_BUDGET_{index:04d}",
+            sentence_text=sentence + ".",
+            fact_ids=fact_ids,
+            evidence_ids=evidence_ids,
+            support_type=SupportType.PARAPHRASE,
+        )
+        for index in range(sentence_count)
+    ]
+    output = WriterOutput(
+        title="Supported Summary",
+        markdown=markdown,
+        sentence_support=support,
+        selected_fact_ids=fact_ids,
+    )
+    spec = ReportSpecification(
+        report_purpose="Test uncapped fact selection.",
+        target_length_words=150,
+        prioritisation_rule="Use supported facts within the word ceiling.",
+    )
+
+    audit = deterministic_audit(
+        output,
+        ledger,
+        evidence,
+        AuditMode.INTERNAL,
+        [],
+        0,
+        spec,
+        Settings(),
+    )
+
+    assert not any(
+        "fact budget" in finding
+        for finding in audit.quality_assessment.findings
+    )
+
+
+def test_report_word_ceiling_is_enforced():
+    ledger, evidence, fact_ids, evidence_ids = (
+        _supporting_fact_budget_fixture(2)
+    )
+    sentence = (
+        "Verified source evidence supports a focused reader summary with "
+        "enough detail to connect context and evidence clearly."
+    )
+    markdown = "# Supported Summary\n\n" + " ".join(
+        f"{sentence}."
+        for _ in range(15)
+    )
+    output = WriterOutput(
+        title="Supported Summary",
+        markdown=markdown,
+        sentence_support=[
+            SentenceSupport(
+                sentence_id=f"SENT_WORDS_{index:04d}",
+                sentence_text=sentence + ".",
+                fact_ids=fact_ids,
+                evidence_ids=evidence_ids,
+                support_type=SupportType.PARAPHRASE,
+            )
+            for index in range(15)
+        ],
+        selected_fact_ids=fact_ids,
+    )
+    spec = ReportSpecification(
+        report_purpose="Test report word ceiling.",
+        target_length_words=150,
+        maximum_length_words=150,
+        prioritisation_rule="Use supported facts within the word ceiling.",
+    )
+
+    audit = deterministic_audit(
+        output,
+        ledger,
+        evidence,
+        AuditMode.INTERNAL,
+        [],
+        0,
+        spec,
+        Settings(),
+    )
+
+    assert any(
+        "word ceiling" in finding
+        for finding in audit.quality_assessment.findings
+    )
 
 
 def test_wrong_number_triggers_repair():
@@ -1201,6 +1370,223 @@ def test_deterministic_writer_fallback_is_not_primary_evaluation():
 
     assert output.writer_mode == "deterministic_fallback"
     assert not output.eligible_for_primary_evaluation
+
+
+def test_event_writer_content_requirements_are_controller_enforced():
+    def item(
+        evidence_id: str,
+        evidence_type: str,
+        capability: EvidenceCapability,
+        *,
+        route: AnalysisRoute = AnalysisRoute.DESCRIPTIVE,
+    ) -> EvidenceItem:
+        return EvidenceItem(
+            evidence_id=evidence_id,
+            route=route,
+            task_ids=["TASK_EVENT"],
+            capability=capability,
+            evidence_type=evidence_type,
+            finding=f"Supported {evidence_type}.",
+            metrics={"value": evidence_id},
+            source_tables=["event"],
+            source_columns=[evidence_type],
+            method="Validated event evidence.",
+            practical_interpretation="Direct event evidence.",
+            strength_label=evidence_type,
+            claim_permissions=[
+                ClaimPermission.DESCRIPTIVE,
+                ClaimPermission.COMPARATIVE,
+            ],
+            factual_confidence=1.0,
+            methodological_strength=1.0,
+            user_relevance=0.9,
+            salience=0.9,
+            recommended_use=RecommendedUse.MAIN_FINDING,
+        )
+
+    evidence = EvidenceLedger(
+        fingerprint="event-content",
+        items=[
+            item(
+                "EVD_RESULT",
+                "event_outcome",
+                EvidenceCapability.EVENT_OUTCOME,
+            ),
+            item(
+                "EVD_CONTEXT",
+                "event_context",
+                EvidenceCapability.DATASET_PROFILE,
+            ),
+            item(
+                "EVD_RANKING_1",
+                "entity_ranking",
+                EvidenceCapability.RANKING,
+            ),
+            item(
+                "EVD_RANKING_2",
+                "entity_ranking",
+                EvidenceCapability.RANKING,
+            ),
+            item(
+                "EVD_CONTRAST_1",
+                "participant_comparison",
+                EvidenceCapability.GROUP_COMPARISON,
+                route=AnalysisRoute.ASSOCIATION_COMPARISON,
+            ),
+            item(
+                "EVD_CONTRAST_2",
+                "participant_comparison",
+                EvidenceCapability.GROUP_COMPARISON,
+                route=AnalysisRoute.ASSOCIATION_COMPARISON,
+            ),
+        ],
+    )
+    facts = [
+        VerifiedFact(
+            fact_id=f"FACT_{index:04d}",
+            source_candidate_id=f"CAN_{index:04d}",
+            fact_summary=evidence_item.finding,
+            evidence_ids=[evidence_item.evidence_id],
+            source_capabilities=[evidence_item.capability],
+            structured_values={
+                evidence_item.evidence_id: evidence_item.metrics,
+            },
+            entities=["event"],
+            claim_permissions=evidence_item.claim_permissions,
+            allowed_interpretations=[
+                evidence_item.practical_interpretation,
+            ],
+            factual_confidence=1.0,
+            methodological_strength=1.0,
+            user_relevance=0.9,
+            salience=0.9,
+            recommended_use=RecommendedUse.MAIN_FINDING,
+        )
+        for index, evidence_item in enumerate(evidence.items, start=1)
+    ]
+    ledger = FactLedger(writer_ready_facts=facts)
+    insight = VerifiedInsight(
+        insight_id="INS_EVENT_SYNTHESIS",
+        statement=(
+            "The supported result, rankings and participant contrasts form "
+            "a bounded event narrative."
+        ),
+        insight_type=InsightType.NARRATIVE_SUMMARY,
+        interpretation_level=InterpretationLevel.BOUNDED_INSIGHT,
+        source_fact_ids=[fact.fact_id for fact in facts],
+        source_evidence_ids=[
+            item.evidence_id
+            for item in evidence.items
+        ],
+        source_capabilities=[
+            EvidenceCapability.EVENT_OUTCOME,
+            EvidenceCapability.RANKING,
+            EvidenceCapability.GROUP_COMPARISON,
+        ],
+        why_it_matters=(
+            "It connects the event result with rankings and contrasts."
+        ),
+        claim_permissions=[
+            ClaimPermission.DESCRIPTIVE,
+            ClaimPermission.COMPARATIVE,
+        ],
+        confidence=0.95,
+        salience=0.95,
+        verification_status=InsightVerificationStatus.VERIFIED,
+    )
+    spec = ReportSpecification(
+        report_purpose="Write an event report.",
+        genre=ReportGenre.EVENT_REPORT,
+        target_length_words=500,
+        required_components=[],
+        required_content_slots=[
+            "event_result",
+            "event_context",
+            "leading_performance",
+            "main_contrast",
+            "scope_limitations",
+        ],
+        optional_content_slots=[],
+        prioritisation_rule="Use supported event material.",
+    )
+    requirements = build_writer_content_requirements(
+        report_specification=spec,
+        fact_ledger=ledger,
+        evidence=evidence,
+        insight_ledger=InsightLedger(
+            verified_insights=[insight],
+        ),
+        settings=Settings(),
+    )
+
+    assert requirements["enforce_minimum_words"]
+    assert requirements["minimum_word_count"] == 225
+    assert requirements["narrative_requirements"] == {
+        "enforce": True,
+        "minimum_synthesis_sentences": 2,
+        "minimum_insight_sentences": 1,
+        "minimum_connective_sentences": 1,
+        "minimum_scope_limitations": 1,
+    }
+
+    incomplete_errors = content_requirement_errors(
+        used_fact_ids={
+            "FACT_0001",
+            "FACT_0002",
+            "FACT_0003",
+            "FACT_0005",
+        },
+        used_insight_ids=set(),
+        word_count=130,
+        requirements=requirements,
+        narrative_stats={
+            "synthesis_sentences": 0,
+            "insight_sentences": 0,
+            "connective_sentences": 0,
+            "scope_limitation_sentences": 0,
+        },
+    )
+
+    assert any("at least 225 words" in error for error in incomplete_errors)
+    assert any("leading_performance" in error for error in incomplete_errors)
+    assert any("main_contrast" in error for error in incomplete_errors)
+    assert any("multi-fact" in error for error in incomplete_errors)
+    assert any("verified insight-backed" in error for error in incomplete_errors)
+    assert any("event-scoped limitation" in error for error in incomplete_errors)
+
+    narrative_support = [
+        SentenceSupport(
+            sentence_id="SENT_SYNTHESIS_1",
+            sentence_text=(
+                "The result and context frame the supplied event while "
+                "rankings identify the leading participants."
+            ),
+            fact_ids=["FACT_0001", "FACT_0002", "FACT_0003"],
+            evidence_ids=["EVD_RESULT", "EVD_CONTEXT", "EVD_RANKING_1"],
+            insight_ids=["INS_EVENT_SYNTHESIS"],
+            interpretation_level=InterpretationLevel.BOUNDED_INSIGHT,
+            support_type=SupportType.MULTI_FACT_SYNTHESIS,
+        ),
+        SentenceSupport(
+            sentence_id="SENT_SYNTHESIS_2",
+            sentence_text=(
+                "Participant contrasts describe the supplied event only "
+                "and do not establish why the result occurred."
+            ),
+            fact_ids=["FACT_0005", "FACT_0006"],
+            evidence_ids=["EVD_CONTRAST_1", "EVD_CONTRAST_2"],
+            support_type=SupportType.MULTI_FACT_SYNTHESIS,
+        ),
+    ]
+    assert not content_requirement_errors(
+        used_fact_ids={fact.fact_id for fact in facts},
+        used_insight_ids={insight.insight_id},
+        word_count=230,
+        requirements=requirements,
+        narrative_stats=sentence_support_narrative_stats(
+            narrative_support
+        ),
+    )
 
 
 def test_writer_materialisation_maps_each_compound_sentence_fragment():
@@ -2600,19 +2986,46 @@ def test_insight_configuration_defaults_and_validation():
     settings = Settings()
 
     assert settings.enable_insight_synthesis
-    assert settings.max_insight_candidates == 6
-    assert settings.max_verified_main_insights == 4
+    assert settings.max_insight_candidates is None
+    assert settings.max_verified_main_insights is None
+    assert settings.writer_max_main_findings is None
+    assert settings.writer_priority_fact_limit is None
+    assert settings.writer_supporting_fact_limit is None
 
     with pytest.raises(ValueError):
         replace(settings, max_insight_candidates=0)
     with pytest.raises(ValueError):
-        replace(settings, max_verified_main_insights=7)
+        replace(
+            settings,
+            max_insight_candidates=6,
+            max_verified_main_insights=7,
+        )
     with pytest.raises(ValueError):
         replace(settings, min_insight_confidence=1.1)
     with pytest.raises(ValueError):
         replace(settings, min_insight_salience=-0.1)
     with pytest.raises(ValueError):
         replace(settings, min_facts_per_bounded_insight=0)
+
+
+def test_verified_insight_selection_is_uncapped_by_default():
+    insights = [
+        _verified_insight(
+            _insight_candidate(
+                insight_id=f"INSIGHT_UNCAPPED_{index:02d}",
+                salience=0.95 - index * 0.01,
+            )
+        )
+        for index in range(7)
+    ]
+
+    priority, supporting = select_priority_verified_insights(
+        insight_ledger=InsightLedger(verified_insights=insights),
+        maximum=None,
+    )
+
+    assert len(priority) == 7
+    assert supporting == []
 
 
 def test_fallback_plan_freezes_questions_and_genre_defaults():
@@ -2794,6 +3207,137 @@ def test_single_fact_pseudo_insight_rejected_but_anomaly_allowed():
     )
 
 
+def test_single_fact_event_ranking_can_be_event_synthesis():
+    evidence = EvidenceLedger(
+        fingerprint="event-insight-test",
+        items=[
+            EvidenceItem(
+                evidence_id="EVD_EVENT_RANKING",
+                route=AnalysisRoute.DESCRIPTIVE,
+                task_ids=["TASK_EVENT"],
+                capability=EvidenceCapability.RANKING,
+                evidence_type="entity_ranking",
+                finding=(
+                    "The leading recorded assists performances were: "
+                    "Ben Simmons recorded 6."
+                ),
+                metrics={
+                    "metric": "assists",
+                    "ranking": [
+                        {
+                            "rank": 1,
+                            "entity": "Ben Simmons",
+                            "value": 6,
+                        }
+                    ],
+                },
+                source_tables=["event"],
+                source_columns=["assists"],
+                method="Validated structured-event extraction.",
+                practical_interpretation=(
+                    "This ranks entities by the observed event metric."
+                ),
+                strength_label="entity_ranking",
+                claim_permissions=[
+                    ClaimPermission.DESCRIPTIVE,
+                    ClaimPermission.COMPARATIVE,
+                ],
+                factual_confidence=1.0,
+                methodological_strength=1.0,
+                user_relevance=0.9,
+                salience=0.9,
+                recommended_use=RecommendedUse.MAIN_FINDING,
+            )
+        ],
+    )
+    ledger = FactLedger(
+        writer_ready_facts=[
+            VerifiedFact(
+                fact_id="FACT_EVENT_RANKING",
+                source_candidate_id="CAN_EVENT_RANKING",
+                fact_summary=evidence.items[0].finding,
+                evidence_ids=["EVD_EVENT_RANKING"],
+                structured_values={
+                    "EVD_EVENT_RANKING": evidence.items[0].metrics,
+                },
+                entities=["event", "assists", "Ben Simmons"],
+                claim_permissions=[
+                    ClaimPermission.DESCRIPTIVE,
+                    ClaimPermission.COMPARATIVE,
+                ],
+                allowed_interpretations=[
+                    evidence.items[0].practical_interpretation,
+                ],
+                factual_confidence=1.0,
+                methodological_strength=1.0,
+                user_relevance=0.9,
+                salience=0.9,
+                recommended_use=RecommendedUse.MAIN_FINDING,
+            )
+        ]
+    )
+    candidate = InsightCandidate(
+        insight_id="INS_EVENT_RANKING",
+        statement="Ben Simmons led the recorded assists ranking with 6.",
+        insight_type=InsightType.DOMINANT_PATTERN,
+        interpretation_level=InterpretationLevel.BOUNDED_INSIGHT,
+        contribution=InsightContribution.EVENT_SYNTHESIS,
+        source_fact_ids=["FACT_EVENT_RANKING"],
+        source_evidence_ids=["EVD_EVENT_RANKING"],
+        why_it_matters=None,
+        supporting_summary="The ranking fact records Ben Simmons at 6 assists.",
+        alternative_explanations=[],
+        limitations=[],
+        claim_permissions=[
+            ClaimPermission.DESCRIPTIVE,
+            ClaimPermission.COMPARATIVE,
+        ],
+        confidence=1.0,
+        salience=0.9,
+        suitable_for_main_report=True,
+    )
+    candidate_set = InsightCandidateSet(candidates=[candidate])
+    verification = InsightVerificationResult(
+        records=[
+            InsightVerificationRecord(
+                insight_id="INS_EVENT_RANKING",
+                status=InsightVerificationStatus.VERIFIED,
+                confidence=1.0,
+                salience=0.9,
+                adds_bounded_synthesis=False,
+                analytical_implication_supported=False,
+                contains_hypothesis=False,
+            )
+        ]
+    )
+
+    assert not validate_insight_candidates(
+        candidate_set,
+        ledger,
+        evidence,
+        Settings(),
+        ReportGenre.EVENT_REPORT,
+    )
+    assert any(
+        "single-fact pseudo-insight" in error
+        for error in validate_insight_candidates(
+            candidate_set,
+            ledger,
+            evidence,
+            Settings(),
+            ReportGenre.DATA_SCIENCE_REPORT,
+        )
+    )
+    assert not validate_insight_verification(
+        verification,
+        candidate_set,
+        ledger,
+        evidence,
+        Settings(),
+        ReportGenre.EVENT_REPORT,
+    )
+
+
 def test_causal_escalation_is_rejected():
     ledger, evidence = _insight_fixture()
     causal = _insight_candidate(
@@ -2887,6 +3431,132 @@ def test_insight_verifier_must_confirm_synthesis_and_implication():
     )
 
 
+def test_event_insight_does_not_require_analytical_implication():
+    ledger, evidence = _insight_fixture()
+    candidate = _insight_candidate().model_copy(
+        update={
+            "contribution": InsightContribution.EVENT_SYNTHESIS,
+            "why_it_matters": None,
+        }
+    )
+    candidates = InsightCandidateSet(candidates=[candidate])
+    verification = InsightVerificationResult(
+        records=[
+            InsightVerificationRecord(
+                insight_id=candidate.insight_id,
+                status=InsightVerificationStatus.VERIFIED,
+                confidence=0.9,
+                salience=0.9,
+                adds_bounded_synthesis=True,
+                analytical_implication_supported=False,
+                contains_hypothesis=False,
+            )
+        ]
+    )
+
+    analytical_errors = validate_insight_candidates(
+        candidates,
+        ledger,
+        evidence,
+        Settings(),
+        ReportGenre.DATA_SCIENCE_REPORT,
+    )
+    event_errors = validate_insight_candidates(
+        candidates,
+        ledger,
+        evidence,
+        Settings(),
+        ReportGenre.EVENT_REPORT,
+    )
+
+    assert any(
+        "lacks an analytical implication" in error
+        for error in analytical_errors
+    )
+    assert not event_errors
+    assert not validate_insight_verification(
+        verification,
+        candidates,
+        ledger,
+        evidence,
+        Settings(),
+        ReportGenre.EVENT_REPORT,
+    )
+
+    result = materialise_insight_ledger(
+        candidates=candidates,
+        verification=verification,
+        fact_ledger=ledger,
+        evidence_ledger=evidence,
+        settings=Settings(),
+        report_genre=ReportGenre.EVENT_REPORT,
+    )
+
+    assert [item.insight_id for item in result.verified_insights] == [
+        candidate.insight_id
+    ]
+    assert result.verified_insights[0].contribution == (
+        InsightContribution.EVENT_SYNTHESIS
+    )
+    assert result.verified_insights[0].why_it_matters is None
+
+
+def test_invalid_verifier_record_does_not_drop_valid_insight():
+    ledger, evidence = _insight_fixture()
+    valid_candidate = _insight_candidate(
+        insight_id="INSIGHT_VALID",
+    )
+    unresolved_candidate = _insight_candidate(
+        insight_id="INSIGHT_UNRESOLVED",
+        statement=(
+            "The two verified summaries provide a second distinct bounded "
+            "view of the association in this dataset."
+        ),
+        insight_type=InsightType.REDUNDANCY,
+    )
+    candidates = InsightCandidateSet(
+        candidates=[valid_candidate, unresolved_candidate]
+    )
+    verification = InsightVerificationResult(
+        records=[
+            InsightVerificationRecord(
+                insight_id=valid_candidate.insight_id,
+                status=InsightVerificationStatus.VERIFIED,
+                confidence=0.9,
+                salience=0.9,
+                adds_bounded_synthesis=True,
+                analytical_implication_supported=True,
+                contains_hypothesis=False,
+            ),
+            InsightVerificationRecord(
+                insight_id=unresolved_candidate.insight_id,
+                status=InsightVerificationStatus.VERIFIED,
+                confidence=0.9,
+                salience=0.8,
+                adds_bounded_synthesis=False,
+                analytical_implication_supported=False,
+                contains_hypothesis=False,
+            ),
+        ]
+    )
+
+    result = materialise_insight_ledger(
+        candidates=candidates,
+        verification=verification,
+        fact_ledger=ledger,
+        evidence_ledger=evidence,
+        settings=Settings(),
+    )
+
+    assert [item.insight_id for item in result.verified_insights] == [
+        valid_candidate.insight_id
+    ]
+    assert [item.insight_id for item in result.unverified_insights] == [
+        unresolved_candidate.insight_id
+    ]
+    assert not result.rejected_insights
+
+
 def test_hypotheses_remain_separate_under_both_policies():
     ledger, evidence = _insight_fixture()
     candidate = _insight_candidate(
@@ -2938,7 +3608,7 @@ def test_hypotheses_remain_separate_under_both_policies():
         ] == ["INSIGHT_HYP"]
 
 
-def test_insight_ledger_materialisation_applies_status_threshold_order_and_limit():
+def test_insight_ledger_materialisation_retains_all_eligible_insights():
     ledger, evidence = _insight_fixture()
     first = _insight_candidate(
         insight_id="INSIGHT_FIRST",
@@ -3018,7 +3688,7 @@ def test_insight_ledger_materialisation_applies_status_threshold_order_and_limit
     assert [
         insight.insight_id
         for insight in result.verified_insights
-    ] == ["INSIGHT_FIRST"]
+    ] == ["INSIGHT_FIRST", "INSIGHT_SECOND"]
     assert result.verified_insights[0].verification_status == (
         InsightVerificationStatus.VERIFIED_WITH_CAVEAT
     )
@@ -3026,7 +3696,7 @@ def test_insight_ledger_materialisation_applies_status_threshold_order_and_limit
     assert {
         rejection.insight_id
         for rejection in result.rejected_insights
-    } == {"INSIGHT_SECOND", "INSIGHT_REJECTED"}
+    } == {"INSIGHT_REJECTED"}
 
 
 def test_writer_payload_contains_only_writer_eligible_insights():
@@ -4048,6 +4718,18 @@ def _write_nested_event(tmp_path, reference_text: str):
     return path
 
 
+def _stringify_numbers(value):
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, int | float):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _stringify_numbers(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_stringify_numbers(item) for item in value]
+    return value
+
+
 def test_nested_event_is_one_record_and_explicit_reference_is_held_out(
     tmp_path,
 ):
@@ -4078,6 +4760,77 @@ def test_nested_event_is_one_record_and_explicit_reference_is_held_out(
         },
         default=str,
     )
+
+
+def test_root_evaluation_policy_keeps_full_operational_payload(tmp_path):
+    reference_text = "REFERENCE SENTINEL " * 80
+    path = _write_nested_event(tmp_path, reference_text)
+
+    bundle = load_data(
+        [path],
+        evaluation_field_policy=EvaluationFieldPolicy(
+            operational_input_paths=["$"],
+            held_out_reference_paths=["reference_text"],
+        ),
+    )
+    frame = next(iter(bundle.tables.values()))
+    profile = profile_data(bundle)
+
+    assert len(frame) == 1
+    assert set(frame.columns) == {
+        "event_id",
+        "date",
+        "venue",
+        "overtime",
+        "participants",
+    }
+    assert "reference_text" not in frame.columns
+    assert "participants" in bundle.structured_inputs["nested_event"]
+    assert profile.tables[0].column_count == 5
+
+
+def test_event_capabilities_accept_numeric_strings(tmp_path):
+    path = tmp_path / "numeric_string_event.json"
+    payload = _stringify_numbers(_nested_event_fixture("HELD OUT " * 100))
+    for participant in payload["participants"].values():
+        entities = participant["statistics"]["entities"]
+        participant["statistics"]["entities"] = list(entities.values())
+    path.write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+    bundle = load_data(
+        [path],
+        evaluation_field_policy=EvaluationFieldPolicy(
+            operational_input_paths=["$"],
+            held_out_reference_paths=["reference_text"],
+        ),
+    )
+    capabilities = available_capabilities(bundle)
+    profile = profile_data(bundle)
+    plan = fallback_execution_plan(
+        "Write a neutral event report.",
+        profile,
+        AuditMode.INTERNAL,
+        Settings(),
+        input_structure=bundle.input_structure,
+        available_capabilities=capabilities,
+    )
+    evidence = execute_plan(bundle, plan, Settings())
+
+    assert {
+        EvidenceCapability.EVENT_OUTCOME,
+        EvidenceCapability.ENTITY_PERFORMANCE,
+        EvidenceCapability.RANKING,
+        EvidenceCapability.GROUP_COMPARISON,
+    }.issubset(capabilities)
+    outcome = next(
+        item
+        for item in evidence.items
+        if item.evidence_type == "event_outcome"
+    )
+    assert outcome.metrics["winner_score"] == 90
+    assert outcome.metrics["loser_score"] == 80
 
 
 def test_nested_entity_collection_retains_core_tabular_capabilities(
@@ -4301,6 +5054,121 @@ def test_genre_quality_revises_event_report_that_omits_supported_result(
 
     assert assessment.status == QualityStatus.REVISE
     assert "event_result" in assessment.missing_supported_slots
+
+
+def test_genre_quality_revises_event_report_without_narration():
+    def event_item(
+        evidence_id: str,
+        evidence_type: str,
+        capability: EvidenceCapability,
+    ) -> EvidenceItem:
+        return EvidenceItem(
+            evidence_id=evidence_id,
+            route=AnalysisRoute.DESCRIPTIVE,
+            task_ids=["TASK_EVENT"],
+            capability=capability,
+            evidence_type=evidence_type,
+            finding=f"Supported {evidence_type}.",
+            metrics={"value": evidence_id},
+            source_tables=["event"],
+            source_columns=[evidence_type],
+            method="Validated event evidence.",
+            practical_interpretation="Direct event evidence.",
+            strength_label=evidence_type,
+            claim_permissions=[
+                ClaimPermission.DESCRIPTIVE,
+                ClaimPermission.COMPARATIVE,
+            ],
+            factual_confidence=1.0,
+            methodological_strength=1.0,
+            user_relevance=0.9,
+            salience=0.9,
+            recommended_use=RecommendedUse.MAIN_FINDING,
+        )
+
+    evidence = EvidenceLedger(
+        fingerprint="event-narrative",
+        items=[
+            event_item(
+                "EVD_RESULT",
+                "event_outcome",
+                EvidenceCapability.EVENT_OUTCOME,
+            ),
+            event_item(
+                "EVD_RANKING",
+                "entity_ranking",
+                EvidenceCapability.RANKING,
+            ),
+            event_item(
+                "EVD_CONTRAST",
+                "participant_comparison",
+                EvidenceCapability.GROUP_COMPARISON,
+            ),
+        ],
+    )
+    output = WriterOutput(
+        title="Event report",
+        markdown=(
+            "# Event report\n\n"
+            "Alpha defeated Beta 90-80.\n"
+            "Nia led all entities with 20.\n"
+            "Alpha recorded more attempts.\n"
+        ),
+        sentence_support=[
+            SentenceSupport(
+                sentence_id="SENT_0001",
+                sentence_text="Alpha defeated Beta 90-80.",
+                evidence_ids=["EVD_RESULT"],
+                support_type=SupportType.DIRECT,
+            ),
+            SentenceSupport(
+                sentence_id="SENT_0002",
+                sentence_text="Nia led all entities with 20.",
+                evidence_ids=["EVD_RANKING"],
+                support_type=SupportType.DIRECT,
+            ),
+            SentenceSupport(
+                sentence_id="SENT_0003",
+                sentence_text="Alpha recorded more attempts.",
+                evidence_ids=["EVD_CONTRAST"],
+                support_type=SupportType.DIRECT,
+            ),
+        ],
+    )
+    spec = ReportSpecification(
+        report_purpose="Write an event report.",
+        genre=ReportGenre.EVENT_REPORT,
+        target_length_words=250,
+        required_components=[],
+        required_content_slots=[
+            "event_result",
+            "leading_performance",
+            "main_contrast",
+            "scope_limitations",
+        ],
+        optional_content_slots=[],
+        prioritisation_rule="Use supported event material.",
+    )
+
+    assessment = assess_genre_quality(
+        output,
+        spec,
+        evidence,
+    )
+
+    assert assessment.status == QualityStatus.REVISE
+    assert any(
+        "without enough multi-fact" in finding
+        for finding in assessment.findings
+    )
+    assert any(
+        "narrative comparison" in finding
+        for finding in assessment.findings
+    )
+    assert any(
+        "event-scoped limitation" in finding
+        for finding in assessment.findings
+    )
 
 
 def test_event_reference_never_reaches_operational_prompts_or_report(

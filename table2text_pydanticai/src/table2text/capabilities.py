@@ -12,6 +12,7 @@ from .schemas import (
     EvidenceCapability,
     EvidenceOperation,
     EvidenceQuery,
+    InvestigationTask,
     InputSemanticMap,
     InputShape,
     RecommendedUse,
@@ -143,7 +144,511 @@ def participation_measure_requested(request: str) -> bool:
     return bool(PARTICIPATION_REQUEST_PATTERN.search(request))
 
 
+EVENT_RANKING_RESULT_LIMIT = 200
+
+
+def _binding_text(binding_id: str, semantic_map: InputSemanticMap) -> str:
+    binding = next(
+        item
+        for item in semantic_map.bindings
+        if item.binding_id == binding_id
+    )
+    return " ".join(
+        item
+        for item in [
+            binding.label,
+            binding.path_pattern,
+            binding.unit or "",
+        ]
+        if item
+    ).lower()
+
+
+def _measure_priority(
+    binding_id: str,
+    semantic_map: InputSemanticMap,
+) -> float:
+    text = _binding_text(binding_id, semantic_map)
+    priority_terms = [
+        (100.0, ("point", "score", "total")),
+        (90.0, ("goal", "made", "converted")),
+        (80.0, ("assist", "support")),
+        (75.0, ("rebound", "recovery")),
+        (70.0, ("attempt", "opportunit")),
+        (55.0, ("turnover", "error")),
+        (50.0, ("steal", "block", "defen")),
+        (20.0, ("foul", "penalt")),
+        (-100.0, ("second", "minute", "duration", "time played", "sec")),
+    ]
+    score = 0.0
+    for value, terms in priority_terms:
+        if any(term in text for term in terms):
+            score += value
+            break
+
+    binding = next(
+        item
+        for item in semantic_map.bindings
+        if item.binding_id == binding_id
+    )
+    if binding.analytical_function == AnalyticalFunction.OUTCOME:
+        score += 120.0
+    elif binding.analytical_function == AnalyticalFunction.OUTCOME_COMPONENT:
+        score += 80.0
+    elif binding.analytical_function == AnalyticalFunction.PERFORMANCE:
+        score += 70.0
+    elif binding.analytical_function == AnalyticalFunction.PARTICIPATION:
+        score -= 120.0
+
+    return score + binding.confidence
+
+
+def _preferred_identifier(
+    bindings: list,
+    *,
+    preferred_terms: tuple[str, ...],
+    excluded_terms: tuple[str, ...] = (),
+):
+    def score(binding) -> tuple[int, float]:
+        text = " ".join(
+            item
+            for item in [
+                binding.label,
+                binding.path_pattern,
+            ]
+            if item
+        ).lower()
+        preferred = sum(term in text for term in preferred_terms)
+        excluded = sum(term in text for term in excluded_terms)
+        return (preferred - excluded, binding.confidence)
+
+    eligible = [
+        binding
+        for binding in bindings
+        if not any(
+            term
+            in " ".join([binding.label, binding.path_pattern]).lower()
+            for term in excluded_terms
+        )
+    ]
+    candidates = eligible or bindings
+    return max(candidates, key=score) if candidates else None
+
+
+def _task_id_for_capability(
+    tasks: list[InvestigationTask],
+    capability: EvidenceCapability,
+) -> str | None:
+    for task in tasks:
+        if task.capability == capability:
+            return task.task_id
+
+    return None
+
+
+def build_event_evidence_queries(
+    *,
+    semantic_map: InputSemanticMap | None,
+    tasks: list[InvestigationTask],
+    available_capabilities: set[EvidenceCapability],
+    request: str,
+) -> list[EvidenceQuery]:
+    if semantic_map is None or semantic_map.input_shape != InputShape.EVENT_RECORD:
+        return []
+
+    bindings = semantic_map.bindings
+    if not bindings:
+        return []
+
+    table_name = bindings[0].table_name
+    participant_identifiers = [
+        binding
+        for binding in bindings
+        if binding.role == SemanticRole.PARTICIPANT_IDENTIFIER
+        and binding.level == SemanticLevel.PARTICIPANT
+    ]
+    entity_identifiers = [
+        binding
+        for binding in bindings
+        if binding.role == SemanticRole.ENTITY_IDENTIFIER
+        and binding.level == SemanticLevel.ENTITY
+    ]
+    participant_id = _preferred_identifier(
+        participant_identifiers,
+        preferred_terms=("name", "label", "team", "participant"),
+        excluded_terms=("place", "city", "location", "code", "record"),
+    )
+    participant_group = _preferred_identifier(
+        [
+            binding
+            for binding in participant_identifiers
+            if participant_id is None
+            or binding.binding_id != participant_id.binding_id
+        ],
+        preferred_terms=("place", "city", "location"),
+    )
+    entity_id = _preferred_identifier(
+        entity_identifiers,
+        preferred_terms=("name", "label", "entity", "player", "person"),
+        excluded_terms=("id", "code"),
+    )
+    context_ids = [
+        binding.binding_id
+        for binding in bindings
+        if binding.level == SemanticLevel.EVENT
+        and binding.role
+        in {
+            SemanticRole.CONTEXT,
+            SemanticRole.TIME,
+            SemanticRole.LOCATION,
+            SemanticRole.METADATA,
+        }
+    ][:6]
+    status_ids = [
+        binding.binding_id
+        for binding in bindings
+        if binding.level == SemanticLevel.EVENT
+        and binding.role == SemanticRole.STATUS
+    ][:1]
+    outcome_ids = [
+        binding.binding_id
+        for binding in bindings
+        if binding.level == SemanticLevel.PARTICIPANT
+        and binding.role == SemanticRole.OUTCOME_MEASURE
+        and binding.analytical_function == AnalyticalFunction.OUTCOME
+    ]
+    entity_measure_ids = [
+        binding.binding_id
+        for binding in bindings
+        if binding.level == SemanticLevel.ENTITY
+        and binding.role
+        in {
+            SemanticRole.PERFORMANCE_MEASURE,
+            SemanticRole.MEASURE,
+        }
+        and (
+            participation_measure_requested(request)
+            or binding.analytical_function
+            != AnalyticalFunction.PARTICIPATION
+        )
+    ]
+    participant_component_ids = [
+        binding.binding_id
+        for binding in bindings
+        if binding.level == SemanticLevel.PARTICIPANT
+        and binding.role
+        in {
+            SemanticRole.PERFORMANCE_MEASURE,
+            SemanticRole.MEASURE,
+        }
+        and binding.analytical_function
+        == AnalyticalFunction.OUTCOME_COMPONENT
+    ]
+
+    queries: list[EvidenceQuery] = []
+
+    event_task_id = _task_id_for_capability(
+        tasks,
+        EvidenceCapability.EVENT_OUTCOME,
+    )
+    ranking_task_id = _task_id_for_capability(
+        tasks,
+        EvidenceCapability.RANKING,
+    )
+    comparison_task_id = _task_id_for_capability(
+        tasks,
+        EvidenceCapability.GROUP_COMPARISON,
+    )
+
+    common = {
+        "table_name": table_name,
+        "user_relevance": 0.95,
+        "salience": 0.95,
+    }
+
+    if (
+        event_task_id
+        and EvidenceCapability.EVENT_OUTCOME in available_capabilities
+        and context_ids
+    ):
+        queries.append(
+            EvidenceQuery(
+                query_id="QUERY_EVENT_CONTEXT_AUTO",
+                task_id=event_task_id,
+                operation=EvidenceOperation.RETRIEVE,
+                capability=EvidenceCapability.EVENT_OUTCOME,
+                evidence_type="event_context",
+                semantic_label="event context",
+                question="What supplied context locates this event?",
+                semantic_level=SemanticLevel.EVENT,
+                value_binding_ids=context_ids,
+                recommended_use=RecommendedUse.HEADLINE,
+                **common,
+            )
+        )
+
+    if (
+        event_task_id
+        and EvidenceCapability.EVENT_OUTCOME in available_capabilities
+        and status_ids
+    ):
+        queries.append(
+            EvidenceQuery(
+                query_id="QUERY_EVENT_STATUS_AUTO",
+                task_id=event_task_id,
+                operation=EvidenceOperation.RETRIEVE,
+                capability=EvidenceCapability.EVENT_OUTCOME,
+                evidence_type="event_status",
+                semantic_label="event status",
+                question="What status is recorded for this event?",
+                semantic_level=SemanticLevel.EVENT,
+                value_binding_ids=status_ids,
+                recommended_use=RecommendedUse.SUPPORTING_DETAIL,
+                **common,
+            )
+        )
+
+    if (
+        event_task_id
+        and participant_id
+        and outcome_ids
+        and EvidenceCapability.EVENT_OUTCOME in available_capabilities
+    ):
+        outcome_id = max(
+            outcome_ids,
+            key=lambda binding_id: _measure_priority(
+                binding_id,
+                semantic_map,
+            ),
+        )
+        queries.append(
+            EvidenceQuery(
+                query_id="QUERY_EVENT_OUTCOME_AUTO",
+                task_id=event_task_id,
+                operation=EvidenceOperation.COMPARE,
+                capability=EvidenceCapability.EVENT_OUTCOME,
+                evidence_type="event_outcome",
+                semantic_label="event outcome",
+                question="How do the participant outcome measures compare?",
+                semantic_level=SemanticLevel.PARTICIPANT,
+                value_binding_ids=[outcome_id],
+                entity_binding_id=participant_id.binding_id,
+                group_binding_id=(
+                    participant_group.binding_id
+                    if participant_group is not None
+                    else None
+                ),
+                recommended_use=RecommendedUse.HEADLINE,
+                **common,
+            )
+        )
+
+    if (
+        ranking_task_id
+        and entity_id
+        and EvidenceCapability.RANKING in available_capabilities
+    ):
+        for index, binding_id in enumerate(
+            sorted(
+                entity_measure_ids,
+                key=lambda item: _measure_priority(item, semantic_map),
+                reverse=True,
+            ),
+            start=1,
+        ):
+            queries.append(
+                EvidenceQuery(
+                    query_id=f"QUERY_ENTITY_RANKING_AUTO_{index:02d}",
+                    task_id=ranking_task_id,
+                    operation=EvidenceOperation.RANK,
+                    capability=EvidenceCapability.RANKING,
+                    evidence_type="entity_ranking",
+                    semantic_label=(
+                        "entity ranking for "
+                        + next(
+                            binding.label
+                            for binding in bindings
+                            if binding.binding_id == binding_id
+                        )
+                    ),
+                    question="Which entities have the highest recorded values?",
+                    semantic_level=SemanticLevel.ENTITY,
+                    value_binding_ids=[binding_id],
+                    entity_binding_id=entity_id.binding_id,
+                    group_binding_id=(
+                        participant_id.binding_id
+                        if participant_id is not None
+                        else None
+                    ),
+                    limit=EVENT_RANKING_RESULT_LIMIT,
+                    recommended_use=RecommendedUse.MAIN_FINDING,
+                    user_relevance=0.9,
+                    salience=0.9,
+                    table_name=table_name,
+                )
+            )
+
+    if (
+        comparison_task_id
+        and participant_id
+        and EvidenceCapability.GROUP_COMPARISON in available_capabilities
+    ):
+        for index, binding_id in enumerate(
+            sorted(
+                participant_component_ids,
+                key=lambda item: _measure_priority(item, semantic_map),
+                reverse=True,
+            ),
+            start=1,
+        ):
+            queries.append(
+                EvidenceQuery(
+                    query_id=f"QUERY_PARTICIPANT_CONTRAST_AUTO_{index:02d}",
+                    task_id=comparison_task_id,
+                    operation=EvidenceOperation.COMPARE,
+                    capability=EvidenceCapability.GROUP_COMPARISON,
+                    evidence_type="participant_comparison",
+                    semantic_label=(
+                        "participant contrast for "
+                        + next(
+                            binding.label
+                            for binding in bindings
+                            if binding.binding_id == binding_id
+                        )
+                    ),
+                    question="How do participant-level measures compare?",
+                    semantic_level=SemanticLevel.PARTICIPANT,
+                    value_binding_ids=[binding_id],
+                    entity_binding_id=participant_id.binding_id,
+                    group_binding_id=(
+                        participant_group.binding_id
+                        if participant_group is not None
+                        else None
+                    ),
+                    recommended_use=RecommendedUse.SUPPORTING_DETAIL,
+                    user_relevance=0.85,
+                    salience=0.85,
+                    table_name=table_name,
+                )
+            )
+
+    return queries
+
+
+def normalise_event_evidence_queries(
+    *,
+    queries: list[EvidenceQuery],
+    semantic_map: InputSemanticMap | None,
+    tasks: list[InvestigationTask],
+    available_capabilities: set[EvidenceCapability],
+    request: str,
+) -> list[EvidenceQuery]:
+    if semantic_map is None or semantic_map.input_shape != InputShape.EVENT_RECORD:
+        return queries
+
+    generated = build_event_evidence_queries(
+        semantic_map=semantic_map,
+        tasks=tasks,
+        available_capabilities=available_capabilities,
+        request=request,
+    )
+    combined = [*queries, *generated]
+    unique: list[EvidenceQuery] = []
+    signatures: set[
+        tuple[
+            str,
+            tuple[str, ...],
+            str | None,
+            str | None,
+        ]
+    ] = set()
+    for query in combined:
+        signature = (
+            query.operation.value,
+            tuple(query.value_binding_ids),
+            query.entity_binding_id,
+            query.group_binding_id,
+        )
+        if signature in signatures:
+            continue
+        signatures.add(signature)
+        unique.append(query)
+
+    binding_ids = {
+        binding.binding_id
+        for binding in semantic_map.bindings
+    }
+
+    def query_score(query: EvidenceQuery) -> float:
+        score = query.salience + query.user_relevance
+        scored_binding_ids = [
+            binding_id
+            for binding_id in query.value_binding_ids
+            if binding_id in binding_ids
+        ]
+        if scored_binding_ids:
+            score += max(
+                _measure_priority(binding_id, semantic_map)
+                for binding_id in scored_binding_ids
+            )
+        if query.query_id.endswith("_AUTO"):
+            score += 1.0
+        return score
+
+    essential_types = (
+        "event_context",
+        "event_status",
+        "event_outcome",
+    )
+    essential: list[EvidenceQuery] = []
+    for evidence_type in essential_types:
+        candidates = [
+            query
+            for query in unique
+            if query.evidence_type == evidence_type
+        ]
+        if candidates:
+            essential.append(
+                max(candidates, key=query_score)
+            )
+
+    rankings = sorted(
+        [
+            query
+            for query in unique
+            if query.evidence_type == "entity_ranking"
+        ],
+        key=query_score,
+        reverse=True,
+    )
+    comparisons = sorted(
+        [
+            query
+            for query in unique
+            if query.evidence_type
+            in {"participant_comparison", "event_contrast"}
+        ],
+        key=query_score,
+        reverse=True,
+    )
+    others = [
+        query
+        for query in unique
+        if query.evidence_type
+        not in {
+            *essential_types,
+            "entity_ranking",
+            "participant_comparison",
+            "event_contrast",
+        }
+    ]
+
+    ordered = [*essential, *rankings, *comparisons, *others]
+    return ordered
+
+
 ENTITY_CONTAINER_NAMES = {
+    "box_score",
     "entities",
     "members",
     "participants",
@@ -174,6 +679,56 @@ METRIC_ALIASES = {
     "free throws made": {"ftm", "free_throws_made"},
     "free throws attempted": {"fta", "free_throws_attempted"},
 }
+EVENT_CONTEXT_ROLE_KEYS = {
+    "context": {
+        "event",
+        "game",
+        "context",
+        "title",
+        "name",
+    },
+    "time": {
+        "date",
+        "day",
+        "dayname",
+        "month",
+        "monthname",
+        "season",
+        "time",
+        "when",
+        "year",
+    },
+    "location": {
+        "arena",
+        "city",
+        "country",
+        "location",
+        "place",
+        "site",
+        "stadium",
+        "state",
+        "venue",
+        "where",
+    },
+}
+EVENT_STATUS_KEYS = {
+    "cancelled",
+    "completed",
+    "extra_period",
+    "extra_time",
+    "overtime",
+    "postponed",
+    "status",
+    "tied",
+}
+EVENT_CONTEXT_EXCLUDED_KEYS = {
+    "attendance",
+    "capacity",
+    "game_id",
+    "id",
+    "next_game_id",
+    "previous_game_id",
+}
 
 
 @dataclass(frozen=True)
@@ -181,6 +736,18 @@ class NumericLeaf:
     path: str
     key: str
     value: float
+
+
+def _numeric_value(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        cleaned = value.strip().replace(",", "")
+        if re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)", cleaned):
+            return float(cleaned)
+    return None
 
 
 @dataclass
@@ -203,6 +770,14 @@ class EventParticipant:
     metrics: dict[str, float] = field(default_factory=dict)
     metric_paths: dict[str, str] = field(default_factory=dict)
     entities: list[EventEntity] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class EventContextValue:
+    label: str
+    value: Any
+    source_path: str
+    role: str
 
 
 @dataclass(frozen=True)
@@ -244,9 +819,9 @@ def _numeric_leaves(
             for key, child in current.items():
                 child_path = f"{path}.{key}" if path else str(key)
                 visit(child, child_path, depth + 1)
-        elif isinstance(current, (int, float)) and not isinstance(current, bool):
+        elif (numeric := _numeric_value(current)) is not None:
             key = normalise_key(path.rsplit(".", 1)[-1])
-            leaves.append(NumericLeaf(path=path, key=key, value=float(current)))
+            leaves.append(NumericLeaf(path=path, key=key, value=numeric))
 
     visit(value, prefix, 0)
     return leaves
@@ -329,10 +904,11 @@ def _team_metric_mapping(
         metrics: dict[str, float] = {}
         paths: dict[str, str] = {}
         for key, child in current.items():
-            if isinstance(child, (int, float)) and not isinstance(child, bool):
+            numeric = _numeric_value(child)
+            if numeric is not None:
                 canonical = _canonical_metric(str(key))
                 if canonical:
-                    metrics[canonical] = float(child)
+                    metrics[canonical] = numeric
                     paths[canonical] = f"{path}.{key}" if path else str(key)
 
         relative_path = path.removeprefix(prefix).lstrip(".")
@@ -364,7 +940,7 @@ def _team_metric_mapping(
 def _entity_container(
     value: Mapping[str, Any],
     prefix: str,
-) -> tuple[str, Mapping[str, Any]] | None:
+) -> tuple[str, Mapping[str, Any] | list[Any]] | None:
     stack: list[tuple[str, Any, int]] = [(prefix, value, 0)]
     while stack:
         path, current, depth = stack.pop()
@@ -372,16 +948,40 @@ def _entity_container(
             continue
         for key, child in current.items():
             child_path = f"{path}.{key}" if path else str(key)
+            normalised_key = normalise_key(str(key))
             if (
-                normalise_key(str(key)) in ENTITY_CONTAINER_NAMES
+                normalised_key in ENTITY_CONTAINER_NAMES
                 and isinstance(child, Mapping)
                 and child
                 and all(isinstance(item, Mapping) for item in child.values())
             ):
                 return child_path, child
+            if (
+                normalised_key in ENTITY_CONTAINER_NAMES
+                and isinstance(child, list)
+                and child
+                and all(isinstance(item, Mapping) for item in child)
+            ):
+                return child_path, child
             if isinstance(child, Mapping):
                 stack.append((child_path, child, depth + 1))
     return None
+
+
+def _entity_items(
+    entities: Mapping[str, Any] | list[Any],
+) -> list[tuple[str, Mapping[str, Any]]]:
+    if isinstance(entities, Mapping):
+        return [
+            (str(key), value)
+            for key, value in entities.items()
+            if isinstance(value, Mapping)
+        ]
+    return [
+        (str(index), value)
+        for index, value in enumerate(entities)
+        if isinstance(value, Mapping)
+    ]
 
 
 def extract_event_participants(payload: Any) -> list[EventParticipant]:
@@ -414,19 +1014,16 @@ def extract_event_participants(payload: Any) -> list[EventParticipant]:
         located_entities = _entity_container(raw_participant, source_path)
         if located_entities is not None:
             entity_path, entities = located_entities
-            for entity_key, raw_entity in entities.items():
-                if not isinstance(raw_entity, Mapping):
-                    continue
+            for entity_key, raw_entity in _entity_items(entities):
                 entity_metrics: dict[str, float] = {}
                 entity_metric_paths: dict[str, str] = {}
                 for raw_metric, raw_value in raw_entity.items():
-                    if not isinstance(raw_value, (int, float)) or isinstance(
-                        raw_value, bool
-                    ):
+                    numeric = _numeric_value(raw_value)
+                    if numeric is None:
                         continue
                     canonical = _canonical_metric(str(raw_metric))
                     if canonical:
-                        entity_metrics[canonical] = float(raw_value)
+                        entity_metrics[canonical] = numeric
                         entity_metric_paths[canonical] = (
                             f"{entity_path}.{entity_key}.{raw_metric}"
                         )
@@ -459,6 +1056,233 @@ def extract_event_participants(payload: Any) -> list[EventParticipant]:
         participants.append(participant)
 
     return participants
+
+
+def _event_level_scalar_values(
+    payload: Any,
+    *,
+    excluded_prefixes: list[str],
+    max_depth: int = 4,
+) -> list[EventContextValue]:
+    values: list[EventContextValue] = []
+
+    def visit(current: Any, path: str, depth: int) -> None:
+        if depth > max_depth:
+            return
+        if path and any(
+            path == prefix or path.startswith(f"{prefix}.")
+            for prefix in excluded_prefixes
+        ):
+            return
+        if isinstance(current, Mapping):
+            for key, child in current.items():
+                child_path = f"{path}.{key}" if path else str(key)
+                visit(child, child_path, depth + 1)
+            return
+        if isinstance(current, (Mapping, list)) or current is None:
+            return
+
+        key = normalise_key(path.rsplit(".", 1)[-1])
+        if key in EVENT_CONTEXT_EXCLUDED_KEYS:
+            return
+
+        role = next(
+            (
+                role_name
+                for role_name, keys in EVENT_CONTEXT_ROLE_KEYS.items()
+                if key in keys
+            ),
+            None,
+        )
+        if role is None and key in EVENT_STATUS_KEYS:
+            role = "status"
+        if role is None:
+            return
+
+        values.append(
+            EventContextValue(
+                label=path.rsplit(".", 1)[-1].replace("_", " "),
+                value=current,
+                source_path=path,
+                role=role,
+            )
+        )
+
+    visit(payload, "", 0)
+    return values
+
+
+def _stringify_context_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value).strip()
+
+
+def _context_metric_map(
+    values: list[EventContextValue],
+) -> dict[str, EventContextValue]:
+    mapped: dict[str, EventContextValue] = {}
+    for value in values:
+        key = normalise_key(value.label)
+        mapped.setdefault(key, value)
+    return mapped
+
+
+def _event_context_finding(
+    values: list[EventContextValue],
+) -> str:
+    by_key = _context_metric_map(values)
+    date_parts = [
+        by_key[key]
+        for key in [
+            "day",
+            "monthname" if "monthname" in by_key else "month",
+            "year",
+        ]
+        if key in by_key
+    ]
+    location_parts = [
+        by_key[key]
+        for key in ["venue", "stadium", "arena", "site", "city", "state", "country"]
+        if key in by_key
+    ]
+
+    clauses: list[str] = []
+    if date_parts:
+        clauses.append(
+            "on "
+            + " ".join(_stringify_context_value(item.value) for item in date_parts)
+        )
+    if location_parts:
+        first_location = _stringify_context_value(location_parts[0].value)
+        remaining_location = ", ".join(
+            _stringify_context_value(item.value)
+            for item in location_parts[1:]
+        )
+        clauses.append(
+            f"at {first_location}"
+            if not remaining_location
+            else f"at {first_location} in {remaining_location}"
+        )
+
+    if clauses:
+        return (
+            "The supplied event context records the event "
+            + " ".join(clauses)
+            + "."
+        )
+
+    fallback_values = "; ".join(
+        f"{item.label}: {_stringify_context_value(item.value)}"
+        for item in values[:8]
+    )
+    return f"The supplied event context records {fallback_values}."
+
+
+def _event_context_evidence(payload: Any) -> list[CapabilityEvidence]:
+    if not isinstance(payload, Mapping):
+        return []
+
+    located = find_participant_container(payload)
+    excluded_prefixes = [located[0]] if located is not None else []
+    values = _event_level_scalar_values(
+        payload,
+        excluded_prefixes=excluded_prefixes,
+    )
+    context_values = [
+        item
+        for item in values
+        if item.role in {"context", "time", "location"}
+    ]
+    status_values = [
+        item
+        for item in values
+        if item.role == "status"
+    ]
+
+    evidence: list[CapabilityEvidence] = []
+    if context_values:
+        evidence.append(
+            CapabilityEvidence(
+                capability=EvidenceCapability.DATASET_PROFILE,
+                evidence_type="event_context",
+                finding=_event_context_finding(context_values),
+                metrics={
+                    "values": [
+                        {
+                            "label": item.label,
+                            "value": item.value,
+                            "role": item.role,
+                            "source_path": item.source_path,
+                        }
+                        for item in context_values
+                    ],
+                },
+                source_paths=[item.source_path for item in context_values],
+                entity_scope=[
+                    _stringify_context_value(item.value)
+                    for item in context_values
+                    if item.role in {"location", "context"}
+                ],
+                practical_interpretation=(
+                    "This records supplied event-level context without "
+                    "using participant or entity statistics."
+                ),
+                strength_label="event_context",
+                claim_permissions=[ClaimPermission.DESCRIPTIVE],
+                factual_confidence=1.0,
+                methodological_strength=1.0,
+                user_relevance=0.75,
+                salience=0.70,
+                recommended_use=RecommendedUse.SUPPORTING_DETAIL,
+                semantic_level=SemanticLevel.EVENT,
+            )
+        )
+
+    for item in status_values:
+        value_text = _stringify_context_value(item.value)
+        normalised_label = normalise_key(item.label)
+        if isinstance(item.value, bool) and normalised_label in {
+            "extra_period",
+            "extra_time",
+            "overtime",
+        }:
+            status_finding = (
+                f"The event required {item.label.replace('_', ' ')}."
+                if item.value
+                else f"The event did not require {item.label.replace('_', ' ')}."
+            )
+        else:
+            status_finding = (
+                f"The supplied event status records {item.label}: {value_text}."
+            )
+        evidence.append(
+            CapabilityEvidence(
+                capability=EvidenceCapability.EVENT_OUTCOME,
+                evidence_type="event_status",
+                finding=status_finding,
+                metrics={
+                    "label": item.label,
+                    "value": item.value,
+                    "source_path": item.source_path,
+                },
+                source_paths=[item.source_path],
+                entity_scope=[],
+                practical_interpretation=(
+                    "This records a supplied event-status field."
+                ),
+                strength_label="event_status",
+                claim_permissions=[ClaimPermission.DESCRIPTIVE],
+                factual_confidence=1.0,
+                methodological_strength=1.0,
+                user_relevance=0.65,
+                salience=0.55,
+                recommended_use=RecommendedUse.SUPPORTING_DETAIL,
+                semantic_level=SemanticLevel.EVENT,
+            )
+        )
+
+    return evidence
 
 
 def available_capabilities(
@@ -578,11 +1402,10 @@ def available_capabilities(
 
 def event_capability_evidence(payload: Any) -> list[CapabilityEvidence]:
     participants = extract_event_participants(payload)
+    evidence: list[CapabilityEvidence] = _event_context_evidence(payload)
     if len(participants) < 2:
-        return []
+        return evidence
 
-    evidence: list[CapabilityEvidence] = []
-    participant_names = [participant.name for participant in participants]
     scored = [participant for participant in participants if participant.score is not None]
 
     if len(scored) >= 2:
@@ -832,42 +1655,6 @@ def event_capability_evidence(payload: Any) -> list[CapabilityEvidence]:
                 )
             )
 
-    if isinstance(payload, Mapping):
-        overtime_path = next(
-            (
-                str(key)
-                for key in payload
-                if normalise_key(str(key)) in {"overtime", "extra_time"}
-            ),
-            None,
-        )
-        if overtime_path is not None and isinstance(payload[overtime_path], bool):
-            overtime = bool(payload[overtime_path])
-            evidence.append(
-                CapabilityEvidence(
-                    capability=EvidenceCapability.EVENT_OUTCOME,
-                    evidence_type="event_status",
-                    finding=(
-                        "The event required overtime."
-                        if overtime
-                        else "The event did not require overtime."
-                    ),
-                    metrics={"overtime": overtime},
-                    source_paths=[overtime_path],
-                    entity_scope=participant_names,
-                    practical_interpretation=(
-                        "This records the supplied event-status indicator."
-                    ),
-                    strength_label="event_status",
-                    claim_permissions=[ClaimPermission.DESCRIPTIVE],
-                    factual_confidence=1.0,
-                    methodological_strength=1.0,
-                    user_relevance=0.65,
-                    salience=0.55,
-                    recommended_use=RecommendedUse.SUPPORTING_DETAIL,
-                )
-            )
-
     return evidence
 
 
@@ -1027,48 +1814,6 @@ def validate_semantic_map(
             + "."
         )
 
-    count_limits = [
-        (
-            "event identifiers",
-            1,
-            lambda item: item.role == SemanticRole.IDENTIFIER
-            and item.level == SemanticLevel.EVENT,
-        ),
-        ("time bindings", 3, lambda item: item.role == SemanticRole.TIME),
-        ("location bindings", 2, lambda item: item.role == SemanticRole.LOCATION),
-        (
-            "participant identifiers",
-            2,
-            lambda item: item.role == SemanticRole.PARTICIPANT_IDENTIFIER,
-        ),
-        (
-            "event status bindings",
-            1,
-            lambda item: item.role == SemanticRole.STATUS
-            and item.level == SemanticLevel.EVENT,
-        ),
-        (
-            "participant contrast measures",
-            6,
-            lambda item: item.level == SemanticLevel.PARTICIPANT
-            and item.role in measure_roles
-            and item.analytical_function != AnalyticalFunction.OUTCOME,
-        ),
-        (
-            "entity measures",
-            6,
-            lambda item: item.level == SemanticLevel.ENTITY
-            and item.role in measure_roles,
-        ),
-    ]
-    for label, maximum, predicate in count_limits:
-        count = sum(predicate(binding) for binding in semantic_map.bindings)
-        if count > maximum:
-            errors.append(
-                f"Event semantic map contains {count} {label}; keep at most "
-                f"{maximum} so report-critical measures remain available."
-            )
-
     entity_measure_groups: dict[tuple[str, str], set[str]] = {}
     for binding in semantic_map.bindings:
         if binding.role != SemanticRole.ENTITY_IDENTIFIER:
@@ -1111,22 +1856,6 @@ def validate_semantic_map(
                 f"but the catalog supports at least {required}."
             )
 
-    substantive_entity_count = sum(
-        binding.level == SemanticLevel.ENTITY
-        and binding.analytical_function in substantive_functions
-        for binding in semantic_map.bindings
-    )
-    participation_entity_count = sum(
-        binding.level == SemanticLevel.ENTITY
-        and binding.analytical_function == AnalyticalFunction.PARTICIPATION
-        for binding in semantic_map.bindings
-    )
-    if substantive_entity_count and participation_entity_count > 1:
-        errors.append(
-            "Event semantic map may keep at most one entity participation measure "
-            "when substantive performance measures are available."
-        )
-
     return errors
 
 
@@ -1137,13 +1866,6 @@ def validate_event_query_priorities(
 ) -> list[str]:
     if semantic_map is None or semantic_map.input_shape != InputShape.EVENT_RECORD:
         return []
-    if participation_measure_requested(request):
-        return []
-
-    binding_lookup = {
-        binding.binding_id: binding
-        for binding in semantic_map.bindings
-    }
     substantive_ids = {
         binding.binding_id
         for binding in semantic_map.bindings
@@ -1165,24 +1887,7 @@ def validate_event_query_priorities(
         for query in entity_queries
         if query.evidence_type == "entity_ranking"
     ]
-    participation_queries = [
-        query.query_id
-        for query in entity_queries
-        if any(
-            binding_lookup.get(binding_id) is not None
-            and binding_lookup[binding_id].analytical_function
-            == AnalyticalFunction.PARTICIPATION
-            for binding_id in query.value_binding_ids
-        )
-    ]
     errors: list[str] = []
-    if substantive_ids and participation_queries:
-        errors.append(
-            "Event plan ranks participation measures even though substantive "
-            "entity-performance measures are available: "
-            + ", ".join(participation_queries)
-            + "."
-        )
 
     queried_substantive_ids = {
         binding_id
@@ -1578,7 +2283,7 @@ def semantic_query_evidence(
             value_matches = [
                 match
                 for match in matches_for(value_binding_id)
-                if isinstance(match.value, (int, float)) and not isinstance(match.value, bool)
+                if _numeric_value(match.value) is not None
             ]
             entity_matches = matches_for(query.entity_binding_id or "")
             group_matches = matches_for(query.group_binding_id) if query.group_binding_id else []
@@ -1613,7 +2318,7 @@ def semantic_query_evidence(
                 record = {
                     "entity": entity,
                     "group": group,
-                    "value": float(value_match.value),
+                    "value": _numeric_value(value_match.value),
                     "measure": value_binding.label,
                     "context": context,
                     "source_path": value_match.source_path,

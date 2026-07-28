@@ -48,6 +48,13 @@ from .schemas import (
 )
 
 
+def is_numeric_measure(series: pd.Series) -> bool:
+    return (
+        pd.api.types.is_numeric_dtype(series)
+        and not pd.api.types.is_bool_dtype(series)
+    )
+
+
 def infer_evidence_capability(
     route: AnalysisRoute,
     metrics: dict[str, Any],
@@ -668,7 +675,7 @@ def descriptive_analysis(
                 )
                 continue
 
-            if pd.api.types.is_numeric_dtype(series):
+            if is_numeric_measure(series):
                 values = pd.to_numeric(series, errors="coerce").dropna()
 
                 if values.empty:
@@ -1005,7 +1012,7 @@ def association_analysis(
         categorical_columns = [
             column
             for column in frame.columns
-            if not pd.api.types.is_numeric_dtype(frame[column])
+            if not is_numeric_measure(frame[column])
             and 2
             <= frame[column].map(safe_hashable).nunique(dropna=True)
             <= 10
@@ -1243,7 +1250,7 @@ def select_and_audit_features(
         possible_proxy = False
         proxy_reason = ""
 
-        if pd.api.types.is_numeric_dtype(series) and numeric_target.notna().any():
+        if is_numeric_measure(series) and numeric_target.notna().any():
             numeric_feature = pd.to_numeric(series, errors="coerce")
             pair = pd.DataFrame(
                 {
@@ -1299,7 +1306,7 @@ def select_and_audit_features(
             )
             continue
 
-        if pd.api.types.is_numeric_dtype(series):
+        if is_numeric_measure(series):
             numeric.append(column_name)
         elif unique_count <= 100:
             categorical.append(column_name)
@@ -1576,7 +1583,7 @@ def predictive_analysis(
     target = frame[target_column]
 
     classification = bool(
-        not pd.api.types.is_numeric_dtype(target)
+        not is_numeric_measure(target)
         or target.map(safe_hashable).nunique(dropna=True) <= 20
     )
 

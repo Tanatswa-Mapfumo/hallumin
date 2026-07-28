@@ -1,0 +1,596 @@
+{
+  "datasets": [
+    {
+      "dataset_id": "sportsett_basketball",
+      "enabled": true,
+      "source": "huggingface",
+      "hub_id": "GEM/sportsett_basketball",
+      "config_name": null,
+      "revision": null,
+      "split": "test",
+      "trust_remote_code": false,
+      "local_path": null,
+      "normalizer": "sportsett",
+      "task_family": "event_report",
+      "output_mode": "multi_paragraph_report",
+      "language": "en",
+      "sample_size": 30,
+      "seed": 42,
+      "source_fields": [],
+      "reference_fields": [
+        "references",
+        "target",
+        "summaries"
+      ],
+      "id_fields": [
+        "sportsett_id",
+        "gem_parent_id",
+        "gem_id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [
+        "sportsett_id"
+      ],
+      "options": {}
+    },
+    {
+      "dataset_id": "totto",
+      "enabled": true,
+      "source": "huggingface",
+      "hub_id": "GEM/totto",
+      "config_name": null,
+      "revision": null,
+      "split": "validation",
+      "trust_remote_code": false,
+      "local_path": null,
+      "normalizer": "totto",
+      "task_family": "highlighted_table_description",
+      "output_mode": "one_sentence",
+      "language": "en",
+      "sample_size": 30,
+      "seed": 42,
+      "source_fields": [],
+      "reference_fields": [
+        "references",
+        "target"
+      ],
+      "id_fields": [
+        "gem_parent_id",
+        "gem_id",
+        "example_id",
+        "id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [
+        "overlap_subset",
+        "table_page_title",
+        "table_section_title"
+      ],
+      "options": {}
+    },
+    {
+      "dataset_id": "e2e_nlg",
+      "enabled": true,
+      "source": "huggingface",
+      "hub_id": "GEM/e2e_nlg",
+      "config_name": null,
+      "revision": null,
+      "split": "test",
+      "trust_remote_code": false,
+      "local_path": null,
+      "normalizer": "e2e",
+      "task_family": "attribute_verbalisation",
+      "output_mode": "short_text",
+      "language": "en",
+      "sample_size": 30,
+      "seed": 42,
+      "source_fields": [],
+      "reference_fields": [
+        "references",
+        "target"
+      ],
+      "id_fields": [
+        "gem_parent_id",
+        "gem_id",
+        "example_id",
+        "id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [],
+      "options": {}
+    },
+    {
+      "dataset_id": "web_nlg",
+      "enabled": true,
+      "source": "huggingface",
+      "hub_id": "GEM/web_nlg",
+      "config_name": "en",
+      "revision": null,
+      "split": "test",
+      "trust_remote_code": false,
+      "local_path": null,
+      "normalizer": "webnlg",
+      "task_family": "triple_verbalisation",
+      "output_mode": "short_text",
+      "language": "en",
+      "sample_size": 30,
+      "seed": 42,
+      "source_fields": [],
+      "reference_fields": [
+        "references",
+        "target"
+      ],
+      "id_fields": [
+        "gem_parent_id",
+        "gem_id",
+        "example_id",
+        "id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [
+        "category"
+      ],
+      "options": {}
+    },
+    {
+      "dataset_id": "dart",
+      "enabled": true,
+      "source": "huggingface",
+      "hub_id": "GEM/dart",
+      "config_name": null,
+      "revision": null,
+      "split": "test",
+      "trust_remote_code": false,
+      "local_path": null,
+      "normalizer": "dart",
+      "task_family": "triple_verbalisation",
+      "output_mode": "short_text",
+      "language": "en",
+      "sample_size": 30,
+      "seed": 42,
+      "source_fields": [],
+      "reference_fields": [
+        "references",
+        "target"
+      ],
+      "id_fields": [
+        "gem_parent_id",
+        "gem_id",
+        "example_id",
+        "id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [
+        "target_sources",
+        "subtree_was_extended"
+      ],
+      "options": {}
+    },
+    {
+      "dataset_id": "logicnlg",
+      "enabled": true,
+      "source": "huggingface",
+      "hub_id": "kasnerz/logicnlg",
+      "config_name": null,
+      "revision": null,
+      "split": "test",
+      "trust_remote_code": false,
+      "local_path": null,
+      "normalizer": "logicnlg",
+      "task_family": "logical_table_statement",
+      "output_mode": "one_sentence",
+      "language": "en",
+      "sample_size": 30,
+      "seed": 42,
+      "source_fields": [],
+      "reference_fields": [
+        "ref",
+        "references",
+        "target"
+      ],
+      "id_fields": [
+        "table_id",
+        "id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [
+        "title",
+        "template"
+      ],
+      "options": {}
+    },
+    {
+      "dataset_id": "fetaqa",
+      "enabled": true,
+      "source": "huggingface",
+      "hub_id": "table-benchmark/fetaqa",
+      "config_name": null,
+      "revision": null,
+      "split": "test",
+      "trust_remote_code": false,
+      "local_path": null,
+      "normalizer": "fetaqa",
+      "task_family": "table_question_answering",
+      "output_mode": "direct_answer",
+      "language": "en",
+      "sample_size": 30,
+      "seed": 42,
+      "source_fields": [],
+      "reference_fields": [
+        "answer",
+        "references",
+        "target"
+      ],
+      "id_fields": [
+        "feta_id",
+        "id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [
+        "table_page_title",
+        "table_section_title"
+      ],
+      "options": {}
+    },
+    {
+      "dataset_id": "viggo",
+      "enabled": true,
+      "source": "huggingface",
+      "hub_id": "GEM/viggo",
+      "config_name": null,
+      "revision": null,
+      "split": "test",
+      "trust_remote_code": false,
+      "local_path": null,
+      "normalizer": "viggo",
+      "task_family": "attribute_verbalisation",
+      "output_mode": "short_text",
+      "language": "en",
+      "sample_size": 30,
+      "seed": 42,
+      "source_fields": [],
+      "reference_fields": [
+        "references",
+        "target"
+      ],
+      "id_fields": [
+        "gem_parent_id",
+        "gem_id",
+        "example_id",
+        "id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [],
+      "options": {}
+    },
+    {
+      "dataset_id": "mlb_data_to_text",
+      "enabled": true,
+      "source": "huggingface",
+      "hub_id": "GEM/mlb_data_to_text",
+      "config_name": null,
+      "revision": null,
+      "split": "test",
+      "trust_remote_code": true,
+      "local_path": null,
+      "normalizer": "mlb",
+      "task_family": "event_report",
+      "output_mode": "multi_paragraph_report",
+      "language": "en",
+      "sample_size": 20,
+      "seed": 42,
+      "source_fields": [],
+      "reference_fields": [
+        "references",
+        "target",
+        "summary_eval",
+        "summary"
+      ],
+      "id_fields": [
+        "gem_parent_id",
+        "gem_id",
+        "game_id",
+        "id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [],
+      "options": {}
+    },
+    {
+      "dataset_id": "conversational_weather",
+      "enabled": true,
+      "source": "huggingface",
+      "hub_id": "GEM/conversational_weather",
+      "config_name": null,
+      "revision": null,
+      "split": "test",
+      "trust_remote_code": true,
+      "local_path": null,
+      "normalizer": "generic",
+      "task_family": "weather_response",
+      "output_mode": "short_text",
+      "language": "en",
+      "sample_size": 30,
+      "seed": 42,
+      "source_fields": [
+        "dialogue_act",
+        "weather_data",
+        "input",
+        "linearized_input"
+      ],
+      "reference_fields": [
+        "references",
+        "target",
+        "response"
+      ],
+      "id_fields": [
+        "gem_parent_id",
+        "gem_id",
+        "example_id",
+        "id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [],
+      "options": {}
+    },
+    {
+      "dataset_id": "turku_hockey",
+      "enabled": true,
+      "source": "huggingface",
+      "hub_id": "GEM/turku_hockey_data2text",
+      "config_name": null,
+      "revision": null,
+      "split": "test",
+      "trust_remote_code": true,
+      "local_path": null,
+      "normalizer": "turku_hockey",
+      "task_family": "event_report",
+      "output_mode": "paragraph",
+      "language": "fi",
+      "sample_size": 20,
+      "seed": 42,
+      "source_fields": [],
+      "reference_fields": [
+        "references",
+        "target",
+        "news_article"
+      ],
+      "id_fields": [
+        "gem_parent_id",
+        "gem_id",
+        "example_id",
+        "id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [],
+      "options": {}
+    },
+    {
+      "dataset_id": "rotowire_english_german",
+      "enabled": true,
+      "source": "huggingface",
+      "hub_id": "GEM/RotoWire_English-German",
+      "config_name": null,
+      "revision": null,
+      "split": "test",
+      "trust_remote_code": true,
+      "local_path": null,
+      "normalizer": "rotowire_en_de",
+      "task_family": "cross_lingual_event_report",
+      "output_mode": "multi_paragraph_report",
+      "language": "de",
+      "sample_size": 20,
+      "seed": 42,
+      "source_fields": [],
+      "reference_fields": [
+        "references",
+        "target",
+        "summary_de"
+      ],
+      "id_fields": [
+        "gem_parent_id",
+        "gem_id",
+        "example_id",
+        "id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [],
+      "options": {}
+    },
+    {
+      "dataset_id": "rotowire_fg",
+      "enabled": false,
+      "source": "local",
+      "hub_id": null,
+      "config_name": null,
+      "revision": null,
+      "split": "test",
+      "trust_remote_code": false,
+      "local_path": "evaluation/local_datasets/rotowire_fg",
+      "normalizer": "generic",
+      "task_family": "event_report",
+      "output_mode": "multi_paragraph_report",
+      "language": "en",
+      "sample_size": 30,
+      "seed": 42,
+      "source_fields": [
+        "table",
+        "metadata",
+        "input",
+        "box_score",
+        "line_score"
+      ],
+      "reference_fields": [
+        "summary",
+        "reference",
+        "references",
+        "target",
+        "explanation"
+      ],
+      "id_fields": [
+        "game_id",
+        "id",
+        "table_id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [],
+      "options": {}
+    },
+    {
+      "dataset_id": "rotowire_original",
+      "enabled": false,
+      "source": "local",
+      "hub_id": null,
+      "config_name": null,
+      "revision": null,
+      "split": "test",
+      "trust_remote_code": false,
+      "local_path": "evaluation/local_datasets/rotowire_original",
+      "normalizer": "generic",
+      "task_family": "event_report",
+      "output_mode": "multi_paragraph_report",
+      "language": "en",
+      "sample_size": 30,
+      "seed": 42,
+      "source_fields": [
+        "table",
+        "metadata",
+        "input",
+        "box_score",
+        "line_score"
+      ],
+      "reference_fields": [
+        "summary",
+        "reference",
+        "references",
+        "target",
+        "explanation"
+      ],
+      "id_fields": [
+        "game_id",
+        "id",
+        "table_id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [],
+      "options": {}
+    },
+    {
+      "dataset_id": "wikitablet",
+      "enabled": false,
+      "source": "local",
+      "hub_id": null,
+      "config_name": null,
+      "revision": null,
+      "split": "test",
+      "trust_remote_code": false,
+      "local_path": "evaluation/local_datasets/wikitablet",
+      "normalizer": "generic",
+      "task_family": "long_form_table_report",
+      "output_mode": "paragraph",
+      "language": "en",
+      "sample_size": 30,
+      "seed": 42,
+      "source_fields": [
+        "table",
+        "metadata",
+        "input",
+        "box_score",
+        "line_score"
+      ],
+      "reference_fields": [
+        "summary",
+        "reference",
+        "references",
+        "target",
+        "explanation"
+      ],
+      "id_fields": [
+        "game_id",
+        "id",
+        "table_id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [],
+      "options": {}
+    },
+    {
+      "dataset_id": "takg",
+      "enabled": false,
+      "source": "local",
+      "hub_id": null,
+      "config_name": null,
+      "revision": null,
+      "split": "test",
+      "trust_remote_code": false,
+      "local_path": "evaluation/local_datasets/takg",
+      "normalizer": "generic",
+      "task_family": "long_form_table_report",
+      "output_mode": "paragraph",
+      "language": "en",
+      "sample_size": 30,
+      "seed": 42,
+      "source_fields": [
+        "table",
+        "metadata",
+        "input",
+        "box_score",
+        "line_score"
+      ],
+      "reference_fields": [
+        "summary",
+        "reference",
+        "references",
+        "target",
+        "explanation"
+      ],
+      "id_fields": [
+        "game_id",
+        "id",
+        "table_id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [],
+      "options": {}
+    },
+    {
+      "dataset_id": "ml_performance_explanations",
+      "enabled": false,
+      "source": "local",
+      "hub_id": null,
+      "config_name": null,
+      "revision": null,
+      "split": "test",
+      "trust_remote_code": false,
+      "local_path": "evaluation/local_datasets/ml_performance_explanations",
+      "normalizer": "generic",
+      "task_family": "analytical_explanation",
+      "output_mode": "paragraph",
+      "language": "en",
+      "sample_size": 30,
+      "seed": 42,
+      "source_fields": [
+        "table",
+        "metadata",
+        "input",
+        "box_score",
+        "line_score"
+      ],
+      "reference_fields": [
+        "summary",
+        "reference",
+        "references",
+        "target",
+        "explanation"
+      ],
+      "id_fields": [
+        "game_id",
+        "id",
+        "table_id"
+      ],
+      "group_fields": [],
+      "metadata_fields": [],
+      "options": {}
+    }
+  ]
+}

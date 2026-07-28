@@ -18,15 +18,18 @@ from .audit import (
     INTERNAL_CONTROL_PATTERN,
     PREDICTIVE_PATTERN,
     build_evidence_lookup,
+    content_requirement_errors,
     fact_support_numbers,
     flatten_numbers,
     numbers_supported,
+    sentence_support_narrative_stats,
     unsupported_backtick_entities,
     validate_fact_candidates,
     validate_repair_candidate,
 )
 from .config import Settings
 from .capabilities import (
+    normalise_event_evidence_queries,
     validate_event_query_priorities,
     validate_evidence_queries,
     validate_semantic_map,
@@ -47,10 +50,12 @@ from .schemas import (
     FactLedger,
     InsightCandidate,
     InsightCandidateSet,
+    InsightContribution,
     InsightLedger,
     InsightObjective,
     InsightRejection,
     InsightType,
+    InsightVerificationFailure,
     InsightVerificationResult,
     InsightVerificationStatus,
     InvestigationTask,
@@ -156,11 +161,13 @@ record and its fields represent. Use only the broad controlled semantic roles
 provided by the schema. Keep domain labels such as scoring, votes, revenue or
 assists in the free-text `label` and `description`; do not invent a new role.
 
-The semantic map is a compact analytical index, not an exhaustive data
-dictionary. Return at most 24 bindings. Copy every `path_pattern` verbatim from
-the structural catalog, including any `*` wildcards. A wildcard pattern binds
-the repeated field family once: never expand it into concrete participant,
-entity, period or record keys, and never bind the same catalog path twice.
+The semantic map is a broad analytical index for the supplied structure. Include
+every event, participant and entity binding that may support a faithful report,
+especially every aggregate participant-level measure and every substantive
+nested-entity measure. Copy every `path_pattern` verbatim from the structural
+catalog, including any `*` wildcards. A wildcard pattern binds the repeated
+field family once: never expand it into concrete participant, entity, period or
+record keys, and never bind the same catalog path twice.
 Label wildcard bindings collectively, such as "Participant name" or "Entity
 points"; never label a wildcard as one particular member such as home,
 visitor, first or second.
@@ -180,28 +187,23 @@ Prioritise bindings in this order:
 - event context, time, location and status;
 - participant and nested-entity identifiers;
 - participant-level event outcome measures;
-- participant-level outcome components, then other salient measures for major
-  contrasts, with no more than six participant-level contrast measures;
-- three distinct substantive entity-level measures when the catalog supports
-  them, then at most one participation measure if space remains;
-- no more than six entity-level measures in total.
+- all participant-level outcome components, then other participant-level
+  measures that can support contrasts;
+- all substantive entity-level measures, then participation measures.
 
-For an event record, reserve space for report-critical roles before optional
-context: a human-readable participant identifier, a human-readable nested
-entity identifier when present, the aggregate outcome, event status, salient
-participant measures and salient entity measures. Use the minimum date parts
-needed to reconstruct the supplied date and no more than two location fields.
-Prefer human-readable names over technical IDs or codes. Do not spend the
-binding budget on technical record IDs, redundant name components, pre-event
-records, nested status flags or administrative fields while report-critical
-performance measures remain unbound.
+For an event record, include report-critical roles before optional
+administrative fields: human-readable participant identifiers, human-readable
+nested entity identifiers when present, the aggregate outcome, event status,
+participant measures and entity measures. Include enough date and location
+fields to reconstruct the supplied context. Prefer human-readable names over
+technical IDs or codes. Do not omit report-critical performance measures in
+order to include technical record IDs, redundant name components, pre-event
+records, nested status flags or administrative fields.
 
-For event records, keep at most one event identifier, three time bindings, two
-location bindings, two participant identifiers, one event-status binding, six
-participant contrast measures excluding the aggregate outcome, and six entity
-measures. When a nested entity collection has at least three numeric measures,
-reserve at least three bindings for distinct substantive performance or
-outcome-component measures before optional participation measures.
+For event records, do not cap participant contrast measures or entity measures.
+When a nested entity collection has numeric measures, bind each substantive
+performance or outcome-component measure before optional participation
+measures.
 
 Omit low-value administrative fields and exhaustive period/component
 measures. For a nested single-event record, top-level constancy is expected:
@@ -335,7 +337,9 @@ Rules:
 - Forecasting requires a target, reliable time ordering, rolling evaluation,
   and naive baselines.
 - Causal work is feasibility-first.
-- Include a report specification with a finding budget and target length.
+- Include a report specification with a target length and word ceiling. Leave
+  finding and supporting-fact count limits unset; relevance, support,
+  non-duplication and the word ceiling govern report selection.
 - Use only evidence capabilities listed as available in the supplied input.
 - Never plan an event result, entity ranking, temporal change, milestone, or
   comparison capability that is not available.
@@ -366,9 +370,10 @@ Rules:
   should remember.
 - A sports report may ask which verified facts describe the result, salient
   performances, team contrasts, and supported conventional milestones.
-- An event report must request the event_result, leading_performance, and
-  main_contrast content slots only when their required capabilities are
-  available. It must not treat reference text as operational evidence.
+- An event report must request event_result, leading_performance,
+  main_contrast and scope_limitations content slots only when their required
+  evidence or safety constraints are available. It must not treat reference
+  text as operational evidence.
 - When a semantic map is supplied, create generic evidence queries using only
   semantic binding IDs. Use `retrieve` for context, `compare` for participant
   measures, and `rank` for entity measures. Do not hard-code field aliases or
@@ -392,9 +397,9 @@ Rules:
   structural catalog is not permission to reference an unbound measure.
 - Query questions are pre-result analytical questions. Do not place observed
   values, winners, rankings or conclusions in a query.
-- For a supported event report, normally query event context, the outcome
-  measure, three distinct substantive entity rankings when available, and
-  participant contrasts.
+- For a supported event report, query event context, event status, the outcome
+  measure, all available substantive entity rankings, and all participant
+  contrasts that can support a faithful report.
 - Treat the semantic binding's `analytical_function` as the content-priority
   contract. Prefer `performance` and `outcome_component` for entity rankings.
   Do not rank `participation` when substantive entity measures are available
@@ -403,10 +408,8 @@ Rules:
 - For participant contrasts, prefer distinct `outcome_component` measures
   before general performance or context measures. Relate components as
   descriptive contrasts only; do not imply that they caused the result.
-- Keep an event plan selective: use at most 10 evidence queries, including no
-  more than three entity rankings and four participant comparisons. Do not
-  query the same measure/entity combination twice under different names or
-  repeat event context as a data-quality query.
+- Do not query the same measure/entity combination twice under different names
+  or repeat event context as a data-quality query.
 - Use these evidence types exactly: event_outcome for outcome comparison;
   event_context or event_status for context retrieval; entity_ranking for ranking;
   entity_performance for entity performance; and participant_comparison or
@@ -639,6 +642,26 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
                 [],
             )
         ]
+        if (
+            selected_report_genre
+            in {
+                ReportGenre.EVENT_REPORT.value,
+                ReportGenre.SPORTS_GAME_REPORT.value,
+            }
+            and semantic_map is not None
+            and semantic_map.bindings
+        ):
+            output = output.model_copy(
+                update={
+                    "evidence_queries": normalise_event_evidence_queries(
+                        queries=output.evidence_queries,
+                        semantic_map=semantic_map,
+                        tasks=output.tasks,
+                        available_capabilities=available_capabilities,
+                        request=user_request or "",
+                    )
+                }
+            )
         query_errors = validate_evidence_queries(
             output.evidence_queries,
             semantic_map,
@@ -678,7 +701,10 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
                 + "\nUse only these exact binding IDs: "
                 + binding_guide
             )
-        if len(output.evidence_queries) > output.maximum_facts:
+        if (
+            output.maximum_facts is not None
+            and len(output.evidence_queries) > output.maximum_facts
+        ):
             raise ModelRetry(
                 "The number of evidence queries must not exceed the fact "
                 "budget because each query requires verifier review."
@@ -693,31 +719,6 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
             and semantic_map is not None
             and semantic_map.bindings
         ):
-            if len(output.evidence_queries) > 10:
-                raise ModelRetry(
-                    "Event plans may contain at most 10 selective evidence queries."
-                )
-
-            ranking_count = sum(
-                query.evidence_type == "entity_ranking"
-                for query in output.evidence_queries
-            )
-            if ranking_count > 3:
-                raise ModelRetry(
-                    "Event plans may contain at most three entity-ranking queries."
-                )
-
-            comparison_count = sum(
-                query.evidence_type
-                in {"participant_comparison", "event_contrast"}
-                for query in output.evidence_queries
-            )
-            if comparison_count > 4:
-                raise ModelRetry(
-                    "Event plans may contain at most four participant-comparison "
-                    "queries."
-                )
-
             query_signatures: set[
                 tuple[str, tuple[str, ...], str | None, str | None]
             ] = set()
@@ -979,13 +980,16 @@ INSIGHT_SYNTHESIS_INSTRUCTIONS = """
 You are the Evidence Analyst performing a second bounded synthesis pass.
 
 The first pass identified evidence-grounded facts. This pass relates verified
-facts into a small number of useful, evidence-constrained interpretations.
+facts into distinct, useful, evidence-constrained interpretations.
 
 Definitions:
 - Finding: a directly supported observation.
 - Bounded insight: an interpretation formed by relating verified findings.
 - Analytical implication: why the related findings matter for interpretation
   or analysis, without proposing why the observed pattern exists.
+- Event synthesis: a supported relationship among an event outcome, context,
+  rankings, performances or participant contrasts. It can be useful narrative
+  synthesis without a deeper data-science implication.
 - Hypothesis: a plausible explanation requiring additional testing.
 
 Rules:
@@ -997,9 +1001,11 @@ Rules:
 5. Every candidate must cite source fact IDs.
 6. Every cited fact ID must contribute materially to the statement.
 7. A bounded insight normally requires at least the configured minimum number
-   of source facts.
-8. Single-fact exceptions are permitted only for anomaly, data-quality
-   implication, or a direct narrative summary supported by one compound fact.
+   of source facts in analytical reports.
+8. Single-fact exceptions are permitted for anomaly, data-quality
+   implication, a direct narrative summary supported by one compound fact, or
+   event-report evidence that is already a structured outcome, context,
+   status, ranking, performance, or participant contrast.
 9. Do not merely paraphrase one fact, or several facts that repeat the same
    result, and label the restatement an insight.
 10. Do not turn correlation into causation.
@@ -1012,28 +1018,35 @@ Rules:
 14. Do not claim that a variable is useless or universally redundant.
 15. Describe overlap as containing highly overlapping information in this
     dataset.
-16. `why_it_matters` is the analytical implication. It must add a concrete,
+16. Set `contribution` to `analytical_implication` for analytical reports,
+   `event_synthesis` for event reports, and `descriptive_synthesis` for a
+   concise dataset overview.
+17. For `analytical_implication`, `why_it_matters` must add a concrete,
    evidence-bounded consequence for interpretation or analysis; it must not
    restate coefficients, effect labels, or the candidate statement.
-17. A possible reason why a pattern exists is a hypothesis, including claims
+18. For `event_synthesis`, `why_it_matters` may be omitted. Relating supported
+   rankings, performances, outcomes or participant contrasts is sufficient
+   when it contributes to the event report and remains event-scoped.
+19. A possible reason why a pattern exists is a hypothesis, including claims
    that a pattern may reflect a dependency, data artifact, collection process,
    or unmeasured mechanism. Do not hide a hypothesis in `why_it_matters`, a
    limitation, or a recommendation.
-18. A hypothesis must be explicitly labelled as a hypothesis.
-19. A hypothesis must not be suitable for the main report unless hypotheses
+20. A hypothesis must be explicitly labelled as a hypothesis.
+21. A hypothesis must not be suitable for the main report unless hypotheses
    are explicitly allowed.
-20. Preserve deterministic qualitative strength labels. Do not relabel a
+22. Preserve deterministic qualitative strength labels. Do not relabel a
    strong association as moderate, or vice versa.
-21. For missingness, prefer the directly supported scope of the complete-case
+23. For missingness, prefer the directly supported scope of the complete-case
    subset over an assumed bias mechanism. For duplicates, describe a possible
    influence only as a bounded methodological risk, never as a measured effect.
-22. Do not claim that data are complete, contain no missing values, or contain
+24. Do not claim that data are complete, contain no missing values, or contain
    no duplicates unless the cited facts reference evidence that measured that
    exact data-quality property.
-23. Include limitations or alternative explanations where needed, but keep
+25. Include limitations or alternative explanations where needed, but keep
    unverified explanations in explicitly labelled hypothesis candidates.
-24. Prefer a few meaningful insights over many small restatements.
-25. Respect the configured candidate limit.
+26. Generate every distinct, report-relevant insight supported by the supplied
+   facts. Do not target a fixed number. Stop when additional candidates would
+   only duplicate existing synthesis or add weak, irrelevant material.
 
 Return structured output only.
 """
@@ -1057,9 +1070,16 @@ For every record explicitly set:
 - `contains_hypothesis`: true whenever the statement or analytical implication
   proposes a possible explanation that requires further testing.
 
-A record may be verified or verified_with_caveat only when the first two flags
-are true and `contains_hypothesis` is false. A direct-finding restatement must
-be rejected. A candidate containing a possible explanation must be
+A record may be verified or verified_with_caveat only when
+`adds_bounded_synthesis` is true and `contains_hypothesis` is false. For a
+data-science report, `analytical_implication_supported` must also be true. For
+an event report, a supported event synthesis does not require a separate
+analytical implication: rankings, performances, outcomes and participant
+contrasts can provide bounded narrative synthesis. In an event report, a
+single structured outcome, context, status, ranking, performance, or
+participant contrast can be report-worthy event synthesis when it fills the
+selected report contract. Outside that event-report case, a direct-finding
+restatement must be rejected. A candidate containing a possible explanation must be
 hypothesis_only or rejected.
 
 Check that every cited fact exists and genuinely contributes; every number,
@@ -1107,6 +1127,11 @@ SINGLE_FACT_INSIGHT_TYPES = {
     InsightType.ANOMALY,
     InsightType.DATA_QUALITY_IMPLICATION,
     InsightType.NARRATIVE_SUMMARY,
+}
+
+EVENT_INSIGHT_GENRES = {
+    ReportGenre.EVENT_REPORT,
+    ReportGenre.SPORTS_GAME_REPORT,
 }
 
 STRONG_PERMISSIONS = {
@@ -1318,11 +1343,61 @@ def _supports_data_quality_dimension(
     return False
 
 
+def _event_candidate_has_reportworthy_evidence(
+    *,
+    candidate: InsightCandidate,
+    fact_lookup: dict[str, VerifiedFact],
+    evidence_lookup: dict[str, Any],
+    report_genre: ReportGenre,
+) -> bool:
+    if report_genre not in EVENT_INSIGHT_GENRES:
+        return False
+
+    fact_evidence_ids = {
+        evidence_id
+        for fact_id in candidate.source_fact_ids
+        if fact_id in fact_lookup
+        for evidence_id in fact_lookup[fact_id].evidence_ids
+    }
+    fact_evidence_ids.update(candidate.source_evidence_ids)
+    event_evidence_types = {
+        evidence_lookup[evidence_id].evidence_type
+        for evidence_id in fact_evidence_ids
+        if evidence_id in evidence_lookup
+    }
+    event_capabilities = {
+        evidence_lookup[evidence_id].capability
+        for evidence_id in fact_evidence_ids
+        if evidence_id in evidence_lookup
+    }
+
+    return bool(
+        event_evidence_types
+        & {
+            "event_context",
+            "event_status",
+            "event_outcome",
+            "entity_ranking",
+            "entity_performance",
+            "participant_comparison",
+            "event_contrast",
+        }
+        or event_capabilities
+        & {
+            EvidenceCapability.EVENT_OUTCOME,
+            EvidenceCapability.ENTITY_PERFORMANCE,
+            EvidenceCapability.RANKING,
+            EvidenceCapability.GROUP_COMPARISON,
+        }
+    )
+
+
 def validate_insight_candidates(
     candidate_set: InsightCandidateSet,
     fact_ledger: FactLedger,
     evidence_ledger: Any,
     settings: Settings,
+    report_genre: ReportGenre = ReportGenre.DATA_SCIENCE_REPORT,
 ) -> list[str]:
     errors: list[str] = []
     fact_lookup = _candidate_fact_lookup(fact_ledger)
@@ -1330,7 +1405,11 @@ def validate_insight_candidates(
     seen_ids: set[str] = set()
     accepted_for_duplicate_check: list[InsightCandidate] = []
 
-    if len(candidate_set.candidates) > settings.max_insight_candidates:
+    if (
+        settings.max_insight_candidates is not None
+        and len(candidate_set.candidates)
+        > settings.max_insight_candidates
+    ):
         errors.append(
             "Insight candidate count exceeds the configured limit of "
             f"{settings.max_insight_candidates}."
@@ -1405,12 +1484,30 @@ def validate_insight_candidates(
                 f"source facts: {unlinked_evidence_ids}"
             )
 
-        writer_visible_text = " ".join(
-            [
-                candidate.statement,
-                candidate.why_it_matters,
-            ]
+        analytical_why = (
+            candidate.why_it_matters
+            if report_genre == ReportGenre.DATA_SCIENCE_REPORT
+            else None
         )
+        writer_visible_text = " ".join(
+            filter(
+                None,
+                [
+                    candidate.statement,
+                    analytical_why,
+                ],
+            )
+        )
+        if (
+            report_genre == ReportGenre.DATA_SCIENCE_REPORT
+            and candidate.interpretation_level
+            == InterpretationLevel.BOUNDED_INSIGHT
+            and not candidate.why_it_matters
+        ):
+            errors.append(
+                f"{candidate_id} lacks an analytical implication required "
+                "for a data-science report."
+            )
         if MISSINGNESS_CLAIM_PATTERN.search(
             writer_visible_text
         ) and not _supports_data_quality_dimension(
@@ -1440,8 +1537,10 @@ def validate_insight_candidates(
         )
         for field_name, field_text in {
             "statement": candidate.statement,
-            "why_it_matters": candidate.why_it_matters,
+            "why_it_matters": analytical_why,
         }.items():
+            if not field_text:
+                continue
             if not numbers_supported(
                 field_text,
                 support_numbers,
@@ -1471,6 +1570,15 @@ def validate_insight_candidates(
                 "source facts."
             )
 
+        event_single_fact_synthesis = (
+            _event_candidate_has_reportworthy_evidence(
+                candidate=candidate,
+                fact_lookup=fact_lookup,
+                evidence_lookup=evidence_lookup,
+                report_genre=report_genre,
+            )
+        )
+
         if (
             candidate.interpretation_level
             == InterpretationLevel.BOUNDED_INSIGHT
@@ -1478,6 +1586,7 @@ def validate_insight_candidates(
             < settings.min_facts_per_bounded_insight
             and candidate.insight_type
             not in SINGLE_FACT_INSIGHT_TYPES
+            and not event_single_fact_synthesis
         ):
             errors.append(
                 f"{candidate_id} is a single-fact pseudo-insight; "
@@ -1557,17 +1666,20 @@ def validate_insight_candidates(
                 f"{candidate_id} generalises beyond the analysed dataset."
             )
 
-        if _materially_duplicate_statements(
-            candidate.statement,
-            candidate.why_it_matters,
+        if (
+            analytical_why
+            and _materially_duplicate_statements(
+                candidate.statement,
+                analytical_why,
+            )
         ):
             errors.append(
                 f"{candidate_id} why_it_matters merely restates the insight."
             )
 
-        if any(
+        if analytical_why and any(
             _materially_duplicate_statements(
-                candidate.why_it_matters,
+                analytical_why,
                 fact_text,
             )
             for fact in facts
@@ -1635,34 +1747,6 @@ def build_insight_synthesis_agent(
         retries={"output": 3},
     )
 
-    @agent.output_validator
-    def validate_output(
-        context: RunContext[AgentDependencies],
-        output: InsightCandidateSet,
-    ) -> InsightCandidateSet:
-        from .schemas import EvidenceLedger
-
-        fact_ledger = FactLedger.model_validate(
-            context.deps.payload["fact_ledger"]
-        )
-        evidence_ledger = EvidenceLedger.model_validate(
-            context.deps.payload["evidence_ledger"]
-        )
-        errors = validate_insight_candidates(
-            output,
-            fact_ledger,
-            evidence_ledger,
-            settings,
-        )
-
-        if errors:
-            raise ModelRetry(
-                "Insight candidate validation failed:\n- "
-                + "\n- ".join(errors[:12])
-            )
-
-        return output
-
     return agent
 
 
@@ -1675,6 +1759,7 @@ def _verified_statement_is_safe(
     fact_ledger: FactLedger,
     evidence_ledger: Any,
     settings: Settings,
+    report_genre: ReportGenre,
 ) -> bool:
     candidate_normalised = _normalise_statement(candidate.statement)
     statement_normalised = _normalise_statement(statement)
@@ -1701,6 +1786,7 @@ def _verified_statement_is_safe(
         fact_ledger,
         evidence_ledger,
         settings,
+        report_genre,
     )
 
 
@@ -1710,6 +1796,7 @@ def validate_insight_verification(
     fact_ledger: FactLedger,
     evidence_ledger: Any,
     settings: Settings,
+    report_genre: ReportGenre = ReportGenre.DATA_SCIENCE_REPORT,
 ) -> list[str]:
     errors: list[str] = []
     candidate_lookup = {
@@ -1722,14 +1809,23 @@ def validate_insight_verification(
     ]
     expected_ids = set(candidate_lookup)
 
-    if len(received_ids) != len(set(received_ids)):
-        errors.append("Duplicate insight verification records are not allowed.")
-
-    if set(received_ids) != expected_ids:
+    duplicate_ids = {
+        insight_id
+        for insight_id in received_ids
+        if received_ids.count(insight_id) > 1
+    }
+    for insight_id in sorted(duplicate_ids):
         errors.append(
-            "Review every insight candidate exactly once. "
-            f"Missing={sorted(expected_ids - set(received_ids))}; "
-            f"extra={sorted(set(received_ids) - expected_ids)}"
+            f"{insight_id} has duplicate insight verification records."
+        )
+
+    for insight_id in sorted(expected_ids - set(received_ids)):
+        errors.append(
+            f"{insight_id} was not reviewed by the insight verifier."
+        )
+    for insight_id in sorted(set(received_ids) - expected_ids):
+        errors.append(
+            f"Unexpected insight verification record: {insight_id}."
         )
 
     for record in verification.records:
@@ -1741,13 +1837,24 @@ def validate_insight_verification(
             InsightVerificationStatus.VERIFIED,
             InsightVerificationStatus.VERIFIED_WITH_CAVEAT,
         }
-        if verified_status and not record.adds_bounded_synthesis:
+        event_reportworthy = _event_candidate_has_reportworthy_evidence(
+            candidate=candidate,
+            fact_lookup=_candidate_fact_lookup(fact_ledger),
+            evidence_lookup=build_evidence_lookup(evidence_ledger),
+            report_genre=report_genre,
+        )
+        if (
+            verified_status
+            and not record.adds_bounded_synthesis
+            and not event_reportworthy
+        ):
             errors.append(
                 f"{record.insight_id} is a direct-finding restatement rather "
                 "than a bounded insight."
             )
         if (
             verified_status
+            and report_genre == ReportGenre.DATA_SCIENCE_REPORT
             and not record.analytical_implication_supported
         ):
             errors.append(
@@ -1812,6 +1919,7 @@ def validate_insight_verification(
             fact_ledger=fact_ledger,
             evidence_ledger=evidence_ledger,
             settings=settings,
+            report_genre=report_genre,
         ):
             errors.append(
                 f"{record.insight_id} verifier statement is unsupported or "
@@ -1843,38 +1951,6 @@ def build_insight_verifier_agent(
         retries={"output": 3},
     )
 
-    @agent.output_validator
-    def validate_output(
-        context: RunContext[AgentDependencies],
-        output: InsightVerificationResult,
-    ) -> InsightVerificationResult:
-        from .schemas import EvidenceLedger
-
-        candidates = InsightCandidateSet.model_validate(
-            context.deps.payload["insight_candidates"]
-        )
-        fact_ledger = FactLedger.model_validate(
-            context.deps.payload["fact_ledger"]
-        )
-        evidence_ledger = EvidenceLedger.model_validate(
-            context.deps.payload["evidence_ledger"]
-        )
-        errors = validate_insight_verification(
-            output,
-            candidates,
-            fact_ledger,
-            evidence_ledger,
-            settings,
-        )
-
-        if errors:
-            raise ModelRetry(
-                "Insight verification validation failed:\n- "
-                + "\n- ".join(errors[:12])
-            )
-
-        return output
-
     return agent
 
 
@@ -1896,12 +1972,14 @@ def materialise_insight_ledger(
     fact_ledger: FactLedger,
     evidence_ledger: Any,
     settings: Settings,
+    report_genre: ReportGenre = ReportGenre.DATA_SCIENCE_REPORT,
 ) -> InsightLedger:
     candidate_errors = validate_insight_candidates(
         candidates,
         fact_ledger,
         evidence_ledger,
         settings,
+        report_genre,
     )
     verification_errors = validate_insight_verification(
         verification,
@@ -1909,6 +1987,7 @@ def materialise_insight_ledger(
         fact_ledger,
         evidence_ledger,
         settings,
+        report_genre,
     )
     records = {
         record.insight_id: record
@@ -1920,6 +1999,7 @@ def materialise_insight_ledger(
     }
     fact_lookup = _candidate_fact_lookup(fact_ledger)
     rejected: list[InsightRejection] = []
+    unverified: list[InsightVerificationFailure] = []
     hypotheses: list[VerifiedInsight] = []
     eligible: list[tuple[int, InsightCandidate, VerifiedInsight]] = []
     candidate_ids = {
@@ -1934,40 +2014,60 @@ def materialise_insight_ledger(
             for candidate_id in candidate_ids
         )
     ]
-    global_verification_errors = [
-        error
-        for error in verification_errors
-        if not any(
-            candidate_id in error
-            for candidate_id in candidate_ids
-        )
-    ]
-
     for index, candidate in enumerate(candidates.candidates):
-        reasons = [
+        candidate_reasons = [
             error
             for error in candidate_errors
             if candidate.insight_id in error
         ]
-        reasons.extend(global_candidate_errors)
-        reasons.extend(global_verification_errors)
+        candidate_reasons.extend(global_candidate_errors)
         record = records.get(candidate.insight_id)
 
-        if record is None:
-            reasons.append("The verifier did not review this insight.")
-
-        if record is not None and record.status == InsightVerificationStatus.REJECTED:
-            reasons.extend(
-                record.verification_notes
-                or ["The verifier rejected this insight."]
+        if candidate_reasons:
+            rejected.append(
+                InsightRejection(
+                    insight_id=candidate.insight_id,
+                    candidate=candidate,
+                    reasons=list(dict.fromkeys(candidate_reasons)),
+                )
             )
+            continue
+
+        if record is None:
+            unverified.append(
+                InsightVerificationFailure(
+                    insight_id=candidate.insight_id,
+                    candidate=candidate,
+                    reasons=[
+                        "The verifier did not return a usable review for this "
+                        "insight."
+                    ],
+                )
+            )
+            continue
+
+        if record.status == InsightVerificationStatus.REJECTED:
+            rejected.append(
+                InsightRejection(
+                    insight_id=candidate.insight_id,
+                    candidate=candidate,
+                    reasons=record.verification_notes
+                    or ["The verifier rejected this insight."],
+                )
+            )
+            continue
+
+        verification_reasons = [
+            error
+            for error in verification_errors
+            if candidate.insight_id in error
+        ]
 
         source_fact_ids = list(
             dict.fromkeys(
                 (
                     record.verified_source_fact_ids
-                    if record is not None
-                    and record.verified_source_fact_ids
+                    if record.verified_source_fact_ids
                     else candidate.source_fact_ids
                 )
             )
@@ -1976,8 +2076,7 @@ def materialise_insight_ledger(
             dict.fromkeys(
                 (
                     record.verified_source_evidence_ids
-                    if record is not None
-                    and record.verified_source_evidence_ids
+                    if record.verified_source_evidence_ids
                     else (
                         candidate.source_evidence_ids
                         or [
@@ -1994,14 +2093,12 @@ def materialise_insight_ledger(
         )
         statement = (
             record.verified_statement
-            if record is not None
-            and record.verified_statement
+            if record.verified_statement
             else candidate.statement
         )
 
         if (
-            record is not None
-            and record.verified_statement
+            record.verified_statement
             and not _verified_statement_is_safe(
                 candidate=candidate,
                 statement=record.verified_statement,
@@ -2010,50 +2107,49 @@ def materialise_insight_ledger(
                 fact_ledger=fact_ledger,
                 evidence_ledger=evidence_ledger,
                 settings=settings,
+                report_genre=report_genre,
             )
         ):
-            reasons.append(
+            verification_reasons.append(
                 "The verifier statement was stronger than or unsupported by "
                 "the candidate provenance."
             )
 
         confidence = min(
             candidate.confidence,
-            record.confidence if record is not None else 0.0,
+            record.confidence,
         )
         salience = min(
             candidate.salience,
-            record.salience if record is not None else 0.0,
+            record.salience,
         )
 
         hypothesis_only = bool(
             candidate.interpretation_level
             == InterpretationLevel.HYPOTHESIS
-            or (
-                record is not None
-                and record.status
-                == InsightVerificationStatus.HYPOTHESIS_ONLY
-            )
+            or record.status
+            == InsightVerificationStatus.HYPOTHESIS_ONLY
         )
 
-        if verification_errors:
-            record_errors = [
-                error
-                for error in verification_errors
-                if candidate.insight_id in error
-            ]
-            reasons.extend(record_errors)
-
-        if reasons:
-            rejected.append(
-                InsightRejection(
+        if verification_reasons:
+            unverified.append(
+                InsightVerificationFailure(
                     insight_id=candidate.insight_id,
                     candidate=candidate,
-                    reasons=list(dict.fromkeys(reasons)),
+                    reasons=list(dict.fromkeys(verification_reasons)),
                 )
             )
             continue
 
+        contribution = (
+            InsightContribution.EVENT_SYNTHESIS
+            if report_genre in EVENT_INSIGHT_GENRES
+            else (
+                InsightContribution.DESCRIPTIVE_SYNTHESIS
+                if report_genre == ReportGenre.DATASET_OVERVIEW
+                else InsightContribution.ANALYTICAL_IMPLICATION
+            )
+        )
         verified = VerifiedInsight(
             insight_id=candidate.insight_id,
             statement=statement,
@@ -2063,6 +2159,7 @@ def materialise_insight_ledger(
                 if hypothesis_only
                 else InterpretationLevel.BOUNDED_INSIGHT
             ),
+            contribution=contribution,
             source_fact_ids=source_fact_ids,
             source_evidence_ids=source_evidence_ids,
             source_capabilities=list(
@@ -2072,16 +2169,17 @@ def materialise_insight_ledger(
                     if evidence_id in evidence_lookup
                 )
             ),
-            why_it_matters=candidate.why_it_matters,
+            why_it_matters=(
+                candidate.why_it_matters
+                if contribution
+                == InsightContribution.ANALYTICAL_IMPLICATION
+                else None
+            ),
             limitations=list(
                 dict.fromkeys(
                     [
                         *candidate.limitations,
-                        *(
-                            record.limitations
-                            if record is not None
-                            else []
-                        ),
+                        *record.limitations,
                     ]
                 )
             ),
@@ -2157,26 +2255,14 @@ def materialise_insight_ledger(
             item[0],
         )
     )
-    selected = eligible[: settings.max_verified_main_insights]
-
-    for _, candidate, _ in eligible[settings.max_verified_main_insights :]:
-        rejected.append(
-            InsightRejection(
-                insight_id=candidate.insight_id,
-                candidate=candidate,
-                reasons=[
-                    "The configured verified main-insight budget was reached."
-                ],
-            )
-        )
-
     return InsightLedger(
         verified_insights=[
             verified
-            for _, _, verified in selected
+            for _, _, verified in eligible
         ],
         hypothesis_only_insights=hypotheses,
         rejected_insights=rejected,
+        unverified_insights=unverified,
         verifier_notes=[
             *verification.verifier_notes,
             *[
@@ -2325,9 +2411,11 @@ the only source of interpretive claims. Verified facts remain the source of
 direct findings and supporting details.
 
 For each main analytical paragraph, state one verified bounded insight,
-support it with its verified facts, explain why it matters only as authorised
-by that insight, and integrate its limitation where needed. Do not invent or
-strengthen an insight during writing.
+support it with its verified facts, explain why it matters only when the
+verified insight carries an analytical implication, and integrate its
+limitation where needed. Event and descriptive synthesis can provide value by
+coherently relating supported facts without adding a deeper implication. Do
+not invent or strengthen an insight during writing.
 
 Keep four roles distinct:
 - a direct finding reports a verified observation or statistic;
@@ -2353,7 +2441,8 @@ are enabled, place them only in a separate "Questions for Further
 Investigation" section, label each as a hypothesis or question, state what
 additional analysis is needed, and never present it as a result.
 
-Respect the selected genre, content slots and perspective. A data-science
+Respect the selected genre, content slots, perspective and maximum word count.
+A data-science
 report uses bounded analytical prose. A dataset overview stays concise and
 mainly finding-led. An event report communicates the verified result, leading
 performances and major participant contrasts in conventional narrative form.
@@ -2374,6 +2463,24 @@ in event terms: the comparisons describe only the supplied event, do not
 establish why the result occurred and do not support claims about broader
 performance. Avoid generic boilerplate about "observed associations" or
 "unadjusted group comparisons" in an event report.
+
+There is no fixed findings or insights quota. Cover required content first,
+then use as many additional distinct, relevant verified facts and insights as
+improve the report without exceeding `maximum_length_words`. Do not pad the
+report, repeat findings, or omit a stronger supported item merely to reach a
+particular count.
+
+When the Writer payload contains `content_requirements`, treat it as a
+controller-enforced coverage checklist. Use enough supported facts or verified
+insights from each listed content unit to satisfy `minimum_items`. If
+`enforce_minimum_words` is true, write at least `minimum_word_count` useful
+words while staying below `maximum_length_words`. Expand by adding supported
+event context, secondary performances, participant contrasts, and scoped
+limitations; do not expand by adding unsupported explanation or filler.
+When `narrative_requirements` are present, satisfy them with connected event
+prose: use verified insights or multi-fact synthesis, contrastive connectors
+such as "while" or "despite" where the support allows them, and an event-scoped
+caveat. Do not satisfy narration by inventing chronology, momentum or causes.
 
 You have freedom over:
 - wording;
@@ -2515,10 +2622,10 @@ must not introduce an entity, value or result absent from those facts.
 Every backticked table or column name and every visible number must be
 supported by those same fact IDs. When a sentence combines facts, cite every
 fact needed for all of its named entities and values.
-Use no more than eight fact IDs for the title or any sentence and no more than
-four insight IDs per sentence. Return no more than eight sections or twelve
-sentences per section. Never create placeholder IDs, ID ranges or exhaustive
-sequences of IDs.
+Cite every fact and insight ID genuinely needed to support the title or
+sentence. Keep sections, sentences and support lists coherent within the report
+word ceiling. Never create placeholder IDs, ID ranges or exhaustive sequences
+of IDs.
 Non-factual transitions may be marked non_factual_transition and must not
 cite fact IDs.
 """
@@ -2592,8 +2699,42 @@ def build_writer_agent(settings: Settings) -> Agent:
                 False,
             )
         )
+        maximum_length_words = context.deps.payload.get(
+            "maximum_length_words"
+        )
+        content_requirements = context.deps.payload.get(
+            "writer_content_requirements"
+        )
 
         errors: list[str] = []
+
+        draft_word_count = len(
+            re.findall(
+                r"\b[\w'-]+\b",
+                " ".join(
+                    [
+                        output.title,
+                        *[
+                            part
+                            for section in output.sections
+                            for part in [
+                                section.heading,
+                                *[
+                                    sentence.text
+                                    for sentence in section.sentences
+                                ],
+                            ]
+                        ],
+                    ]
+                ),
+            )
+        )
+        if maximum_length_words is not None:
+            if draft_word_count > int(maximum_length_words):
+                errors.append(
+                    f"The draft contains {draft_word_count} words and exceeds "
+                    f"the {maximum_length_words}-word ceiling."
+                )
 
         unknown_title_fact_ids = set(output.title_fact_ids) - valid_fact_ids
         if unknown_title_fact_ids:
@@ -2822,6 +2963,38 @@ def build_writer_agent(settings: Settings) -> Agent:
                         "Visible sentence text renders an "
                         "internal evidence field."
                     )
+
+        used_fact_ids = {
+            *output.title_fact_ids,
+            *[
+                fact_id
+                for section in output.sections
+                for sentence in section.sentences
+                for fact_id in sentence.fact_ids
+            ],
+        }
+        used_insight_ids = {
+            insight_id
+            for section in output.sections
+            for sentence in section.sentences
+            for insight_id in sentence.insight_ids
+        }
+        errors.extend(
+            content_requirement_errors(
+                used_fact_ids=used_fact_ids,
+                used_insight_ids=used_insight_ids,
+                word_count=draft_word_count,
+                requirements=content_requirements,
+                narrative_stats=sentence_support_narrative_stats(
+                    [
+                        sentence
+                        for section in output.sections
+                        for sentence in section.sentences
+                    ]
+                ),
+                include_word_count=True,
+            )
+        )
 
         if errors:
             raise ModelRetry(
@@ -4012,22 +4185,15 @@ def fallback_execution_plan(
                 )
             ),
             target_length_words=(
-                min(settings.writer_target_words, 450)
-                if report_genre
-                in {
-                    ReportGenre.EVENT_REPORT,
-                    ReportGenre.SPORTS_GAME_REPORT,
-                }
-                else settings.writer_target_words
+                settings.writer_target_words
             ),
-            maximum_main_findings=(
-                min(settings.writer_max_main_findings, 6)
-                if report_genre
-                in {
-                    ReportGenre.EVENT_REPORT,
-                    ReportGenre.SPORTS_GAME_REPORT,
-                }
-                else settings.writer_max_main_findings
+            maximum_length_words=(
+                settings.writer_max_words
+                or settings.writer_target_words
+            ),
+            maximum_main_findings=settings.writer_max_main_findings,
+            maximum_supporting_facts=(
+                settings.writer_supporting_fact_limit
             ),
             preferred_sections=(
                 [
@@ -4049,10 +4215,7 @@ def fallback_execution_plan(
                 ]
             ),
             required_components=(
-                [
-                    ReportComponent.STRONGEST_RELATIONSHIPS,
-                    ReportComponent.LIMITATIONS_NEXT_STEPS,
-                ]
+                []
                 if report_genre
                 in {
                     ReportGenre.EVENT_REPORT,
@@ -4072,6 +4235,7 @@ def fallback_execution_plan(
                     "event_status",
                     "leading_performance",
                     "main_contrast",
+                    "scope_limitations",
                 ]
                 if report_genre
                 in {
@@ -4166,7 +4330,7 @@ def fallback_execution_plan(
             )
         ],
         revision_limit=settings.max_revision_rounds,
-        maximum_facts=80,
+        maximum_facts=None,
         frozen=True,
         rationale=(
             "The deterministic fallback plans descriptive and meaningful "

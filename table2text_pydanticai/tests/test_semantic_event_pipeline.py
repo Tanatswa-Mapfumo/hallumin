@@ -4,22 +4,26 @@ import json
 
 import pandas as pd
 import pytest
-from pydantic import ValidationError
 
 from table2text.agents import validate_insight_candidates
 from table2text.analytics import execute_plan
 from table2text.audit import (
     assess_genre_quality,
+    extract_number_tokens,
     fallback_fact_candidates,
     flatten_numbers,
     numbers_supported,
     scope_fact_ledger_for_genre,
     select_event_priority_facts,
+    split_markdown_sentences,
     validate_fact_candidates,
     validate_writer_output,
 )
 from table2text.capabilities import (
     available_capabilities,
+    build_event_evidence_queries,
+    event_capability_evidence,
+    normalise_event_evidence_queries,
     semantic_query_evidence,
     validate_event_query_priorities,
     validate_evidence_queries,
@@ -54,7 +58,6 @@ from table2text.schemas import (
     InvestigationTask,
     QualityStatus,
     RecommendedUse,
-    ReportComponent,
     ReportGenre,
     ReportSelectionSource,
     ReportSpecification,
@@ -273,7 +276,65 @@ def semantic_queries() -> list[EvidenceQuery]:
     ]
 
 
-def test_semantic_map_rejects_exhaustive_binding_dumps():
+def event_query_tasks() -> list[InvestigationTask]:
+    return [
+        InvestigationTask(
+            task_id="TASK_OUTCOME",
+            question="What is the verified event outcome and context?",
+            route=AnalysisRoute.DESCRIPTIVE,
+            priority=5,
+            table_name="contest",
+            capability=EvidenceCapability.EVENT_OUTCOME,
+            expected_evidence_types=[
+                "event_context",
+                "event_status",
+                "event_outcome",
+            ],
+            required_evidence=[
+                "event_context",
+                "event_status",
+                "event_outcome",
+            ],
+            claim_permissions=[
+                ClaimPermission.DESCRIPTIVE,
+                ClaimPermission.COMPARATIVE,
+            ],
+            answerability_note="Answerable from the structured event.",
+        ),
+        InvestigationTask(
+            task_id="TASK_RANKING",
+            question="Which entities lead recorded performance measures?",
+            route=AnalysisRoute.DESCRIPTIVE,
+            priority=4,
+            table_name="contest",
+            capability=EvidenceCapability.RANKING,
+            expected_evidence_types=["entity_ranking"],
+            required_evidence=["entity_ranking"],
+            claim_permissions=[
+                ClaimPermission.DESCRIPTIVE,
+                ClaimPermission.COMPARATIVE,
+            ],
+            answerability_note="Answerable from entity measures.",
+        ),
+        InvestigationTask(
+            task_id="TASK_CONTRAST",
+            question="How do participants compare on recorded measures?",
+            route=AnalysisRoute.ASSOCIATION_COMPARISON,
+            priority=4,
+            table_name="contest",
+            capability=EvidenceCapability.GROUP_COMPARISON,
+            expected_evidence_types=["participant_comparison"],
+            required_evidence=["participant_comparison"],
+            claim_permissions=[
+                ClaimPermission.DESCRIPTIVE,
+                ClaimPermission.COMPARATIVE,
+            ],
+            answerability_note="Answerable from participant measures.",
+        ),
+    ]
+
+
+def test_semantic_map_accepts_broad_event_binding_coverage():
     compact_map = semantic_map()
     bindings = [
         binding.model_copy(
@@ -285,15 +346,16 @@ def test_semantic_map_rejects_exhaustive_binding_dumps():
         )
     ]
 
-    with pytest.raises(ValidationError, match="at most 24 items"):
-        InputSemanticMap(
-            input_shape=compact_map.input_shape,
-            record_description=compact_map.record_description,
-            bindings=bindings,
-            recommended_report_genre=compact_map.recommended_report_genre,
-            report_rationale=compact_map.report_rationale,
-            confidence=compact_map.confidence,
-        )
+    broad_map = InputSemanticMap(
+        input_shape=compact_map.input_shape,
+        record_description=compact_map.record_description,
+        bindings=bindings,
+        recommended_report_genre=compact_map.recommended_report_genre,
+        report_rationale=compact_map.report_rationale,
+        confidence=compact_map.confidence,
+    )
+
+    assert len(broad_map.bindings) == 25
 
 
 def test_orchestrator_context_exposes_binding_ids_without_raw_paths():
@@ -409,21 +471,18 @@ def test_event_query_priorities_reject_participation_substitution():
     )
 
     assert any(
-        "ranks participation measures" in error
-        for error in errors
-    )
-    assert any(
         "distinct substantive entity-performance" in error
         for error in errors
     )
 
 
-def test_writer_draft_rejects_exhaustive_support_id_sequences():
-    with pytest.raises(ValidationError, match="at most 8 items"):
-        WriterAgentDraft(
-            title="Unsupported title",
-            title_fact_ids=[f"FACT_{index:04d}" for index in range(9)],
-        )
+def test_writer_draft_accepts_broad_support_id_sequences():
+    draft = WriterAgentDraft(
+        title="Supported title",
+        title_fact_ids=[f"FACT_{index:04d}" for index in range(25)],
+    )
+
+    assert len(draft.title_fact_ids) == 25
 
 
 def test_numeric_string_evidence_supports_rendered_dates_and_identifiers():
@@ -439,6 +498,35 @@ def test_numeric_string_evidence_supports_rendered_dates_and_identifiers():
         "Game 4885 took place on 2017-11-09.",
         support_numbers,
     )
+
+
+def test_number_extraction_ignores_digits_embedded_in_entity_names():
+    sentence = (
+        "Philadelphia 76ers defeated Memphis Grizzlies 103-95, "
+        "a margin of 8."
+    )
+
+    assert extract_number_tokens(sentence) == [
+        ("103", 103.0),
+        ("95", 95.0),
+        ("8", 8.0),
+    ]
+    assert numbers_supported(
+        sentence,
+        [103.0, 95.0, 8.0],
+    )
+
+
+def test_sentence_splitter_keeps_player_initials_with_name():
+    markdown = (
+        "J.J. Redick recorded 24 points for Philadelphia 76ers. "
+        "Jimmy Butler recorded 21."
+    )
+
+    assert split_markdown_sentences(markdown) == [
+        "J.J. Redick recorded 24 points for Philadelphia 76ers.",
+        "Jimmy Butler recorded 21.",
+    ]
 
 
 def event_structure() -> InputStructureProfile:
@@ -457,10 +545,7 @@ def event_report_specification() -> ReportSpecification:
         communication_goal="Communicate the verified event evidence.",
         target_length_words=250,
         maximum_main_findings=5,
-        required_components=[
-            ReportComponent.STRONGEST_RELATIONSHIPS,
-            ReportComponent.LIMITATIONS_NEXT_STEPS,
-        ],
+        required_components=[],
         required_content_slots=["event_result"],
         prohibited_claim_types=["unsupported_causality"],
         selection_source=ReportSelectionSource.STRUCTURED_INFERENCE,
@@ -600,6 +685,147 @@ def test_generic_semantic_queries_execute_renamed_event_without_authored_claims(
     }
 
 
+def test_event_fallback_evidence_emits_generic_context():
+    results = event_capability_evidence(renamed_event())
+    by_type = {item.evidence_type: item for item in results}
+
+    assert "event_context" in by_type
+    context_values = by_type["event_context"].metrics["values"]
+    assert {item["value"] for item in context_values} >= {
+        "2026-07-23",
+        "Civic Hall",
+    }
+    assert by_type["event_context"].capability == (
+        EvidenceCapability.DATASET_PROFILE
+    )
+    assert "supplied event context" in by_type["event_context"].finding
+
+
+def test_event_fallback_query_builder_creates_executable_queries():
+    catalog = build_structural_catalog({"contest": renamed_event()})
+    available = {
+        EvidenceCapability.DATASET_PROFILE,
+        EvidenceCapability.EVENT_OUTCOME,
+        EvidenceCapability.RANKING,
+        EvidenceCapability.GROUP_COMPARISON,
+    }
+    queries = build_event_evidence_queries(
+        semantic_map=semantic_map(),
+        tasks=event_query_tasks(),
+        available_capabilities=available,
+        request="Understand the event and report its strongest findings.",
+    )
+
+    assert {
+        query.evidence_type
+        for query in queries
+    } >= {
+        "event_context",
+        "event_status",
+        "event_outcome",
+        "entity_ranking",
+        "participant_comparison",
+    }
+    assert not validate_evidence_queries(
+        queries,
+        semantic_map(),
+        catalog,
+        task_ids={
+            task.task_id
+            for task in event_query_tasks()
+        },
+        available=available,
+        task_capabilities={
+            task.task_id: task.capability
+            for task in event_query_tasks()
+        },
+    )
+
+    results = semantic_query_evidence(
+        table_name="contest",
+        payload=renamed_event(),
+        semantic_map=semantic_map(),
+        queries=queries,
+    )
+
+    assert results
+    assert {
+        item.evidence_type
+        for item in results
+    } >= {
+        "event_context",
+        "event_status",
+        "event_outcome",
+        "entity_ranking",
+        "participant_comparison",
+    }
+
+
+def test_event_query_normaliser_keeps_broad_participant_comparisons():
+    compact_map = semantic_map()
+    bindings = [
+        *compact_map.bindings,
+        *[
+            compact_map.bindings[4].model_copy(
+                update={
+                    "binding_id": f"B_COMPONENT_{index:02d}",
+                    "label": f"participant component {index}",
+                    "path_pattern": f"sides.*.component_{index}",
+                    "analytical_function": (
+                        AnalyticalFunction.OUTCOME_COMPONENT
+                    ),
+                }
+            )
+            for index in range(6)
+        ],
+    ]
+    enriched = compact_map.model_copy(
+        update={"bindings": bindings}
+    )
+    queries = [
+        semantic_queries()[-1].model_copy(
+            update={
+                "query_id": f"QUERY_CONTRAST_{index:02d}",
+                "value_binding_ids": [
+                    f"B_COMPONENT_{index:02d}"
+                ],
+            }
+        )
+        for index in range(6)
+    ]
+
+    normalised = normalise_event_evidence_queries(
+        queries=queries,
+        semantic_map=enriched,
+        tasks=event_query_tasks(),
+        available_capabilities={
+            EvidenceCapability.DATASET_PROFILE,
+            EvidenceCapability.EVENT_OUTCOME,
+            EvidenceCapability.RANKING,
+            EvidenceCapability.GROUP_COMPARISON,
+        },
+        request="Understand the event and report its strongest findings.",
+    )
+
+    comparison_count = sum(
+        query.evidence_type
+        in {"participant_comparison", "event_contrast"}
+        for query in normalised
+    )
+
+    assert comparison_count >= 6
+    assert {
+        f"B_COMPONENT_{index:02d}"
+        for index in range(6)
+    }.issubset(
+        {
+            binding_id
+            for query in normalised
+            for binding_id in query.value_binding_ids
+        }
+    )
+
+
 def test_semantic_query_validator_rejects_authored_operation_mismatch():
     bad_query = semantic_queries()[2].model_copy(update={"operation": EvidenceOperation.RETRIEVE})
 
@@ -691,7 +917,7 @@ def test_event_writer_scope_excludes_flat_wrapper_profile_facts():
     assert [fact.fact_id for fact in scoped.writer_ready_facts] == ["FACT_EVENT"]
 
 
-def test_event_fact_selection_prefers_diverse_performance_over_participation():
+def test_event_fact_selection_keeps_broad_verified_event_coverage():
     items = [
         evidence_item(
             evidence_id="EVID_RESULT",
@@ -779,8 +1005,8 @@ def test_event_fact_selection_prefers_diverse_performance_over_participation():
         "EVID_CONTRAST_2",
         "EVID_CONTRAST_3",
     }.issubset(priority_evidence_ids)
-    assert "EVID_GENERAL_CONTRAST" not in priority_evidence_ids
-    assert "EVID_PARTICIPATION" not in selected_evidence_ids
+    assert "EVID_GENERAL_CONTRAST" in priority_evidence_ids
+    assert "EVID_PARTICIPATION" in selected_evidence_ids
 
 
 def test_insight_rejects_unsupported_completeness_and_duplicate_claims():

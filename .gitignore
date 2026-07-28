@@ -4,6 +4,15 @@ __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
 
+# Local environment/secrets
+.env
+.env.*
+!*.env.example
+!**/.env.example
+table2text_pydanticai/.env
+table2text_pydanticai/.env.*
+!table2text_pydanticai/.env.example
+
 # Local Python environments and installers
 .venv/
 .bootstrap39/
@@ -19,6 +28,16 @@ runs/
 runs_*/
 table2text_pydanticai/runs/
 table2text_pydanticai/runs_*/
+table2text_pydanticai/evaluation/prepared/*.jsonl
+table2text_pydanticai/evaluation/generations/*
+!table2text_pydanticai/evaluation/generations/.gitkeep
+table2text_pydanticai/evaluation/results/*
+!table2text_pydanticai/evaluation/results/.gitkeep
+table2text_pydanticai/evaluation/human/*
+!table2text_pydanticai/evaluation/human/.gitkeep
+table2text_pydanticai/evaluation_inspection/
+table2text_pydanticai/evaluation_results/
+table2text_pydanticai/.table2text_report_fix_backup_*/
 
 # Local input datasets
 inputs/
