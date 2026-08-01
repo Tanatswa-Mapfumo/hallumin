@@ -1,6 +1,7 @@
 # Evaluation Overview: SportSett Basketball Example 4934
 
 Created: 2026-07-31
+Updated: 2026-08-01 with the latest full-system run. Raw baseline metrics are unchanged.
 
 This document summarises one SportSett Basketball evaluation example by placing the generated report, the human reference, the structured source data, and the available metric results in one reviewable packet.
 
@@ -12,16 +13,16 @@ This document summarises one SportSett Basketball evaluation example by placing 
 | Example ID | `4934` |
 | Variant | `full_system` |
 | Generation ID | `sportsett_basketball__4934__full_system__r0__s42` |
-| Run ID | `20260731T112346Z_48b57739d3` |
+| Run ID | `20260801T115628Z_48b57739d3` |
 | Task family | `event_report` |
 | Output mode | `multi_paragraph_report` |
 | Writer mode | `llm_writer` |
-| Release status | `approved_with_warnings` |
+| Release status | `approved` |
 | Primary evaluation eligible | `true` |
 | Audit support rate | `1.0` |
-| Supported sentences | `18 / 18` |
+| Supported sentences | `10 / 10` |
 | Repair rounds used | `0` |
-| Runtime | `1352.93` seconds |
+| Runtime | `1235.75` seconds |
 
 Request supplied to the system:
 
@@ -183,53 +184,37 @@ A second reference is present in the dataset and is effectively a tokenized vers
 
 #### Generated Title
 
-76ers Defeat Grizzlies 103-95 as Redick Scores 24
+Philadelphia 76ers Defeat Memphis Grizzlies 103-95
 
 #### Event Overview
 
-The Philadelphia 76ers defeated the Memphis Grizzlies 103-95 at Wells Fargo Center on Sunday, December 2, 2018.
+On Sunday, December 2, 2018, the Philadelphia 76ers defeated the Memphis Grizzlies 103-95 at Wells Fargo Center, holding the lead after each quarter.
 
-Philadelphia entered the game with a 17-8 record in third place in its conference, while Memphis arrived at 13-9 in sixth place; it was the 25th game of the season for the 76ers and the 22nd for the Grizzlies.
+The 76ers arrived at 17-8 and the Grizzlies at 13-9; the supplied record lists Philadelphia third and Memphis sixth in conference standing, with the game as the two teams' 25th and 22nd games of the season respectively.
 
 #### Score Progression
 
-The 76ers led after every quarter, from 26-25 after the first, to 54-44 at halftime, to 78-68 after the third, before finishing 103-95; Memphis outscored Philadelphia 27-25 in the fourth quarter, but the 76ers preserved the lead.
+Quarter by quarter, Philadelphia led 26-25 after the first, 54-44 after the second, 78-68 after the third and 103-95 at the end.
 
-Philadelphia's largest quarter margin came in the second, where it outscored Memphis 28-19, while the third quarter was even at 24-24.
-
-The recorded final totals of 103 and 95 match the cumulative scores through the four quarters.
+The teams each scored 24 in the third quarter, while Memphis outscored Philadelphia 27-25 in the fourth.
 
 #### Key Performances
 
-J.J. Redick led all scorers with 24 points and tied for the game high with three three-pointers made on six attempts.
+J.J. Redick led all scorers with 24 points, while Jimmy Butler and Mike Conley tied at 21 and Ben Simmons added 19.
 
-Jimmy Butler and Memphis's Mike Conley tied for second with 21 points apiece, and Ben Simmons added 19.
+Joel Embiid recorded a game-high 14 rebounds and Ben Simmons added 12, while the 76ers finished with a 44-35 team rebounding advantage over the Grizzlies.
 
-Joel Embiid contributed 15 points and led all players with 14 total rebounds and 14 defensive rebounds.
+Ben Simmons also dished out a game-high six assists, with Mike Muscala, Mike Conley and Kyle Anderson each recording five.
 
-Ben Simmons added 12 rebounds and a game-high 6 assists while shooting 80 percent from the field.
-
-Embiid and Butler each converted 7 free throws, the game high, and T.J. McConnell posted the game's best plus/minus at +16.
-
-For Memphis, JaMychal Green recorded a game-high 4 steals and Jaren Jackson blocked a game-high 3 shots.
-
-Mike Muscala and Furkan Korkmaz each shot 67 percent from three-point range, the best marks in the game.
+On the defensive end, Memphis's Jaren Jackson had a game-high three blocks and JaMychal Green recorded four steals, while T.J. McConnell posted the best plus/minus of the game at +16.
 
 #### Participant Contrasts
 
-Memphis attempted more field goals (79 to 74) and more three-pointers (28 to 22) and made more threes (11 to 8), but Philadelphia made more field goals overall (36 to 33) and more free throws (23 to 18), offsetting that extra volume.
-
-Philadelphia shot 49 percent from the field to Memphis's 42 percent, while Memphis held the edge from three-point range at 39 percent to 36 percent.
-
-The 76ers also controlled the boards, leading total rebounds 44-35 and defensive rebounds 41-32, with offensive rebounds tied at 3-3.
-
-Philadelphia led team assists 22-19, with Ben Simmons contributing a game-high 6, while the 76ers also committed more turnovers than Memphis, 16 to 14.
-
-Memphis, meanwhile, recorded more steals (7-5) and blocks (7-2), while Philadelphia took more free throws (30-23).
+Across the supplied team statistics, Philadelphia held the edge in total rebounds (44-35), defensive rebounds (41-32), assists (22-19), field goals made (36-33), free throws made (23-18) and free-throw attempts (30-23), while Memphis attempted more field goals (79-74) and three-pointers (28-22) and made more three-pointers (11-8); offensive rebounds were tied at 3.
 
 #### Scope Limitations
 
-These comparisons describe only the supplied game record: they show how the teams' box-score totals differed, but they do not establish why the 76ers won and do not support claims about broader team performance.
+These comparisons are limited to the supplied game record and describe only this event; they do not establish why the result occurred and do not support claims about broader performance.
 
 ---
 
@@ -269,23 +254,23 @@ These metrics score each candidate text against the structured source, not again
 
 | Candidate | HHEM mean support | HHEM min sentence support | HHEM unsupported sentence rate | AlignScore base |
 | --- | ---: | ---: | ---: | ---: |
-| Full-system report | 0.0143 | 0.0049 | 1.0000 | 0.2451 |
+| Full-system report | 0.1686 | 0.0070 | 0.9167 | 0.2263 |
 | Raw DeepSeek Flash baseline | 0.0122 | 0.0037 | 1.0000 | 0.2696 |
 | Human reference 1 | 0.0101 | 0.0048 | 1.0000 | 0.2121 |
 | Human reference 2 | 0.0101 | 0.0045 | 1.0000 | 0.1857 |
 
-Interpretation: HHEM and AlignScore are very low for all candidates when the support context is the full structured JSON. The raw Flash baseline scores lower than the full-system report on HHEM mean support but slightly higher on AlignScore. The absolute values show that these local factuality tools are currently struggling with this source representation. They should be treated as diagnostic, not decisive, for this dataset until the structured source is transformed into cleaner sentence-like evidence.
+Interpretation: HHEM support improved substantially for the latest full-system run, and the unsupported sentence rate decreased from the earlier full-system score. AlignScore remains lower than the raw Flash baseline. The absolute values still show that these local factuality tools struggle when the support context is raw structured JSON, so they should be treated as diagnostic rather than decisive for this dataset until the source is transformed into cleaner sentence-like evidence.
 
 ### 7.2 Source-Grounded DeepEval Metrics
 
-These metrics score each candidate text against the structured source using a DeepSeek V4-Pro judge with one repetition. The full-system faithfulness call timed out, so that cell is recorded as an error rather than a score.
+These metrics score each candidate text against the structured source using a DeepSeek V4-Pro judge with one repetition.
 
-| Candidate | Faithfulness | Factual correctness | Task relevance | Coherence | Usefulness |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Full-system report | Error | 1.0000 | 0.7000 | 1.0000 | 1.0000 |
-| Raw DeepSeek Flash baseline | 1.0000 | 1.0000 | 0.8000 | 1.0000 | 0.7000 |
+| Candidate | Faithfulness | Factual correctness | Task relevance | Coherence | Usefulness | Reference adequacy | Summarization |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Full-system report | 0.9512 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0.4000 | 0.0714 |
+| Raw DeepSeek Flash baseline | 1.0000 | 1.0000 | 0.8000 | 1.0000 | 0.7000 | Not run | Not run |
 
-Interpretation: DeepEval judged both system outputs as factually correct in this pass. It rated the full-system report higher on usefulness and the raw Flash baseline higher on task relevance. The raw baseline was penalised for adding `Jr.` to `Jaren Jackson` and for interpretive phrases such as "balanced all-around performance." The full-system faithfulness metric timed out after repeated retries, so the available DeepEval comparison is incomplete.
+Interpretation: DeepEval judged both outputs as factually correct in the available metric files. The latest full-system run is now scored successfully on faithfulness and is rated higher than the raw Flash baseline on task relevance and usefulness, while the raw baseline retains a slightly higher faithfulness score. Reference adequacy remains moderate for the full-system report, which matches the observation that the system is controlled and factual but still less human-reference-like in narrative selection.
 
 ### 7.3 Reference-Similarity Metrics
 
@@ -293,25 +278,24 @@ These metrics compare each system output with the available human references.
 
 | Metric | Higher is better? | Full-system report | Raw DeepSeek Flash baseline | Reading |
 | --- | --- | ---: | ---: | --- |
-| BLEU | Yes | 0.0883 | 0.1173 | Raw baseline has higher exact n-gram overlap. |
-| chrF | Yes | 0.4210 | 0.3743 | Full-system report is closer at character level. |
-| TER | No | 1.1922 | 0.8288 | Raw baseline requires fewer edits to match the reference. |
-| ROUGE-1 | Yes | 0.4517 | 0.4844 | Raw baseline overlaps more on unigram content. |
-| ROUGE-2 | Yes | 0.1387 | 0.2157 | Raw baseline overlaps more on phrase-level content. |
-| ROUGE-L | Yes | 0.2167 | 0.2656 | Raw baseline is closer in sequence structure. |
-| ROUGE-Lsum | Yes | 0.2167 | 0.2656 | Raw baseline is closer in summary sequence structure. |
-| METEOR | Yes | 0.2829 | 0.2443 | Full-system report is higher on lexical-semantic alignment. |
-| BERTScore F1 | Yes | 0.8466 | 0.8475 | Both are semantically related to the reference; raw baseline is only slightly higher. |
+| BLEU | Yes | 0.1081 | 0.1173 | Raw baseline remains slightly higher on exact n-gram overlap. |
+| chrF | Yes | 0.4070 | 0.3743 | Full-system report remains closer at character level. |
+| TER | No | 0.8589 | 0.8288 | Raw baseline still requires slightly fewer edits, but the gap is much smaller than before. |
+| ROUGE-1 | Yes | 0.4513 | 0.4844 | Raw baseline overlaps more on unigram content. |
+| ROUGE-2 | Yes | 0.1629 | 0.2157 | Raw baseline overlaps more on phrase-level content. |
+| ROUGE-L | Yes | 0.2338 | 0.2656 | Raw baseline is still closer in sequence structure. |
+| ROUGE-Lsum | Yes | 0.2338 | 0.2656 | Raw baseline is still closer in summary sequence structure. |
+| METEOR | Yes | 0.2453 | 0.2443 | Full-system report is now effectively tied with the raw baseline. |
+| BERTScore F1 | Yes | 0.8452 | 0.8475 | Both are semantically related to the reference; raw baseline is only slightly higher. |
 | PARENT precision | Yes | Skipped | Skipped | No PARENT-compatible table was available from the adapter for this record. |
 | PARENT recall | Yes | Skipped | Skipped | No PARENT-compatible table was available from the adapter for this record. |
 | PARENT F1 | Yes | Skipped | Skipped | No PARENT-compatible table was available from the adapter for this record. |
 
-Interpretation: the raw Flash baseline is closer to the human reference on BLEU, TER, ROUGE and BERTScore, while the full-system report is better on chrF and METEOR. The baseline is therefore more reference-like on sequence and phrase overlap, but the advantage is smaller than it was with the earlier V4-Pro baseline.
+Interpretation: the latest full-system report improved over the previous full-system run on BLEU, TER, ROUGE-2 and ROUGE-L, while METEOR decreased. The raw Flash baseline remains more reference-like on most sequence and phrase-overlap metrics, but the latest system narrowed the TER and BLEU gaps while preserving source-controlled generation and auditability.
 
 ### 7.4 Operational Comparison
 
 | Variant | Runtime | Words | Output status | Main behaviour |
 | --- | ---: | ---: | --- | --- |
-| Full-system report | 1352.93s | 444 | `approved_with_warnings` | Slower, source-controlled, more analytical and support-mapped. |
+| Full-system report | 1235.75s | 299 | `approved` | Slower, source-controlled, audited and more concise than the previous full-system run. |
 | Raw DeepSeek Flash baseline | 32.36s | 197 | No pipeline audit | Faster, more compact recap style, but no evidence ledger or factual audit. |
-
