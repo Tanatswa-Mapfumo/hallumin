@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import re
 import time
+import os
+import gc
+import tempfile
+from contextlib import contextmanager
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable
@@ -9,6 +13,8 @@ from typing import Any, Callable
 import numpy as np
 
 from .datasets import write_jsonl
+from .alignscore_client import AlignScoreClient
+from .external_factuality import ExternalFactualityResult, HHEMEvaluator
 from .models import GenerationRecord, MetricObservation, MetricStatus, ReferenceMetricConfig
 
 
@@ -16,6 +22,19 @@ MARKDOWN_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+", re.MULTILINE)
 MARKDOWN_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 MARKDOWN_DECORATION = re.compile(r"[*_`~]")
 WHITESPACE = re.compile(r"\s+")
+DEFAULT_ALIGNSCORE_WORKER = Path(__file__).resolve().parents[3] / "scripts/alignscore_worker.py"
+
+
+def default_alignscore_python_executable() -> Path | None:
+    project_root = DEFAULT_ALIGNSCORE_WORKER.parent.parent
+    candidates = [
+        project_root / ".venv-alignscore/bin/python",
+        project_root / ".venv-alignscore/Scripts/python.exe",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def plain_text(value: str) -> str:
@@ -127,6 +146,134 @@ def _token_f1(candidate: str, reference: str) -> float:
 
 def _fallback_overlap(candidate: str, references: list[str]) -> tuple[float, int]:
     return score_over_references(candidate, references, _token_f1)
+
+
+@contextmanager
+def huggingface_offline(enabled: bool):
+    keys = ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_MODULES_CACHE", "MPLCONFIGDIR")
+    previous = {key: os.environ.get(key) for key in keys}
+    if enabled:
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    if previous["HF_MODULES_CACHE"] is None:
+        modules_cache = Path(tempfile.gettempdir()) / "table2text_hf_modules"
+        modules_cache.mkdir(parents=True, exist_ok=True)
+        os.environ["HF_MODULES_CACHE"] = str(modules_cache)
+    if previous["MPLCONFIGDIR"] is None:
+        matplotlib_cache = Path(tempfile.gettempdir()) / "table2text_matplotlib"
+        matplotlib_cache.mkdir(parents=True, exist_ok=True)
+        os.environ["MPLCONFIGDIR"] = str(matplotlib_cache)
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def metric_enabled(config: ReferenceMetricConfig, *names: str) -> bool:
+    enabled = {name.casefold() for name in config.enabled_metrics}
+    return any(name.casefold() in enabled for name in names)
+
+
+def local_huggingface_snapshot(model_name_or_path: str) -> str:
+    path = Path(model_name_or_path)
+    if path.exists():
+        return str(path)
+
+    from huggingface_hub import snapshot_download
+
+    return snapshot_download(
+        repo_id=model_name_or_path,
+        local_files_only=True,
+    )
+
+
+def factuality_context(record: GenerationRecord, config: ReferenceMetricConfig) -> str:
+    if config.external_factuality_context == "references" and record.references:
+        source = "\n".join(
+            reference.strip()
+            for reference in record.references
+            if reference.strip()
+        )
+    else:
+        source = record.source_text.strip()
+    limit = config.external_context_max_characters
+    if len(source) <= limit:
+        return source
+    return source[:limit] + "\n\n[Source truncated by reference metric configuration.]"
+
+
+def metric_status(value: str) -> MetricStatus:
+    try:
+        return MetricStatus(value)
+    except ValueError:
+        return MetricStatus.ERROR
+
+
+def hhem_observations(
+    record: GenerationRecord,
+    result: ExternalFactualityResult,
+    *,
+    duration: float,
+) -> list[MetricObservation]:
+    status = metric_status(result.status)
+    details = result.details | {
+        "metric_group": result.metric_name,
+        "threshold": result.threshold,
+    }
+    outputs = [
+        (
+            f"{result.metric_name}_mean_support",
+            result.overall_score,
+            True,
+        ),
+        (
+            f"{result.metric_name}_min_sentence_support",
+            result.minimum_sentence_score,
+            True,
+        ),
+        (
+            f"{result.metric_name}_unsupported_sentence_rate",
+            result.unsupported_sentence_rate,
+            False,
+        ),
+    ]
+    return [
+        observation(
+            record,
+            family="external_factuality",
+            name=name,
+            status=status,
+            score=score if status == MetricStatus.SCORED else None,
+            higher_is_better=higher_is_better,
+            duration=duration,
+            details=details | {"sentence_scores": result.sentence_scores},
+            error=result.error,
+        )
+        for name, score, higher_is_better in outputs
+    ]
+
+
+def alignscore_observation(
+    record: GenerationRecord,
+    result: ExternalFactualityResult,
+    *,
+    duration: float,
+) -> MetricObservation:
+    return observation(
+        record,
+        family="external_factuality",
+        name=result.metric_name,
+        status=metric_status(result.status),
+        score=result.overall_score if result.status == "scored" else None,
+        higher_is_better=True,
+        duration=duration,
+        details=result.details | {"threshold": result.threshold},
+        error=result.error,
+    )
 
 
 def score_lexical_record(
@@ -337,7 +484,8 @@ def score_bertscore(
     if "bertscore" not in config.enabled_metrics:
         return []
     try:
-        from bert_score import score as bert_score
+        with huggingface_offline(config.hf_local_files_only):
+            from bert_score import score as bert_score
     except ImportError:
         return [
             observation(
@@ -376,14 +524,26 @@ def score_bertscore(
                 "verbose": False,
             }
             if config.bertscore_model:
-                kwargs["model_type"] = config.bertscore_model
+                model_name = config.bertscore_model
+                model_type = config.bertscore_model
+                if config.hf_local_files_only:
+                    model_type = local_huggingface_snapshot(model_type)
+                kwargs["model_type"] = model_type
+                if config.bertscore_num_layers is not None:
+                    kwargs["num_layers"] = config.bertscore_num_layers
+                elif model_type != model_name:
+                    from bert_score.utils import model2layers
+
+                    if model_name in model2layers:
+                        kwargs["num_layers"] = model2layers[model_name]
                 kwargs["rescale_with_baseline"] = False
             else:
                 kwargs["lang"] = language.split("-")[0]
                 kwargs["rescale_with_baseline"] = config.bertscore_rescale_with_baseline
             if config.bertscore_device:
                 kwargs["device"] = config.bertscore_device
-            _, _, f1 = bert_score(**kwargs)
+            with huggingface_offline(config.hf_local_files_only):
+                _, _, f1 = bert_score(**kwargs)
             values_by_generation: dict[str, list[tuple[int, float]]] = defaultdict(list)
             for (record, reference_index), value in zip(ownership, f1.tolist(), strict=True):
                 values_by_generation[record.generation_id].append((reference_index, float(value)))
@@ -514,6 +674,141 @@ def score_parent_record(
         ]
 
 
+def score_hhem_records(
+    records: list[GenerationRecord],
+    config: ReferenceMetricConfig,
+) -> list[MetricObservation]:
+    if not metric_enabled(config, "hhem", "hhem_2_1_open"):
+        return []
+
+    evaluator = HHEMEvaluator(
+        model_name=config.hhem_model,
+        foundation_model_name=config.hhem_foundation_model,
+        threshold=config.hhem_threshold,
+        batch_size=config.hhem_batch_size,
+        device=config.hhem_device,
+        local_files_only=config.hf_local_files_only,
+        max_context_characters=config.hhem_context_max_characters,
+    )
+    observations: list[MetricObservation] = []
+    for record in records:
+        started = time.perf_counter()
+        result = evaluator.evaluate(
+            context=factuality_context(record, config),
+            generated_text=plain_text(record.generated_text),
+        )
+        observations.extend(
+            hhem_observations(
+                record,
+                result,
+                duration=time.perf_counter() - started,
+            )
+        )
+    del evaluator
+    gc.collect()
+    return observations
+
+
+def unavailable_alignscore_observation(
+    record: GenerationRecord,
+    config: ReferenceMetricConfig,
+    *,
+    reason: str,
+) -> MetricObservation:
+    return observation(
+        record,
+        family="external_factuality",
+        name=f"alignscore_{config.alignscore_model_size}",
+        status=MetricStatus.UNAVAILABLE,
+        details={
+            "threshold": config.alignscore_threshold,
+            "model_size": config.alignscore_model_size,
+        },
+        error=reason,
+    )
+
+
+def score_alignscore_records(
+    records: list[GenerationRecord],
+    config: ReferenceMetricConfig,
+) -> list[MetricObservation]:
+    if not metric_enabled(config, "alignscore"):
+        return []
+    if not records:
+        return []
+
+    if config.alignscore_python_executable is None:
+        discovered_executable = default_alignscore_python_executable()
+    else:
+        discovered_executable = config.alignscore_python_executable
+
+    if discovered_executable is None:
+        reason = (
+            "AlignScore requires a separate worker Python executable. "
+            "Set reference_metrics.alignscore_python_executable in metrics.json "
+            "or create .venv-alignscore in the project root."
+        )
+        return [
+            unavailable_alignscore_observation(record, config, reason=reason)
+            for record in records
+        ]
+
+    worker_path = config.alignscore_worker_path or DEFAULT_ALIGNSCORE_WORKER
+    if not worker_path.exists():
+        reason = f"AlignScore worker script was not found at {worker_path}."
+        return [
+            unavailable_alignscore_observation(record, config, reason=reason)
+            for record in records
+        ]
+
+    try:
+        client = AlignScoreClient(
+            python_executable=discovered_executable,
+            worker_path=worker_path,
+            model_size=config.alignscore_model_size,
+            device=config.alignscore_device,
+            batch_size=config.alignscore_batch_size,
+            threshold=config.alignscore_threshold,
+            local_files_only=config.hf_local_files_only,
+        )
+    except Exception as exc:
+        reason = f"{type(exc).__name__}: {exc}"
+        return [
+            unavailable_alignscore_observation(record, config, reason=reason)
+            for record in records
+        ]
+
+    observations: list[MetricObservation] = []
+    try:
+        for record in records:
+            started = time.perf_counter()
+            try:
+                result = client.evaluate(
+                    context=factuality_context(record, config),
+                    generated_text=plain_text(record.generated_text),
+                )
+            except Exception as exc:
+                result = ExternalFactualityResult(
+                    metric_name=f"alignscore_{config.alignscore_model_size}",
+                    status="error",
+                    threshold=config.alignscore_threshold,
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+            observations.append(
+                alignscore_observation(
+                    record,
+                    result,
+                    duration=time.perf_counter() - started,
+                )
+            )
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+    return observations
+
+
 def corpus_sacrebleu_observations(
     records: list[GenerationRecord],
     config: ReferenceMetricConfig,
@@ -625,6 +920,8 @@ def evaluate_reference_metrics(
     for record in eligible:
         observations.extend(score_lexical_record(record, config))
         observations.extend(score_parent_record(record, config))
+    observations.extend(score_hhem_records(eligible, config))
+    observations.extend(score_alignscore_records(eligible, config))
     observations.extend(score_bertscore(eligible, config))
     observations.extend(corpus_sacrebleu_observations(eligible, config))
     write_jsonl(output_path, observations)

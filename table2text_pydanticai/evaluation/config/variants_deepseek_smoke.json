@@ -1,0 +1,28 @@
+{
+  "variants": [
+    {
+      "variant_id": "full_system_deepseek",
+      "enabled": true,
+      "backend": "table2text",
+      "description": "Full multi-agent system using DeepSeek V4 Flash for core agents and V4 Pro for writer/auditor.",
+      "settings_overrides": {
+        "structured_output_mode": "prompted",
+        "max_agent_requests": 8,
+        "max_total_tokens": 80000,
+        "data_understanding_model": "deepseek:deepseek-v4-flash",
+        "orchestrator_model": "deepseek:deepseek-v4-flash",
+        "evidence_model": "deepseek:deepseek-v4-flash",
+        "verifier_model": "deepseek:deepseek-v4-flash",
+        "writer_model": "deepseek:deepseek-v4-pro",
+        "auditor_model": "deepseek:deepseek-v4-pro"
+      },
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    }
+  ]
+}

@@ -45,6 +45,8 @@ from .audit import (
     compact_json,
     decide_release_status,
     deterministic_audit,
+    deterministic_fact_candidate_scaffold,
+    empty_fact_candidate_enrichment,
     fallback_audit_proposal,
     fallback_fact_candidates,
     fallback_verification,
@@ -52,8 +54,10 @@ from .audit import (
     finalise_fact_ledger,
     json_safe,
     materialise_writer_output,
+    merge_fact_candidate_scaffold,
     merge_audit_proposal,
     normalise_strength_label,
+    repair_spurious_missing_evidence_rejections,
     scope_fact_ledger_for_genre,
     validate_writer_output,
 )
@@ -65,6 +69,9 @@ from .schemas import (
     AuditMode,
     AuditRepairProposal,
     AuditReport,
+    AnalysisRoute,
+    ClaimPermission,
+    CommunicationTask,
     DataUnderstanding,
     EvaluationFieldPolicy,
     EvidenceCapability,
@@ -75,7 +82,10 @@ from .schemas import (
     InputSemanticMap,
     InsightCandidateSet,
     InsightLedger,
+    InsightObjective,
+    InsightType,
     InsightVerificationResult,
+    InvestigationTask,
     PipelineResult,
     ProfileSupportRecord,
     QualityStatus,
@@ -84,9 +94,11 @@ from .schemas import (
     ReportSelectionSource,
     InputShape,
     InputRepresentationStatus,
+    OutputForm,
     ReleaseStatus,
     RunManifest,
     VerificationResult,
+    VerifiedFact,
     WriterAgentDraft,
     WriterEvidencePack,
     WriterOutput,
@@ -277,10 +289,12 @@ def report_contract_fields(
         return {
             "communication_goal": (
                 "Communicate the verified event result, leading performances "
-                "and major participant contrasts."
+                "major participant contrasts and any supplied event-context "
+                "or score-progression evidence."
             ),
             "preferred_sections": [
                 "Event overview",
+                "Score progression",
                 "Key performances",
                 "Participant contrasts",
                 "Scope limitations",
@@ -289,7 +303,10 @@ def report_contract_fields(
             "required_content_slots": [
                 "event_result",
                 "event_context",
+                "participant_record_context",
                 "event_status",
+                "score_progression",
+                "event_sequence",
                 "leading_performance",
                 "main_contrast",
                 "scope_limitations",
@@ -324,6 +341,356 @@ def report_contract_fields(
         "optional_content_slots": [],
         "prohibited_claim_types": ["unsupported_causality"],
     }
+
+
+def task_contract_fields(
+    *,
+    genre: ReportGenre,
+    communication_task: CommunicationTask | None,
+    output_form: OutputForm | None,
+    focus_scope: str | None,
+) -> dict[str, Any]:
+    if communication_task is None:
+        if genre in EVENT_GENRES:
+            communication_task = CommunicationTask.EVENT_REPORT
+        elif genre == ReportGenre.DATASET_OVERVIEW:
+            communication_task = CommunicationTask.DATASET_OVERVIEW
+        else:
+            communication_task = CommunicationTask.DATA_SCIENCE_REPORT
+
+    if output_form is None:
+        output_form = OutputForm.MULTI_PARAGRAPH_REPORT
+
+    if communication_task == CommunicationTask.FOCUSED_TABLE_DESCRIPTION:
+        return {
+            "communication_task": communication_task,
+            "output_form": output_form,
+            "focus_scope": focus_scope or "focused_table_region",
+            "allow_headings": False,
+            "max_sentences": 1
+            if output_form == OutputForm.ONE_SENTENCE
+            else None,
+            "max_paragraphs": 1,
+            "require_complete_sentence": True,
+            "communication_goal": (
+                "Express the concise table-local relation conveyed by the "
+                "selected cell or focused table region, using conservative "
+                "cell-context wording only when the relation is ambiguous."
+            ),
+            "target_length_words": 40,
+            "maximum_length_words": 80,
+            "preferred_sections": [],
+            "required_components": [],
+            "required_content_slots": [
+                "focused_table_region",
+            ],
+            "optional_content_slots": [
+                "focused_table_relation",
+                "focused_cell_context",
+            ],
+            "prohibited_claim_types": [
+                "dataset_overview",
+                "data_quality",
+                "missingness",
+                "correlation",
+                "modelling",
+                "unrelated_table_cells",
+                "markdown_headings",
+            ],
+            "include_negative_findings": False,
+            "include_methodological_details": False,
+            "prioritisation_rule": (
+                "Prefer a verified focused-table relation insight when the "
+                "supplied page, section, row, header and source-text context "
+                "support it. When multiple highlighted numeric values share "
+                "the same header, prefer a scoped lower/higher contrast "
+                "among the highlighted values over a table-wide rank claim; "
+                "when a highlighted group label is paired with a highlighted "
+                "record-like summary value, prefer the natural record "
+                "proposition over a mechanical cell description; when a "
+                "highlighted text cell appears under a meaningful column in "
+                "a list page, prefer the natural list-page proposition over "
+                "unrelated row details; when highlighted record groups are "
+                "supplied, preserve all grouped highlighted records that "
+                "contribute to the focused proposition; "
+                "otherwise give the narrow selected-cell description."
+            ),
+        }
+
+    if communication_task in {
+        CommunicationTask.ATTRIBUTE_VERBALISATION,
+        CommunicationTask.TRIPLE_VERBALISATION,
+    }:
+        task_label = (
+            "attributes"
+            if communication_task == CommunicationTask.ATTRIBUTE_VERBALISATION
+            else "triples"
+        )
+        return {
+            "communication_task": communication_task,
+            "output_form": output_form,
+            "focus_scope": focus_scope or "structured_record",
+            "allow_headings": False,
+            "max_sentences": 1
+            if output_form == OutputForm.ONE_SENTENCE
+            else 2,
+            "max_paragraphs": 1,
+            "require_complete_sentence": True,
+            "communication_goal": (
+                f"Express all and only the supplied {task_label} as concise, "
+                "fluent natural language without adding unsupported details."
+            ),
+            "target_length_words": 35,
+            "maximum_length_words": 90,
+            "preferred_sections": [],
+            "required_components": [],
+            "required_content_slots": [
+                "structured_record_verbalisation",
+            ],
+            "optional_content_slots": [],
+            "prohibited_claim_types": [
+                "dataset_overview",
+                "data_quality",
+                "missingness",
+                "correlation",
+                "modelling",
+                "unsupported_attribute",
+                "unsupported_entity",
+                "markdown_headings",
+            ],
+            "include_negative_findings": False,
+            "include_methodological_details": False,
+            "prioritisation_rule": (
+                "Use every supplied attribute or triple that contributes to "
+                "the requested short verbalisation. Prefer natural phrasing "
+                "over mechanical key/value listing, but do not introduce "
+                "facts absent from the structured record."
+            ),
+        }
+
+    return {
+        "communication_task": communication_task,
+        "output_form": output_form,
+        "focus_scope": focus_scope,
+    }
+
+
+def add_focused_table_capability_task(
+    *,
+    plan: ExecutionPlan,
+    profile: Any,
+    capabilities: list[EvidenceCapability],
+    enable_insight_synthesis: bool,
+) -> ExecutionPlan:
+    if (
+        plan.report_specification.communication_task
+        != CommunicationTask.FOCUSED_TABLE_DESCRIPTION
+    ):
+        return plan
+
+    if EvidenceCapability.FOCUSED_TABLE_REGION not in capabilities:
+        return plan
+
+    table_name = next(
+        (
+            table.table_name
+            for table in profile.tables
+            if any(column.name == "is_highlighted" for column in table.columns)
+        ),
+        profile.tables[0].table_name if profile.tables else "",
+    )
+    if not table_name:
+        return plan
+
+    columns = [
+        "cell_value",
+        "is_highlighted",
+        "row_index",
+        "column_index",
+        "page_title",
+        "section_title",
+        "is_header",
+    ]
+    task = InvestigationTask(
+        task_id="TASK_FOCUSED_TABLE_REGION",
+        question=(
+            "Which selected table cell or focused region should be described, "
+            "and what local row, header and table context supports it?"
+        ),
+        route=AnalysisRoute.DESCRIPTIVE,
+        priority=5,
+        table_name=table_name,
+        columns=columns,
+        capability=EvidenceCapability.FOCUSED_TABLE_REGION,
+        input_fields=columns,
+        expected_evidence_types=[
+            "focused_table_region",
+            "focused_cell_context",
+        ],
+        required_evidence=[
+            "selected cell value",
+            "row context",
+            "header or table context when available",
+        ],
+        claim_permissions=[ClaimPermission.DESCRIPTIVE],
+        answerability_note=(
+            "The output should describe the focused table region only; broad "
+            "dataset profiling and unrelated analytical routes are out of scope."
+        ),
+    )
+    insight_objectives = []
+    if enable_insight_synthesis:
+        insight_objectives = [
+            InsightObjective(
+                objective_id="INSIGHT_FOCUSED_TABLE_RELATION",
+                question=(
+                    "What concise table-local proposition is expressed by "
+                    "the highlighted cell or focused table region, using "
+                    "only supplied page, section, row, header, highlighted "
+                    "cell and source-text context, including scoped "
+                    "lower/higher contrast among highlighted values when "
+                    "supported and record-style propositions when a "
+                    "highlighted group label is paired with a highlighted "
+                    "record-like value, or list-page propositions when a "
+                    "highlighted text cell is selected from a list table?"
+                ),
+                preferred_insight_types=[
+                    InsightType.NARRATIVE_SUMMARY,
+                ],
+                relevant_task_ids=[
+                    task.task_id,
+                ],
+                priority="main",
+            )
+        ]
+
+    return plan.model_copy(
+        update={
+            "tasks": [task],
+            "route_order": [AnalysisRoute.DESCRIPTIVE],
+            "selected_capabilities": [
+                EvidenceCapability.FOCUSED_TABLE_REGION,
+            ],
+            "evidence_queries": [],
+            "insight_objectives": insight_objectives,
+            "rationale": (
+                "The controller selected a focused-table contract, so the "
+                "plan is restricted to selected-cell evidence and local "
+                "table-context relation synthesis."
+            ),
+        }
+    )
+
+
+def add_structured_record_capability_task(
+    *,
+    plan: ExecutionPlan,
+    profile: Any,
+    capabilities: list[EvidenceCapability],
+    enable_insight_synthesis: bool,
+) -> ExecutionPlan:
+    if plan.report_specification.communication_task not in {
+        CommunicationTask.ATTRIBUTE_VERBALISATION,
+        CommunicationTask.TRIPLE_VERBALISATION,
+    }:
+        return plan
+
+    if (
+        EvidenceCapability.STRUCTURED_RECORD_VERBALISATION
+        not in capabilities
+    ):
+        return plan
+
+    table_name = next(
+        (
+            table.table_name
+            for table in profile.tables
+            if {
+                "attribute_name",
+                "attribute_value",
+            }.issubset({column.name for column in table.columns})
+            or {
+                "subject",
+                "relation",
+                "object",
+            }.issubset({column.name for column in table.columns})
+        ),
+        profile.tables[0].table_name if profile.tables else "",
+    )
+    if not table_name:
+        return plan
+
+    columns = [
+        "attribute_name",
+        "attribute_value",
+        "subject",
+        "relation",
+        "object",
+        "source_text",
+    ]
+    task = InvestigationTask(
+        task_id="TASK_STRUCTURED_RECORD_VERBALISATION",
+        question=(
+            "Which supplied attributes or triples must be verbalised, and "
+            "what exact entities, relations and values do they contain?"
+        ),
+        route=AnalysisRoute.DESCRIPTIVE,
+        priority=5,
+        table_name=table_name,
+        columns=columns,
+        capability=EvidenceCapability.STRUCTURED_RECORD_VERBALISATION,
+        input_fields=columns,
+        expected_evidence_types=[
+            "attribute_record",
+            "triple_record",
+            "structured_record",
+        ],
+        required_evidence=[
+            "supplied attributes or triples",
+            "entity, relation and value strings",
+        ],
+        claim_permissions=[ClaimPermission.DESCRIPTIVE],
+        answerability_note=(
+            "The output should verbalise the supplied structured record only; "
+            "broad dataset profiling and analytical routes are out of scope."
+        ),
+    )
+    insight_objectives = []
+    if enable_insight_synthesis:
+        insight_objectives = [
+            InsightObjective(
+                objective_id="INSIGHT_STRUCTURED_RECORD_VERBALISATION",
+                question=(
+                    "What concise natural-language proposition is expressed "
+                    "by the supplied attributes or triples, using only the "
+                    "given entity, relation and value strings?"
+                ),
+                preferred_insight_types=[
+                    InsightType.NARRATIVE_SUMMARY,
+                ],
+                relevant_task_ids=[
+                    task.task_id,
+                ],
+                priority="main",
+            )
+        ]
+
+    return plan.model_copy(
+        update={
+            "tasks": [task],
+            "route_order": [AnalysisRoute.DESCRIPTIVE],
+            "selected_capabilities": [
+                EvidenceCapability.STRUCTURED_RECORD_VERBALISATION,
+            ],
+            "evidence_queries": [],
+            "insight_objectives": insight_objectives,
+            "rationale": (
+                "The controller selected a structured-record verbalisation "
+                "contract, so the plan is restricted to supplied attribute "
+                "or triple evidence."
+            ),
+        }
+    )
 
 
 def add_event_capability_tasks(
@@ -416,6 +783,67 @@ def exception_cause_chain(
     return chain
 
 
+def _compact_writer_structured_value(
+    value: Any,
+    *,
+    item_limit: int,
+) -> Any:
+    if isinstance(value, list):
+        omitted_count = max(0, len(value) - item_limit)
+        compacted = [
+            _compact_writer_structured_value(
+                item,
+                item_limit=item_limit,
+            )
+            for item in value[:item_limit]
+        ]
+        if omitted_count:
+            compacted.append(
+                {
+                    "omitted_record_count": omitted_count,
+                    "omission_reason": (
+                        "Writer prompt compaction retained the highest-priority "
+                        "records for this report-sized payload."
+                    ),
+                }
+            )
+        return compacted
+
+    if isinstance(value, dict):
+        return {
+            key: _compact_writer_structured_value(
+                nested_value,
+                item_limit=item_limit,
+            )
+            for key, nested_value in value.items()
+        }
+
+    return value
+
+
+def _compact_writer_fact(
+    fact: VerifiedFact,
+    *,
+    item_limit: int,
+) -> dict[str, Any]:
+    payload = fact.model_dump(mode="json")
+    payload["structured_values"] = _compact_writer_structured_value(
+        payload.get("structured_values", {}),
+        item_limit=item_limit,
+    )
+    entities = payload.get("entities")
+    if isinstance(entities, list):
+        entity_limit = max(8, item_limit * 3)
+        omitted_count = max(0, len(entities) - entity_limit)
+        payload["entities"] = entities[:entity_limit]
+        if omitted_count:
+            payload["entities"].append(
+                f"... {omitted_count} lower-priority entities omitted "
+                "from the writer prompt"
+            )
+    return payload
+
+
 def build_compact_writer_payload(
     pack: WriterEvidencePack,
     allow_hypotheses_in_report: bool = False,
@@ -445,6 +873,12 @@ def build_compact_writer_payload(
         )
         for fact_id, fact in facts_by_id.items()
     }
+    word_budget = (
+        pack.report_specification.maximum_length_words
+        or pack.report_specification.target_length_words
+        or 650
+    )
+    structured_item_limit = max(3, min(10, word_budget // 100))
 
     return {
         "user_request": pack.user_request,
@@ -471,13 +905,31 @@ def build_compact_writer_payload(
             else []
         ),
         "priority_facts": (
-            pack.priority_facts
+            [
+                _compact_writer_fact(
+                    fact,
+                    item_limit=structured_item_limit,
+                )
+                for fact in pack.priority_facts
+            ]
         ),
         "supporting_facts": (
-            pack.supporting_facts
+            [
+                _compact_writer_fact(
+                    fact,
+                    item_limit=structured_item_limit,
+                )
+                for fact in pack.supporting_facts
+            ]
         ),
         "limitation_facts": (
-            pack.limitation_facts
+            [
+                _compact_writer_fact(
+                    fact,
+                    item_limit=structured_item_limit,
+                )
+                for fact in pack.limitation_facts
+            ]
         ),
         "verified_strength_labels_by_fact_id": (
             strength_labels_by_fact_id
@@ -540,7 +992,6 @@ def build_compact_insight_payload(
             "verified_insight_count": "uncapped",
             "report_word_ceiling": (
                 plan.report_specification.maximum_length_words
-                or plan.report_specification.target_length_words
             ),
             "min_facts_per_bounded_insight": (
                 settings.min_facts_per_bounded_insight
@@ -549,6 +1000,41 @@ def build_compact_insight_payload(
             "min_insight_salience": settings.min_insight_salience,
             "allow_hypotheses_in_report": (
                 settings.allow_hypotheses_in_report
+            ),
+            "focused_table_semantic_inference": (
+                {
+                    "expected_interpretation_level": "bounded_insight",
+                    "expected_contribution": "descriptive_synthesis",
+                    "instruction": (
+                        "Infer a concise table-local relation from "
+                        "highlighted cells, row context, headers, "
+                        "page/section titles and source text only. Prefer the "
+                        "relation conveyed by the table context over a "
+                        "mechanical cell-location description when support is "
+                        "clear. Do not use held-out references or outside "
+                        "knowledge."
+                    ),
+                    "short_form_selection": (
+                        "For one-sentence focused-table tasks, centre the "
+                        "candidate on highlighted role/value pairs and the "
+                        "most specific supported primary subject candidate. "
+                        "Treat non-highlighted same-row values as context; "
+                        "omit them unless they are required to disambiguate "
+                        "the highlighted relation. Do not combine subject "
+                        "candidates with co-entities into a joint subject "
+                        "unless the supplied evidence explicitly represents "
+                        "a combined entity. Use supplied highlighted-measure "
+                        "comparisons when they support concise outcome-like "
+                        "wording."
+                    ),
+                    "safe_fallback": (
+                        "Use conservative selected-cell description if the "
+                        "relation is ambiguous."
+                    ),
+                }
+                if plan.report_specification.communication_task
+                == CommunicationTask.FOCUSED_TABLE_DESCRIPTION
+                else None
             ),
         },
     }
@@ -597,10 +1083,7 @@ def build_writer_quality_revision_prompt(
         writer_pack.report_specification
         .target_length_words
     )
-    maximum_words = (
-        writer_pack.report_specification.maximum_length_words
-        or target_words
-    )
+    maximum_words = writer_pack.report_specification.maximum_length_words
 
     minimum_words = min(
         target_words,
@@ -643,8 +1126,16 @@ def build_writer_quality_revision_prompt(
         "Do not merely rephrase the existing short report.\n"
         "Use unused verified facts and insights to cover missing sections and "
         "add non-duplicative synthesis.\n"
-        f"Do not exceed {maximum_words} words.\n"
-        "Do not invent calculations or facts.\n"
+        + (
+            f"Do not exceed {maximum_words} words.\n"
+            if maximum_words is not None
+            else (
+                "No explicit maximum word count is configured; use the "
+                "target length as guidance while prioritising supported "
+                "coverage and concision.\n"
+            )
+        )
+        + "Do not invent calculations or facts.\n"
         "Do not calculate statistics.\n"
         "Do not introduce new numbers, entities, categories, metadata, "
         "causal claims, prediction claims, forecast claims, or deployment "
@@ -664,8 +1155,12 @@ def build_writer_quality_revision_prompt(
         "Every factual sentence must list its supporting fact IDs.\n\n"
         f"Current word count: {current_word_count}\n"
         f"Minimum useful word count: {minimum_words}\n"
-        f"Maximum word count: {maximum_words}\n"
-        f"Available priority facts: {len(writer_pack.priority_facts)}\n"
+        + (
+            f"Maximum word count: {maximum_words}\n"
+            if maximum_words is not None
+            else "Maximum word count: not configured\n"
+        )
+        + f"Available priority facts: {len(writer_pack.priority_facts)}\n"
         f"Unused priority facts: {len(unused_priority_facts)}\n\n"
         f"Unused verified insights: {len(unused_verified_insights)}\n\n"
         "Controller-enforced content requirements:\n"
@@ -1133,6 +1628,9 @@ class Table2TextWorkflow:
         external_truth_sources: list[ExternalTruthSource] | None = None,
         evaluation_field_policy: EvaluationFieldPolicy | None = None,
         report_genre: ReportGenre | None = None,
+        communication_task: CommunicationTask | None = None,
+        output_form: OutputForm | None = None,
+        focus_scope: str | None = None,
     ) -> PipelineResult:
         external_truth_sources = external_truth_sources or []
 
@@ -1189,6 +1687,19 @@ class Table2TextWorkflow:
             ]
         }
 
+        initial_manifest_genre = (
+            ReportGenre.EVENT_REPORT
+            if event_report_requested(request)
+            else report_genre or ReportGenre.DATA_SCIENCE_REPORT
+        )
+        initial_manifest_task = (
+            communication_task
+            or (
+                CommunicationTask.EVENT_REPORT
+                if initial_manifest_genre in EVENT_GENRES
+                else CommunicationTask.DATA_SCIENCE_REPORT
+            )
+        )
         manifest = RunManifest(
             run_id=run_id,
             created_at=datetime.now(timezone.utc).isoformat(),
@@ -1206,11 +1717,10 @@ class Table2TextWorkflow:
                 if input_structure is not None
                 else InputRepresentationStatus.INVALID
             ),
-            report_genre=(
-                ReportGenre.EVENT_REPORT
-                if event_report_requested(request)
-                else report_genre or ReportGenre.DATA_SCIENCE_REPORT
-            ),
+            report_genre=initial_manifest_genre,
+            communication_task=initial_manifest_task,
+            output_form=output_form or OutputForm.MULTI_PARAGRAPH_REPORT,
+            focus_scope=focus_scope,
         )
 
         store.save_json("00_manifest.json", manifest)
@@ -1292,6 +1802,12 @@ class Table2TextWorkflow:
             input_structure=input_structure,
             semantic_map=semantic_map,
         )
+        controller_task_contract = task_contract_fields(
+            genre=controller_genre,
+            communication_task=communication_task,
+            output_form=output_form,
+            focus_scope=focus_scope,
+        )
         planner_context = build_orchestrator_prompt_context(
             understanding=understanding,
             input_structure=input_structure,
@@ -1321,6 +1837,8 @@ class Table2TextWorkflow:
                 + compact_json(capabilities)
                 + "\n\nController-selected report genre:\n"
                 + controller_genre.value
+                + "\n\nController-selected task/output contract:\n"
+                + compact_json(controller_task_contract)
                 + "\n\nConfigured report genre override:\n"
                 + (report_genre.value if report_genre else "none")
                 + "\n\nAudit mode:\n"
@@ -1343,6 +1861,7 @@ class Table2TextWorkflow:
                         controller_genre in EVENT_GENRES
                     ),
                     "selected_report_genre": controller_genre.value,
+                    "selected_task_contract": controller_task_contract,
                     "semantic_map": (
                         semantic_map.model_dump(mode="json")
                         if semantic_map is not None
@@ -1381,10 +1900,26 @@ class Table2TextWorkflow:
             input_structure=input_structure,
             semantic_map=semantic_map,
         )
-        contract_fields = report_contract_fields(selected_genre)
+        contract_fields = {
+            **report_contract_fields(selected_genre),
+            **task_contract_fields(
+                genre=selected_genre,
+                communication_task=communication_task,
+                output_form=output_form,
+                focus_scope=focus_scope,
+            ),
+        }
         required_components = (
             contract_fields.get("required_components", [])
-            if selected_genre in EVENT_GENRES
+            if (
+                selected_genre in EVENT_GENRES
+                or contract_fields.get("communication_task")
+                in {
+                    CommunicationTask.FOCUSED_TABLE_DESCRIPTION,
+                    CommunicationTask.ATTRIBUTE_VERBALISATION,
+                    CommunicationTask.TRIPLE_VERBALISATION,
+                }
+            )
             else infer_required_report_components(request)
         )
         report_specification = plan.report_specification.model_copy(
@@ -1398,7 +1933,6 @@ class Table2TextWorkflow:
                 ),
                 "maximum_length_words": (
                     self.settings.writer_max_words
-                    or plan.report_specification.target_length_words
                 ),
                 "maximum_main_findings": (
                     self.settings.writer_max_main_findings
@@ -1421,12 +1955,24 @@ class Table2TextWorkflow:
             capability
             for capability in capabilities
             if (
-                selected_genre not in EVENT_GENRES
-                or capability
-                in {
-                    EvidenceCapability.DATASET_PROFILE,
-                    *EVENT_CAPABILITIES,
-                }
+                (
+                    report_specification.communication_task
+                    == CommunicationTask.FOCUSED_TABLE_DESCRIPTION
+                    and capability
+                    == EvidenceCapability.FOCUSED_TABLE_REGION
+                )
+                or (
+                    report_specification.communication_task
+                    != CommunicationTask.FOCUSED_TABLE_DESCRIPTION
+                    and (
+                        selected_genre not in EVENT_GENRES
+                        or capability
+                        in {
+                            EvidenceCapability.DATASET_PROFILE,
+                            *EVENT_CAPABILITIES,
+                        }
+                    )
+                )
             )
         ]
         plan = plan.model_copy(
@@ -1459,6 +2005,18 @@ class Table2TextWorkflow:
             capabilities=capabilities,
             genre=selected_genre,
         )
+        plan = add_focused_table_capability_task(
+            plan=plan,
+            profile=profile,
+            capabilities=capabilities,
+            enable_insight_synthesis=self.settings.enable_insight_synthesis,
+        )
+        plan = add_structured_record_capability_task(
+            plan=plan,
+            profile=profile,
+            capabilities=capabilities,
+            enable_insight_synthesis=self.settings.enable_insight_synthesis,
+        )
         if (
             selected_genre in EVENT_GENRES
             and semantic_map is not None
@@ -1472,11 +2030,19 @@ class Table2TextWorkflow:
                         tasks=plan.tasks,
                         available_capabilities=set(capabilities),
                         request=request,
+                        structural_catalog=structural_catalog,
                     )
                 }
             )
         manifest = manifest.model_copy(
-            update={"report_genre": selected_genre}
+            update={
+                "report_genre": selected_genre,
+                "communication_task": (
+                    plan.report_specification.communication_task
+                ),
+                "output_form": plan.report_specification.output_form,
+                "focus_scope": plan.report_specification.focus_scope,
+            }
         )
         store.save_json("00_manifest.json", manifest)
         store.save_json("03_execution_plan.json", plan)
@@ -1497,21 +2063,36 @@ class Table2TextWorkflow:
         )
         store.save_json("04_evidence_ledger.json", evidence_ledger)
 
-        fact_candidates = await self.run_agent_or_fallback(
+        fact_candidate_scaffold = deterministic_fact_candidate_scaffold(
+            evidence_ledger,
+            maximum_facts=None,
+        )
+        store.save_json(
+            "05_fact_candidates_scaffold.json",
+            fact_candidate_scaffold,
+        )
+
+        fact_candidate_enrichment = await self.run_agent_or_fallback(
             stage="evidence_synthesis",
             agent=self.evidence_agent,
             prompt=(
-                "Create atomic fact candidates from this rich evidence ledger.\n\n"
+                "Review this deterministic fact-candidate scaffold and "
+                "return only fact candidates that materially improve, "
+                "correct, combine, or prioritise the scaffold while staying "
+                "strictly grounded in the evidence. You do not need to cover "
+                "every evidence item; deterministic scaffold coverage is "
+                "already preserved.\n\nEvidence ledger:\n"
                 + compact_json(evidence_ledger)
-                + "\n\nFact selection policy:\n"
-                + (
-                    "Retain every distinct, writer-eligible supported fact."
-                    if plan.maximum_facts is None
-                    else (
-                        "Retain no more than "
-                        f"{plan.maximum_facts} facts."
-                    )
-                )
+                + "\n\nDeterministic scaffold:\n"
+                + compact_json(fact_candidate_scaffold)
+                + "\n\nEnrichment policy:\n"
+                "Return a concise set of higher-quality candidates only. "
+                "Single-evidence candidates may improve ordinary scaffold "
+                "candidates, but concrete event-sequence scaffold facts are "
+                "preserved. Multi-evidence candidates may add bounded "
+                "synthesis. Do not drop evidence coverage; the controller "
+                "will merge your valid candidates with the deterministic "
+                "scaffold."
             ),
             dependencies=AgentDependencies(
                 run_id=run_id,
@@ -1519,13 +2100,22 @@ class Table2TextWorkflow:
                     "evidence_ledger": evidence_ledger.model_dump(mode="json")
                 },
             ),
-            fallback=lambda: fallback_fact_candidates(
-                evidence_ledger,
-                plan.maximum_facts,
-            ),
+            fallback=empty_fact_candidate_enrichment,
             store=store,
         )
-        fact_candidates = FactCandidateSet.model_validate(fact_candidates)
+        fact_candidate_enrichment = FactCandidateSet.model_validate(
+            fact_candidate_enrichment
+        )
+        store.save_json(
+            "05_fact_candidates_enrichment.json",
+            fact_candidate_enrichment,
+        )
+
+        fact_candidates = merge_fact_candidate_scaffold(
+            scaffold=fact_candidate_scaffold,
+            enrichment=fact_candidate_enrichment,
+            evidence=evidence_ledger,
+        )
         store.save_json("05_fact_candidates.json", fact_candidates)
 
         verification = await self.run_agent_or_fallback(
@@ -1550,6 +2140,17 @@ class Table2TextWorkflow:
             store=store,
         )
         verification = VerificationResult.model_validate(verification)
+        raw_verification = verification
+        verification = repair_spurious_missing_evidence_rejections(
+            candidate_set=fact_candidates,
+            verification=verification,
+            evidence=evidence_ledger,
+        )
+        if (
+            verification.model_dump(mode="json")
+            != raw_verification.model_dump(mode="json")
+        ):
+            store.save_json("06_verification_raw.json", raw_verification)
         store.save_json("06_verification.json", verification)
 
         fact_ledger = finalise_fact_ledger(
@@ -1634,6 +2235,33 @@ class Table2TextWorkflow:
             evidence_ledger,
             plan.report_specification.genre,
         )
+        if (
+            plan.report_specification.communication_task
+            == CommunicationTask.FOCUSED_TABLE_DESCRIPTION
+        ):
+            evidence_by_id = {
+                item.evidence_id: item
+                for item in evidence_ledger.items
+            }
+            genre_scoped_fact_ledger = (
+                genre_scoped_fact_ledger.model_copy(
+                    update={
+                        "writer_ready_facts": [
+                            fact
+                            for fact
+                            in genre_scoped_fact_ledger.writer_ready_facts
+                            if EvidenceCapability.FOCUSED_TABLE_REGION
+                            in fact.source_capabilities
+                            or any(
+                                evidence_by_id[evidence_id].capability
+                                == EvidenceCapability.FOCUSED_TABLE_REGION
+                                for evidence_id in fact.evidence_ids
+                                if evidence_id in evidence_by_id
+                            )
+                        ]
+                    }
+                )
+            )
 
         insight_candidates = InsightCandidateSet()
         insight_verification = InsightVerificationResult()
@@ -2118,9 +2746,25 @@ class Table2TextWorkflow:
             available_capabilities=capabilities,
         )
         store.save_json("08_writer_evidence_pack.json", writer_pack)
+        writer_visible_fact_ledger = FactLedger(
+            writer_ready_facts=[
+                *writer_pack.priority_facts,
+                *writer_pack.supporting_facts,
+                *writer_pack.limitation_facts,
+            ],
+            rejected_facts=genre_scoped_fact_ledger.rejected_facts,
+            verifier_notes=genre_scoped_fact_ledger.verifier_notes,
+            deterministically_recovered_fact_ids=(
+                genre_scoped_fact_ledger
+                .deterministically_recovered_fact_ids
+            ),
+            coverage_recovery_notes=(
+                genre_scoped_fact_ledger.coverage_recovery_notes
+            ),
+        )
         writer_content_requirements = build_writer_content_requirements(
             report_specification=plan.report_specification,
-            fact_ledger=genre_scoped_fact_ledger,
+            fact_ledger=writer_visible_fact_ledger,
             evidence=evidence_ledger,
             insight_ledger=writer_pack.insight_ledger,
             settings=self.settings,
@@ -2176,7 +2820,6 @@ class Table2TextWorkflow:
                         ),
                         "maximum_length_words": (
                             plan.report_specification.maximum_length_words
-                            or plan.report_specification.target_length_words
                         ),
                         "writer_content_requirements": (
                             writer_content_requirements
@@ -2223,6 +2866,7 @@ class Table2TextWorkflow:
                     allow_hypotheses_in_report=(
                         self.settings.allow_hypotheses_in_report
                     ),
+                    content_requirements=writer_content_requirements,
                     writer_mode="llm_writer",
                     eligible_for_primary_evaluation=representation_eligible,
                 )
@@ -2302,11 +2946,18 @@ class Table2TextWorkflow:
 
         writer_output_for_audit = raw_writer_output
         quality_revised_writer_output: WriterOutput | None = None
+        focused_short_form_output = (
+            plan.report_specification.communication_task
+            == CommunicationTask.FOCUSED_TABLE_DESCRIPTION
+        )
         needs_quality_revision = (
-            bool(missing_components)
-            or initial_quality_audit.quality_assessment.status
-            != QualityStatus.PASS
-            or initial_genre_quality.status == QualityStatus.REVISE
+            not focused_short_form_output
+            and (
+                bool(missing_components)
+                or initial_quality_audit.quality_assessment.status
+                != QualityStatus.PASS
+                or initial_genre_quality.status == QualityStatus.REVISE
+            )
         )
 
         if (
@@ -2358,7 +3009,6 @@ class Table2TextWorkflow:
                         ),
                         "maximum_length_words": (
                             plan.report_specification.maximum_length_words
-                            or plan.report_specification.target_length_words
                         ),
                         "writer_content_requirements": (
                             writer_content_requirements
@@ -2404,6 +3054,7 @@ class Table2TextWorkflow:
                         allow_hypotheses_in_report=(
                             self.settings.allow_hypotheses_in_report
                         ),
+                        content_requirements=writer_content_requirements,
                         writer_mode="llm_writer",
                         eligible_for_primary_evaluation=representation_eligible,
                         quality_revision_round=1,
@@ -2833,7 +3484,8 @@ class Table2TextWorkflow:
             {
                 "release_status": release_status.value,
                 "repair_rounds": repair_rounds,
-                "writer_mode": raw_writer_output.writer_mode,
+                "writer_mode": current_output.writer_mode,
+                "raw_writer_mode": raw_writer_output.writer_mode,
                 "verified_insight_count": len(
                     insight_ledger.verified_insights
                 ),
@@ -2861,6 +3513,9 @@ class Table2TextWorkflow:
         external_truth_sources: list[ExternalTruthSource] | None = None,
         evaluation_field_policy: EvaluationFieldPolicy | None = None,
         report_genre: ReportGenre | None = None,
+        communication_task: CommunicationTask | None = None,
+        output_form: OutputForm | None = None,
+        focus_scope: str | None = None,
     ) -> PipelineResult:
         return asyncio.run(
             self.run(
@@ -2870,5 +3525,8 @@ class Table2TextWorkflow:
                 external_truth_sources=external_truth_sources,
                 evaluation_field_policy=evaluation_field_policy,
                 report_genre=report_genre,
+                communication_task=communication_task,
+                output_form=output_form,
+                focus_scope=focus_scope,
             )
         )

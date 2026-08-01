@@ -269,23 +269,43 @@ class ReferenceMetricConfig(StrictModel):
             "meteor",
             "bertscore",
             "parent",
+            "hhem",
+            "alignscore",
         ]
     )
-    bertscore_model: str | None = None
+    bertscore_model: str | None = "roberta-base"
+    bertscore_num_layers: int | None = Field(default=None, ge=1)
     bertscore_batch_size: int = 8
     bertscore_device: str | None = None
-    bertscore_rescale_with_baseline: bool = True
+    bertscore_rescale_with_baseline: bool = False
     parent_n_jobs: int = 1
+    hf_local_files_only: bool = True
+    external_factuality_context: Literal["references", "source_text"] = "references"
+    external_context_max_characters: int = Field(default=50_000, ge=1_000)
+    hhem_model: str = "vectara/hallucination_evaluation_model"
+    hhem_foundation_model: str = "google/flan-t5-base"
+    hhem_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    hhem_batch_size: int = Field(default=16, ge=1)
+    hhem_context_max_characters: int = Field(default=1_000, ge=250)
+    hhem_device: str | None = None
+    alignscore_python_executable: Path | None = None
+    alignscore_worker_path: Path | None = None
+    alignscore_model_size: Literal["base", "large"] = "base"
+    alignscore_device: str = "cpu"
+    alignscore_batch_size: int = Field(default=8, ge=1)
+    alignscore_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     lowercase: bool = False
 
 
 class DeepEvalConfig(StrictModel):
     enabled: bool = True
+    judge_provider: Literal["default", "deepseek"] = "default"
     judge_model: str = "gpt-4.1-mini"
     judge_repetitions: int = Field(default=3, ge=1)
     threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     max_source_characters: int = 50_000
     run_summarization: bool = True
+    run_faithfulness: bool = True
     run_factual_correctness: bool = True
     run_reference_adequacy: bool = True
     run_task_relevance: bool = True

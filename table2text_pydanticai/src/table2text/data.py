@@ -192,6 +192,128 @@ def _highlight_pairs(value: Any) -> set[tuple[int, int]]:
     return pairs
 
 
+def _meaning_representation_pairs(value: Any) -> list[list[str]]:
+    text = str(value or "")
+    pattern = re.compile(r"([A-Za-z0-9 _-]+)\[([^\]]*)\]")
+    pairs = [
+        [key.strip(), item.strip()]
+        for key, item in pattern.findall(text)
+        if key.strip() and item.strip()
+    ]
+    return pairs or ([["meaning_representation", text]] if text.strip() else [])
+
+
+def _normalise_record_rows(value: Any) -> list[list[str]]:
+    if not isinstance(value, list):
+        return []
+
+    rows: list[list[str]] = []
+    for item in value:
+        if isinstance(item, dict):
+            subject = item.get("subject") or item.get("head") or item.get("s")
+            relation = (
+                item.get("relation")
+                or item.get("predicate")
+                or item.get("property")
+                or item.get("r")
+            )
+            obj = item.get("object") or item.get("tail") or item.get("value") or item.get("o")
+            if subject is not None and relation is not None and obj is not None:
+                rows.append([str(subject), str(relation), str(obj)])
+            else:
+                for key, child in item.items():
+                    if not isinstance(child, (dict, list)):
+                        rows.append([str(key), str(child)])
+        elif isinstance(item, list | tuple):
+            values = [str(part) for part in item if str(part).strip()]
+            if values:
+                rows.append(values)
+    return rows
+
+
+def _structured_record_table(payload: dict[str, Any]) -> pd.DataFrame | None:
+    if payload.get("__table2text_benchmark_example__"):
+        task_family = str(payload.get("task_family") or "")
+        if task_family not in {
+            "attribute_verbalisation",
+            "triple_verbalisation",
+        }:
+            return None
+        source_payload = payload.get("source_payload")
+        parent_table = payload.get("parent_table")
+        request = payload.get("request")
+        source_text = payload.get("source_text")
+        output_mode = payload.get("output_mode")
+    else:
+        task_family = ""
+        source_payload = payload
+        parent_table = None
+        request = None
+        source_text = None
+        output_mode = None
+
+    rows = _normalise_record_rows(parent_table)
+    if not rows and isinstance(source_payload, dict):
+        if "meaning_representation" in source_payload:
+            rows = _meaning_representation_pairs(
+                source_payload.get("meaning_representation")
+            )
+            task_family = task_family or "attribute_verbalisation"
+            source_text = source_text or str(
+                source_payload.get("meaning_representation") or ""
+            )
+        elif "triples" in source_payload:
+            rows = _normalise_record_rows(source_payload.get("triples"))
+            task_family = task_family or "triple_verbalisation"
+
+    if not rows:
+        return None
+
+    records: list[dict[str, Any]] = []
+    record_kind = (
+        "triple"
+        if task_family == "triple_verbalisation"
+        or any(len(row) >= 3 for row in rows)
+        else "attribute"
+    )
+    for row_index, row in enumerate(rows):
+        if len(row) >= 3:
+            subject, relation, obj = row[0], row[1], row[2]
+            records.append(
+                {
+                    "row_index": row_index,
+                    "record_kind": "triple",
+                    "subject": subject,
+                    "relation": relation,
+                    "object": obj,
+                    "attribute_name": relation,
+                    "attribute_value": obj,
+                    "task_family": task_family or "triple_verbalisation",
+                    "output_mode": output_mode,
+                    "request": request,
+                    "source_text": source_text,
+                }
+            )
+        elif len(row) >= 2:
+            records.append(
+                {
+                    "row_index": row_index,
+                    "record_kind": record_kind,
+                    "subject": None,
+                    "relation": row[0],
+                    "object": row[1],
+                    "attribute_name": row[0],
+                    "attribute_value": row[1],
+                    "task_family": task_family or "attribute_verbalisation",
+                    "output_mode": output_mode,
+                    "request": request,
+                    "source_text": source_text,
+                }
+            )
+
+    return pd.DataFrame(records) if records else None
+
+
 def _benchmark_cell_table(payload: dict[str, Any]) -> pd.DataFrame | None:
     if not payload.get("__table2text_benchmark_example__"):
         return None
@@ -218,10 +340,16 @@ def _benchmark_cell_table(payload: dict[str, Any]) -> pd.DataFrame | None:
     )
 
     records: list[dict[str, Any]] = []
+    occupied_columns_by_row: dict[int, set[int]] = {}
     for row_index, table_row in enumerate(table):
         if not isinstance(table_row, list):
             continue
-        for column_index, cell in enumerate(table_row):
+        expanded_column_index = 0
+        for raw_column_index, cell in enumerate(table_row):
+            occupied_columns = occupied_columns_by_row.get(row_index, set())
+            while expanded_column_index in occupied_columns:
+                expanded_column_index += 1
+
             if isinstance(cell, dict):
                 value = cell.get("value", "")
                 is_header = bool(cell.get("is_header", False))
@@ -233,22 +361,56 @@ def _benchmark_cell_table(payload: dict[str, Any]) -> pd.DataFrame | None:
                 row_span = None
                 column_span = None
 
+            span_width = (
+                column_span
+                if isinstance(column_span, int) and column_span > 0
+                else 1
+            )
+            span_height = (
+                row_span
+                if isinstance(row_span, int) and row_span > 0
+                else 1
+            )
+            column_index = expanded_column_index
+            column_end_index = expanded_column_index + span_width - 1
+            # Benchmark highlighted-cell coordinates are raw table-cell
+            # coordinates. Keep span-expanded columns for structural context,
+            # but do not let a preceding colspan absorb a later highlighted
+            # raw cell in the same row.
+            cell_highlighted = (row_index, raw_column_index) in highlighted
+
             records.append(
                 {
                     "page_title": page_title,
                     "section_title": section_title,
                     "row_index": row_index,
+                    "raw_column_index": raw_column_index,
                     "column_index": column_index,
+                    "column_end_index": column_end_index,
                     "cell_value": value,
                     "is_header": is_header,
-                    "is_highlighted": (row_index, column_index) in highlighted,
+                    "is_highlighted": cell_highlighted,
                     "row_span": row_span,
                     "column_span": column_span,
                     "task_family": payload.get("task_family"),
                     "output_mode": payload.get("output_mode"),
                     "request": payload.get("request"),
+                    "source_text": payload.get("source_text"),
                 }
             )
+            expanded_column_index += span_width
+            if span_height > 1:
+                spanned_columns = set(
+                    range(column_index, column_end_index + 1)
+                )
+                for spanned_row_index in range(
+                    row_index + 1,
+                    row_index + span_height,
+                ):
+                    occupied_columns_by_row.setdefault(
+                        spanned_row_index,
+                        set(),
+                    ).update(spanned_columns)
 
     if not records:
         return None
@@ -265,6 +427,10 @@ def load_json_tables(
             payload = json.load(handle)
 
     if isinstance(payload, dict):
+        structured_record = _structured_record_table(payload)
+        if structured_record is not None:
+            return {path.stem: structured_record}
+
         benchmark_table = _benchmark_cell_table(payload)
         if benchmark_table is not None:
             return {path.stem: benchmark_table}

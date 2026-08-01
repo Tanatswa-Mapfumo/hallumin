@@ -712,6 +712,56 @@ def test_report_word_ceiling_is_enforced():
     )
 
 
+def test_target_length_is_not_an_implicit_word_ceiling():
+    ledger, evidence, fact_ids, evidence_ids = (
+        _supporting_fact_budget_fixture(2)
+    )
+    sentence = (
+        "Verified source evidence supports a focused reader summary with "
+        "enough detail to connect context and evidence clearly."
+    )
+    markdown = "# Supported Summary\n\n" + " ".join(
+        f"{sentence}."
+        for _ in range(15)
+    )
+    output = WriterOutput(
+        title="Supported Summary",
+        markdown=markdown,
+        sentence_support=[
+            SentenceSupport(
+                sentence_id=f"SENT_WORDS_{index:04d}",
+                sentence_text=sentence + ".",
+                fact_ids=fact_ids,
+                evidence_ids=evidence_ids,
+                support_type=SupportType.PARAPHRASE,
+            )
+            for index in range(15)
+        ],
+        selected_fact_ids=fact_ids,
+    )
+    spec = ReportSpecification(
+        report_purpose="Test report target guidance.",
+        target_length_words=150,
+        prioritisation_rule="Use supported facts with concise prose.",
+    )
+
+    audit = deterministic_audit(
+        output,
+        ledger,
+        evidence,
+        AuditMode.INTERNAL,
+        [],
+        0,
+        spec,
+        Settings(),
+    )
+
+    assert not any(
+        "word ceiling" in finding
+        for finding in audit.quality_assessment.findings
+    )
+
+
 def test_wrong_number_triggers_repair():
     ledger, evidence = make_fact_fixture()
 

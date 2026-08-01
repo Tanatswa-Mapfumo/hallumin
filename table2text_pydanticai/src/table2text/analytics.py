@@ -173,6 +173,2307 @@ def tasks_for_route(
     return [task for task in plan.tasks if task.route == route]
 
 
+def _cell_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+    return str(value).strip()
+
+
+def _cell_int(value: Any, fallback: int = 0) -> int:
+    if value is None:
+        return fallback
+    if isinstance(value, float) and math.isnan(value):
+        return fallback
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _dedupe_nonempty(values: list[Any]) -> list[str]:
+    return list(
+        dict.fromkeys(
+            text
+            for value in values
+            if (text := _cell_text(value))
+        )
+    )
+
+
+PLACEHOLDER_CELL_VALUES = {
+    "",
+    "-",
+    "--",
+    "—",
+    "–",
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "unknown",
+    "not applicable",
+}
+
+
+FOCUSED_NUMBER_PATTERN = re.compile(
+    r"\d{1,3}(?:,\d{3})+(?:\.\d+)?%?|\d+(?:\.\d+)?%?"
+)
+
+
+def _is_placeholder_cell(value: Any) -> bool:
+    text = _cell_text(value)
+    return text.casefold() in PLACEHOLDER_CELL_VALUES
+
+
+def _dedupe_meaningful(values: list[Any]) -> list[str]:
+    return list(
+        dict.fromkeys(
+            text
+            for value in values
+            if (text := _cell_text(value))
+            and not _is_placeholder_cell(text)
+        )
+    )
+
+
+def _natural_join(values: list[str]) -> str:
+    if len(values) <= 1:
+        return "".join(values)
+    if len(values) == 2:
+        return f"{values[0]} and {values[1]}"
+    return ", ".join(values[:-1]) + f", and {values[-1]}"
+
+
+def _contains_letter(value: str) -> bool:
+    return bool(re.search(r"[A-Za-z]", value))
+
+
+def _looks_like_measure_value(value: str) -> bool:
+    text = value.strip()
+    return bool(
+        re.fullmatch(r"(?i)\d+(?:st|nd|rd|th)", text)
+        or text.endswith("%")
+        or re.fullmatch(
+            r"[$€£]?\d{1,3}(?:,\d{3})+(?:\.\d+)?|"
+            r"[$€£]?\d+(?:\.\d+)?",
+            text,
+        )
+    )
+
+
+AGGREGATE_ROW_PATTERN = re.compile(
+    r"\b(total|subtotal|overall|sum|average|mean|median)\b",
+    re.IGNORECASE,
+)
+
+
+def _parse_numeric_cell_value(value: Any) -> float | None:
+    text = _cell_text(value)
+    if not text:
+        return None
+    cleaned = (
+        text.replace(",", "")
+        .replace("%", "")
+        .replace("$", "")
+        .replace("€", "")
+        .replace("£", "")
+        .strip()
+    )
+    if not re.fullmatch(r"-?\d+(?:\.\d+)?", cleaned):
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _row_is_aggregate(row: pd.DataFrame) -> bool:
+    return any(
+        AGGREGATE_ROW_PATTERN.search(text)
+        for text in _row_text_values(row)
+    )
+
+
+def _focused_numbers_in_text(value: Any) -> list[float]:
+    numbers: list[float] = []
+    for raw in FOCUSED_NUMBER_PATTERN.findall(_cell_text(value)):
+        cleaned = raw.rstrip("%").replace(",", "")
+        try:
+            number = float(cleaned)
+        except ValueError:
+            continue
+        if raw.endswith("%"):
+            number /= 100.0
+        if math.isfinite(number):
+            numbers.append(number)
+    return numbers
+
+
+def _focused_support_numbers_from_context(
+    context: dict[str, Any],
+) -> list[float]:
+    values: list[Any] = [
+        *context.get("highlighted_values", []),
+        *context.get("row_context", []),
+        *context.get("raw_row_context", []),
+        *context.get("header_context", []),
+    ]
+    for key in [
+        "logical_row_context",
+        "highlighted_role_value_pairs",
+        "logical_row_placeholders",
+    ]:
+        for pair in context.get(key, []):
+            if isinstance(pair, dict):
+                values.append(pair.get("value"))
+                values.extend(pair.get("headers", []))
+
+    numbers: list[float] = []
+    for value in values:
+        numbers.extend(_focused_numbers_in_text(value))
+
+    return list(dict.fromkeys(numbers))
+
+
+def _value_header_semantic_score(value: str, header: str) -> float:
+    value_text = value.casefold()
+    header_text = header.casefold()
+    score = 0.0
+
+    if value_text.endswith("%") and re.search(
+        r"\b(percent(?:age)?|share|rate|ratio)\b",
+        header_text,
+    ):
+        score += 6.0
+    if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?", value_text):
+        if re.search(
+            r"\b(count|number|total|votes?|score|points?|goals?|amount|"
+            r"population|sales|revenue|value)\b",
+            header_text,
+        ):
+            score += 3.0
+    if re.search(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{4}\b", value_text):
+        if re.search(r"\b(date|year|season|time|period)\b", header_text):
+            score += 3.0
+
+    return score
+
+
+def _row_for_index(
+    frame: pd.DataFrame,
+    row_index: Any,
+) -> pd.DataFrame:
+    return frame[frame["row_index"] == row_index].sort_values(
+        "column_index"
+    )
+
+
+def _row_text_values(row: pd.DataFrame) -> list[str]:
+    return [
+        text
+        for _, cell in row.iterrows()
+        if (text := _cell_text(cell.get("cell_value")))
+        and not _is_placeholder_cell(text)
+    ]
+
+
+def _header_like_row_indices_before(
+    frame: pd.DataFrame,
+    selected_row_index: int,
+) -> list[int]:
+    indices: list[int] = []
+    rows_before = frame[
+        frame["row_index"] < selected_row_index
+    ]
+    if rows_before.empty:
+        return indices
+
+    first_row_index = int(rows_before["row_index"].min())
+    structural_header_started = False
+
+    for row_index, row in rows_before.groupby("row_index"):
+        row = row.sort_values("column_index")
+        texts = _row_text_values(row)
+        if not texts:
+            continue
+
+        explicit_header_count = int(
+            row.get("is_header", pd.Series(dtype=bool))
+            .fillna(False)
+            .astype(bool)
+            .sum()
+        )
+        has_measure_value = any(
+            _looks_like_measure_value(text)
+            for text in texts
+        )
+        explicit_structural_header = bool(
+            explicit_header_count > 0
+            and explicit_header_count / max(len(row), 1) >= 0.5
+        )
+        probable_first_header = bool(
+            int(row_index) == first_row_index
+            and not structural_header_started
+            and not has_measure_value
+            and sum(_contains_letter(text) for text in texts)
+            >= max(1, len(texts) // 2)
+        )
+        previous_header_text_count = (
+            len(_row_text_values(_row_for_index(frame, indices[-1])))
+            if indices
+            else 0
+        )
+        label_only_continuation = (
+            structural_header_started
+            and previous_header_text_count > 0
+            and len(texts) < previous_header_text_count
+            and all(_contains_letter(text) for text in texts)
+            and not has_measure_value
+        )
+        if (
+            explicit_structural_header
+            or probable_first_header
+            or label_only_continuation
+        ):
+            indices.append(int(row_index))
+            structural_header_started = True
+            continue
+
+        if structural_header_started:
+            break
+
+    return indices[-6:]
+
+
+def _header_path_for_column(
+    frame: pd.DataFrame,
+    *,
+    selected_row_index: int,
+    column_index: int,
+) -> list[str]:
+    path: list[str] = []
+    for row_index in _header_like_row_indices_before(
+        frame,
+        selected_row_index,
+    ):
+        row = _row_for_index(frame, row_index)
+        for _, cell in row.iterrows():
+            text = _cell_text(cell.get("cell_value"))
+            if not text or _is_placeholder_cell(text):
+                continue
+            start_column = _cell_int(cell["column_index"])
+            end_column = _cell_int(
+                cell.get("column_end_index"),
+                start_column,
+            )
+            if start_column <= column_index <= end_column:
+                path.append(text)
+                break
+
+    return list(dict.fromkeys(path))
+
+
+def _logical_row_context_for_highlighted_cells(
+    frame: pd.DataFrame,
+    highlighted: pd.DataFrame,
+    *,
+    page_title: str,
+) -> dict[str, Any]:
+    row_pairs: list[dict[str, Any]] = []
+    highlighted_pairs: list[dict[str, Any]] = []
+    placeholder_pairs: list[dict[str, Any]] = []
+    seen_pairs: set[tuple[str, str, int, bool]] = set()
+
+    for _, selected_cell in highlighted.iterrows():
+        selected_row_index = _cell_int(selected_cell["row_index"])
+        selected_column = _cell_int(selected_cell["column_index"])
+        row = _row_for_index(frame, selected_row_index)
+
+        for _, cell in row.iterrows():
+            column_index = _cell_int(cell["column_index"])
+            text = _cell_text(cell.get("cell_value"))
+            headers = _header_path_for_column(
+                frame,
+                selected_row_index=selected_row_index,
+                column_index=column_index,
+            )
+            is_selected = bool(cell.get("is_highlighted", False)) or (
+                column_index == selected_column
+                and text == _cell_text(selected_cell.get("cell_value"))
+            )
+            is_placeholder = not text or _is_placeholder_cell(text)
+            if not headers and is_placeholder:
+                continue
+
+            key = (
+                " > ".join(headers),
+                text,
+                column_index,
+                is_selected,
+            )
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+
+            pair = {
+                "headers": headers,
+                "value": text,
+                "column_index": column_index,
+            }
+            if is_selected:
+                highlighted_pairs.append(pair)
+            elif is_placeholder:
+                placeholder_pairs.append(pair)
+            elif text:
+                row_pairs.append(pair)
+
+    subject_candidates = []
+    highlighted_has_text_subject = any(
+        _contains_letter(text)
+        and not _looks_like_measure_value(text)
+        for text in (
+            _cell_text(cell.get("cell_value"))
+            for _, cell in highlighted.iterrows()
+        )
+    )
+    if page_title and not highlighted_has_text_subject:
+        for pair in placeholder_pairs:
+            headers = [
+                str(header)
+                for header in pair.get("headers", [])
+                if str(header).strip()
+            ]
+            if not headers:
+                continue
+            if not any(_contains_letter(header) for header in headers):
+                continue
+            subject_candidates.append(
+                {
+                    "value": page_title,
+                    "related_headers": headers,
+                    "basis": (
+                        "page title with placeholder value under this "
+                        "logical header path in the same row"
+                    ),
+                }
+            )
+    subject_candidates = sorted(
+        subject_candidates,
+        key=lambda candidate: len(candidate["related_headers"]),
+        reverse=True,
+    )
+
+    return {
+        "logical_row_context": row_pairs[:12],
+        "highlighted_role_value_pairs": highlighted_pairs,
+        "logical_row_placeholders": placeholder_pairs[:8],
+        "page_title_subject_candidates": subject_candidates[:4],
+    }
+
+
+def _format_role_value_pairs(
+    pairs: list[dict[str, Any]],
+    *,
+    include_placeholders: bool = False,
+) -> list[str]:
+    rendered: list[str] = []
+    for pair in pairs:
+        headers = pair.get("headers") or []
+        header_text = " > ".join(str(header) for header in headers if header)
+        value = _cell_text(pair.get("value"))
+        if not header_text:
+            continue
+        if not value and not include_placeholders:
+            continue
+        rendered.append(f"{header_text} = {value or '[blank]'}")
+    return rendered
+
+
+def _active_row_span_cells(
+    frame: pd.DataFrame,
+    row_index: int,
+) -> list[dict[str, Any]]:
+    active: list[dict[str, Any]] = []
+    for _, cell in frame.iterrows():
+        start_row = _cell_int(cell.get("row_index"))
+        span_height = _cell_int(cell.get("row_span"), 1)
+        if span_height <= 1:
+            continue
+        if not start_row < row_index < start_row + span_height:
+            continue
+        value = _cell_text(cell.get("cell_value"))
+        if not value or _is_placeholder_cell(value):
+            continue
+        active.append(
+            {
+                "row_index": start_row,
+                "raw_column_index": _cell_int(cell.get("raw_column_index")),
+                "column_index": _cell_int(cell.get("column_index")),
+                "column_end_index": _cell_int(
+                    cell.get("column_end_index"),
+                    _cell_int(cell.get("column_index")),
+                ),
+                "value": value,
+                "is_highlighted": bool(cell.get("is_highlighted", False)),
+                "is_inherited": True,
+            }
+        )
+
+    return sorted(active, key=lambda item: item["column_index"])
+
+
+def _highlighted_row_is_span_context_only(
+    *,
+    frame: pd.DataFrame,
+    row_index: int,
+    highlighted_row_indices: set[int],
+) -> bool:
+    highlighted_cells = frame[
+        (frame["row_index"] == row_index)
+        & frame["is_highlighted"].fillna(False).astype(bool)
+    ]
+    if highlighted_cells.empty:
+        return False
+
+    has_descendant_highlight = False
+    for _, cell in highlighted_cells.iterrows():
+        span_height = _cell_int(cell.get("row_span"), 1)
+        if span_height <= 1:
+            return False
+        for descendant_row in range(row_index + 1, row_index + span_height):
+            if descendant_row in highlighted_row_indices:
+                has_descendant_highlight = True
+
+    return has_descendant_highlight
+
+
+def _field_role(field: dict[str, Any]) -> str:
+    headers = [
+        str(header).strip()
+        for header in field.get("headers", [])
+        if str(header).strip()
+    ]
+    if headers:
+        return headers[-1]
+    return f"column {field.get('column_index')}"
+
+
+def _record_field_lookup(
+    record: dict[str, Any],
+) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for field in record.get("fields", []):
+        if not isinstance(field, dict):
+            continue
+        role = _field_role(field).casefold()
+        value = _cell_text(field.get("value"))
+        if role and value and role not in lookup:
+            lookup[role] = value
+    return lookup
+
+
+def _value_for_role(
+    lookup: dict[str, str],
+    *role_names: str,
+) -> str | None:
+    for role_name in role_names:
+        role_key = role_name.casefold()
+        if role_key in lookup:
+            return lookup[role_key]
+    return None
+
+
+def _non_list_page_subject(page_title: str) -> str:
+    title = page_title.strip()
+    if re.match(r"(?i)^\s*list of\b", title):
+        return ""
+    return title
+
+
+def _record_group_clause(
+    record: dict[str, Any],
+    *,
+    subject: str,
+    include_subject: bool,
+) -> str | None:
+    lookup = _record_field_lookup(record)
+    tournament = _value_for_role(lookup, "tournament", "event", "competition")
+    game = _value_for_role(lookup, "game", "title")
+    place = _value_for_role(lookup, "place", "rank", "position", "result")
+
+    prefix = subject if include_subject and subject else ""
+    if place and game and tournament:
+        start = f"{prefix} placed" if prefix else "placed"
+        return f"{start} {place} in {game} at {tournament}"
+    if place and tournament:
+        start = f"{prefix} placed" if prefix else "placed"
+        return f"{start} {place} at {tournament}"
+
+    selected = [
+        field
+        for field in record.get("fields", [])
+        if isinstance(field, dict) and field.get("is_highlighted")
+    ]
+    if not selected:
+        return None
+    rendered = _format_role_value_pairs(selected)
+    if not rendered:
+        return None
+    start = f"{prefix} has " if prefix else ""
+    return start + "; ".join(rendered)
+
+
+def _normalised_series_label(value: str) -> str:
+    text = re.sub(r"\s+#?\d+\s*$", "", value.strip())
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _is_first_place(value: str) -> bool:
+    return bool(re.fullmatch(r"(?i)\s*(?:1st|first|1)\s*", value.strip()))
+
+
+def _consecutive_repeated_record_summaries(
+    records: list[dict[str, Any]],
+    *,
+    subject: str,
+) -> tuple[list[str], set[int]]:
+    groups: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for record in records:
+        lookup = _record_field_lookup(record)
+        tournament = _value_for_role(
+            lookup,
+            "tournament",
+            "event",
+            "competition",
+        )
+        game = _value_for_role(lookup, "game", "title")
+        place = _value_for_role(lookup, "place", "rank", "position", "result")
+        if not tournament or not game or not place:
+            continue
+        series = _normalised_series_label(tournament)
+        if not series:
+            continue
+        groups.setdefault((series, game, place), []).append(record)
+
+    summaries: list[str] = []
+    consumed_rows: set[int] = set()
+    for (series, game, place), group_records in groups.items():
+        ordered = sorted(group_records, key=lambda item: item["row_index"])
+        if len(ordered) < 3:
+            continue
+        row_indices = [int(record["row_index"]) for record in ordered]
+        consecutive = all(
+            later == earlier + 1
+            for earlier, later in zip(row_indices, row_indices[1:])
+        )
+        if not consecutive:
+            continue
+
+        count_word = {
+            3: "three",
+            4: "four",
+            5: "five",
+        }.get(len(ordered), str(len(ordered)))
+        if _is_first_place(place):
+            verb = "won"
+            summary = (
+                f"{subject + ' ' if subject else ''}{verb} "
+                f"{count_word} times in a row in {game} "
+                f"at {series}"
+            )
+        else:
+            summary = (
+                f"{subject + ' ' if subject else ''}placed {place} "
+                f"{count_word} times in a row in {game} "
+                f"at {series}"
+            )
+        summaries.append(summary)
+        consumed_rows.update(row_indices)
+
+    return summaries, consumed_rows
+
+
+def _join_record_clauses(clauses: list[str]) -> str:
+    cleaned = [clause.strip(" .") for clause in clauses if clause.strip()]
+    if not cleaned:
+        return ""
+    if len(cleaned) == 1:
+        return cleaned[0] + "."
+    if len(cleaned) == 2:
+        return f"{cleaned[0]} and {cleaned[1]}."
+    return ", ".join(cleaned[:-1]) + f", and {cleaned[-1]}."
+
+
+def _highlighted_record_group_summary(
+    records: list[dict[str, Any]],
+    *,
+    page_title: str,
+) -> str | None:
+    if len(records) < 2:
+        return None
+
+    subject = _non_list_page_subject(page_title)
+    repeated_summaries, consumed_rows = (
+        _consecutive_repeated_record_summaries(records, subject=subject)
+    )
+    clauses: list[str] = []
+    subject_used = False
+    for record in records:
+        if int(record["row_index"]) in consumed_rows:
+            continue
+        clause = _record_group_clause(
+            record,
+            subject=subject,
+            include_subject=not subject_used,
+        )
+        if clause:
+            clauses.append(clause)
+            subject_used = subject_used or bool(subject)
+
+    for summary in repeated_summaries:
+        if subject and subject_used and summary.startswith(subject + " "):
+            summary = summary[len(subject) + 1 :]
+        clauses.append(summary)
+        subject_used = subject_used or bool(subject)
+
+    return _join_record_clauses(clauses)
+
+
+def _highlighted_record_groups(
+    frame: pd.DataFrame,
+    highlighted: pd.DataFrame,
+    *,
+    page_title: str,
+) -> tuple[list[dict[str, Any]], str | None]:
+    highlighted_row_indices = {
+        _cell_int(row_index)
+        for row_index in highlighted["row_index"].tolist()
+    }
+    records: list[dict[str, Any]] = []
+
+    for row_index in sorted(highlighted_row_indices):
+        if _highlighted_row_is_span_context_only(
+            frame=frame,
+            row_index=row_index,
+            highlighted_row_indices=highlighted_row_indices,
+        ):
+            continue
+
+        merged: dict[int, dict[str, Any]] = {}
+        for inherited in _active_row_span_cells(frame, row_index):
+            merged[inherited["column_index"]] = inherited
+
+        row = _row_for_index(frame, row_index)
+        for _, cell in row.iterrows():
+            value = _cell_text(cell.get("cell_value"))
+            if not value or _is_placeholder_cell(value):
+                continue
+            column_index = _cell_int(cell.get("column_index"))
+            merged[column_index] = {
+                "row_index": row_index,
+                "raw_column_index": _cell_int(cell.get("raw_column_index")),
+                "column_index": column_index,
+                "column_end_index": _cell_int(
+                    cell.get("column_end_index"),
+                    column_index,
+                ),
+                "value": value,
+                "is_highlighted": bool(cell.get("is_highlighted", False)),
+                "is_inherited": False,
+            }
+
+        fields: list[dict[str, Any]] = []
+        for column_index, cell in sorted(merged.items()):
+            headers = _header_path_for_column(
+                frame,
+                selected_row_index=row_index,
+                column_index=column_index,
+            )
+            fields.append(
+                {
+                    "headers": headers,
+                    "value": cell["value"],
+                    "column_index": column_index,
+                    "source_row_index": cell["row_index"],
+                    "is_highlighted": bool(cell["is_highlighted"]),
+                    "is_inherited": bool(cell["is_inherited"]),
+                }
+            )
+
+        highlighted_fields = [
+            field for field in fields if field["is_highlighted"]
+        ]
+        if not highlighted_fields:
+            continue
+        records.append(
+            {
+                "row_index": row_index,
+                "fields": fields,
+                "highlighted_fields": highlighted_fields,
+            }
+        )
+
+    summary = _highlighted_record_group_summary(
+        records,
+        page_title=page_title,
+    )
+    return records, summary
+
+
+def _same_measure_comparisons_for_highlighted_cells(
+    frame: pd.DataFrame,
+    highlighted: pd.DataFrame,
+) -> list[dict[str, Any]]:
+    comparisons: list[dict[str, Any]] = []
+
+    for _, selected_cell in highlighted.iterrows():
+        selected_value = _cell_text(selected_cell.get("cell_value"))
+        selected_number = _parse_numeric_cell_value(selected_value)
+        if selected_number is None:
+            continue
+
+        selected_row_index = _cell_int(selected_cell["row_index"])
+        selected_column = _cell_int(selected_cell["column_index"])
+        selected_headers = _header_path_for_column(
+            frame,
+            selected_row_index=selected_row_index,
+            column_index=selected_column,
+        )
+        comparable_values: list[dict[str, Any]] = []
+        aggregate_values: list[dict[str, Any]] = []
+
+        for _, cell in frame.iterrows():
+            if bool(cell.get("is_header", False)):
+                continue
+            text = _cell_text(cell.get("cell_value"))
+            if not text or _is_placeholder_cell(text):
+                continue
+            number = _parse_numeric_cell_value(text)
+            if number is None:
+                continue
+
+            start_column = _cell_int(cell["column_index"])
+            end_column = _cell_int(
+                cell.get("column_end_index"),
+                start_column,
+            )
+            if not start_column <= selected_column <= end_column:
+                continue
+
+            row = _row_for_index(frame, cell["row_index"])
+            row_context = [
+                row_text
+                for row_text in _row_text_values(row)
+                if row_text != text
+            ][:6]
+            entry = {
+                "value": text,
+                "numeric_value": number,
+                "row_index": _cell_int(cell["row_index"]),
+                "row_context": row_context,
+                "is_highlighted": bool(cell.get("is_highlighted", False)),
+            }
+            if _row_is_aggregate(row):
+                aggregate_values.append(entry)
+            else:
+                comparable_values.append(entry)
+
+        if not comparable_values:
+            continue
+
+        sorted_values = sorted(
+            comparable_values,
+            key=lambda item: item["numeric_value"],
+            reverse=True,
+        )
+        selected_match = next(
+            (
+                item
+                for item in sorted_values
+                if item["is_highlighted"]
+                and math.isclose(
+                    item["numeric_value"],
+                    selected_number,
+                    rel_tol=1e-12,
+                    abs_tol=1e-12,
+                )
+            ),
+            None,
+        )
+        if selected_match is None:
+            continue
+
+        selected_rank = sorted_values.index(selected_match) + 1
+        is_percentage = selected_value.endswith("%") or any(
+            re.search(r"\b(percent(?:age)?|share|rate)\b", header, re.I)
+            for header in selected_headers
+        )
+        comparisons.append(
+            {
+                "highlighted_value": selected_value,
+                "headers": selected_headers,
+                "numeric_value": selected_number,
+                "comparable_value_count": len(sorted_values),
+                "rank_descending": selected_rank,
+                "is_highest_comparable_value": selected_rank == 1,
+                "is_percentage_or_share": is_percentage,
+                "is_majority_percentage": (
+                    is_percentage and selected_number > 50.0
+                ),
+                "comparable_values": sorted_values[:8],
+                "excluded_aggregate_values": aggregate_values[:4],
+            }
+        )
+
+    return comparisons
+
+
+def _lower_initial_label(value: str) -> str:
+    value = value.strip()
+    if not value:
+        return value
+    if len(value) > 1 and value[:2].isupper():
+        return value
+    return value[:1].lower() + value[1:]
+
+
+def _pluralised_relation_label(value: str) -> str:
+    text = _lower_initial_label(value).strip()
+    if not text:
+        return "highlighted rows"
+    if " / " in text:
+        text = text.split(" / ")[-1].strip()
+    if text.endswith("y") and text[-2:-1].lower() not in {
+        "a",
+        "e",
+        "i",
+        "o",
+        "u",
+    }:
+        return text[:-1] + "ies"
+    if text.endswith("s"):
+        return text
+    return text + "s"
+
+
+def _strip_parenthetical_suffix(value: str) -> str:
+    text = value.strip()
+    while True:
+        updated = re.sub(r"\s*\([^)]*\)\s*$", "", text).strip()
+        if updated == text or not updated:
+            return text
+        text = updated
+
+
+def _possessive(value: str) -> str:
+    text = value.strip()
+    if not text:
+        return text
+    return text + ("'" if text.endswith("s") else "'s")
+
+
+def _split_final_year_label(value: str) -> tuple[str, str | None]:
+    text = value.strip()
+    match = re.search(r"\((\d{4}(?:[–-]\d{2,4})?)\)\s*$", text)
+    year = match.group(1) if match else None
+    if match:
+        text = text[: match.start()].strip()
+    compact = _strip_parenthetical_suffix(text)
+    return compact or text, year
+
+
+def _looks_like_record_value(value: str) -> bool:
+    return bool(re.fullmatch(r"\d+\s*[–-]\s*\d+(?:\s*[–-]\s*\d+)?", value.strip()))
+
+
+def _indefinite_article(phrase: str) -> str:
+    return "an" if re.match(r"(?i)[aeiou]", phrase.strip()) else "a"
+
+
+def _simple_plural_forms(noun: str) -> set[str]:
+    text = noun.strip().casefold()
+    if not text:
+        return set()
+
+    forms = {text}
+    if text.endswith("y") and text[-2:-1] not in {"a", "e", "i", "o", "u"}:
+        forms.add(text[:-1] + "ies")
+    elif text.endswith(("s", "x", "z", "ch", "sh")):
+        forms.add(text + "es")
+    else:
+        forms.add(text + "s")
+    return forms
+
+
+def _simple_singularise_final_word(word: str) -> str:
+    match = re.fullmatch(r"([A-Za-z][A-Za-z-]*)([^A-Za-z]*)", word.strip())
+    if not match:
+        return word
+
+    stem, suffix = match.groups()
+    lower = stem.casefold()
+    if lower.endswith("ies") and len(stem) > 3:
+        stem = stem[:-3] + "y"
+    elif lower.endswith("es") and re.search(r"(?i)(s|x|z|ch|sh)es$", stem):
+        stem = stem[:-2]
+    elif lower.endswith("s") and not lower.endswith(("ss", "us", "is")):
+        stem = stem[:-1]
+
+    return stem + suffix
+
+
+def _singularise_final_word(phrase: str) -> str:
+    words = phrase.strip().split()
+    if not words:
+        return ""
+    words[-1] = _simple_singularise_final_word(words[-1])
+    return " ".join(words)
+
+
+def _trim_list_domain_part(phrase: str) -> str:
+    text = phrase.strip(" .;:,")
+    text = re.sub(r"(?i)^\s*(?:the|a|an)\s+", "", text).strip()
+    text = re.split(
+        r"(?i)\s+\b(?:by|in|from|with|for|during|after|before)\b\s+",
+        text,
+        maxsplit=1,
+    )[0].strip(" .;:,")
+    return text
+
+
+def _list_domain_parts(listed_domain: str) -> list[str]:
+    text = re.sub(r"\s+", " ", listed_domain).strip(" .;:,")
+    parts = [
+        _trim_list_domain_part(part)
+        for part in re.split(r"(?i)\s+(?:and|or)\s+|[,;/]+", text)
+    ]
+    return [part for part in parts if part]
+
+
+def _head_noun_from_label(label: str) -> str:
+    words = re.findall(r"[A-Za-z][A-Za-z-]*", label)
+    if not words:
+        return ""
+    return _simple_singularise_final_word(words[-1]).casefold()
+
+
+def _contains_head_noun(phrase: str, head_noun: str) -> bool:
+    forms = _simple_plural_forms(head_noun)
+    if not forms:
+        return False
+    pattern = r"\b(?:" + "|".join(re.escape(form) for form in forms) + r")\b"
+    return bool(re.search(pattern, phrase, re.IGNORECASE))
+
+
+def _has_informative_modifier(phrase: str, head_noun: str) -> bool:
+    words = re.findall(r"[A-Za-z][A-Za-z-]*", phrase)
+    if not words:
+        return False
+    head_forms = _simple_plural_forms(head_noun)
+    modifiers = [
+        word
+        for word in words
+        if word.casefold() not in head_forms
+    ]
+    return bool(modifiers)
+
+
+def _list_member_category_phrase(
+    *,
+    listed_domain: str,
+    column_label: str,
+) -> str | None:
+    head_noun = _head_noun_from_label(column_label)
+    if not head_noun:
+        return None
+
+    candidate_parts = [
+        part
+        for part in _list_domain_parts(listed_domain)
+        if _contains_head_noun(part, head_noun)
+    ]
+    if not candidate_parts:
+        return None
+
+    # The last matching conjunct often carries the most specific member type:
+    # e.g. "closed-circuit events and pay-per-view events" -> "pay-per-view event".
+    candidate = _singularise_final_word(candidate_parts[-1])
+    if not _has_informative_modifier(candidate, head_noun):
+        return None
+
+    return _lower_initial_label(candidate)
+
+
+def _best_subject_for_measure_cell(
+    frame: pd.DataFrame,
+    *,
+    row_index: int,
+    measure_column_index: int,
+) -> dict[str, Any] | None:
+    row = _row_for_index(frame, row_index)
+    candidates: list[tuple[int, int, int, dict[str, Any]]] = []
+
+    for _, cell in row.iterrows():
+        value = _cell_text(cell.get("cell_value"))
+        if (
+            not value
+            or _is_placeholder_cell(value)
+            or _looks_like_measure_value(value)
+            or not _contains_letter(value)
+        ):
+            continue
+
+        column_index = _cell_int(cell["column_index"])
+        headers = _header_path_for_column(
+            frame,
+            selected_row_index=row_index,
+            column_index=column_index,
+        )
+        is_highlighted = bool(cell.get("is_highlighted", False))
+        side_rank = 0 if column_index < measure_column_index else 1
+        distance = abs(column_index - measure_column_index)
+        candidates.append(
+            (
+                0 if is_highlighted else 1,
+                side_rank,
+                distance,
+                {
+                    "value": value,
+                    "headers": headers,
+                    "column_index": column_index,
+                    "is_highlighted": is_highlighted,
+                },
+            )
+        )
+
+    if not candidates:
+        return None
+
+    return sorted(candidates, key=lambda item: item[:3])[0][3]
+
+
+def _highlighted_set_contrasts(
+    frame: pd.DataFrame,
+    highlighted: pd.DataFrame,
+) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+
+    for _, cell in highlighted.iterrows():
+        highlighted_value = _cell_text(cell.get("cell_value"))
+        numeric_value = _parse_numeric_cell_value(highlighted_value)
+        if numeric_value is None:
+            continue
+
+        row_index = _cell_int(cell["row_index"])
+        column_index = _cell_int(cell["column_index"])
+        headers = _header_path_for_column(
+            frame,
+            selected_row_index=row_index,
+            column_index=column_index,
+        )
+        if not headers:
+            continue
+
+        subject = _best_subject_for_measure_cell(
+            frame,
+            row_index=row_index,
+            measure_column_index=column_index,
+        )
+        grouped.setdefault(tuple(headers), []).append(
+            {
+                "row_index": row_index,
+                "column_index": column_index,
+                "highlighted_value": highlighted_value,
+                "numeric_value": numeric_value,
+                "headers": headers,
+                "subject": subject,
+                "is_percentage_or_share": (
+                    highlighted_value.endswith("%")
+                    or any(
+                        re.search(
+                            r"\b(percent(?:age)?|share|rate)\b",
+                            header,
+                            re.I,
+                        )
+                        for header in headers
+                    )
+                ),
+            }
+        )
+
+    contrasts: list[dict[str, Any]] = []
+    for headers, entries in grouped.items():
+        distinct_entries = [
+            entry
+            for index, entry in enumerate(entries)
+            if not any(
+                earlier["row_index"] == entry["row_index"]
+                and earlier["column_index"] == entry["column_index"]
+                for earlier in entries[:index]
+            )
+        ]
+        if len(distinct_entries) < 2:
+            continue
+
+        sorted_entries = sorted(
+            distinct_entries,
+            key=lambda entry: entry["numeric_value"],
+        )
+        lower = sorted_entries[0]
+        higher = sorted_entries[-1]
+        if math.isclose(
+            lower["numeric_value"],
+            higher["numeric_value"],
+            rel_tol=1e-12,
+            abs_tol=1e-12,
+        ):
+            continue
+
+        subject_headers = [
+            header
+            for entry in distinct_entries
+            if isinstance(entry.get("subject"), dict)
+            for header in entry["subject"].get("headers", [])
+            if str(header).strip()
+        ]
+        subject_label = (
+            " / ".join(dict.fromkeys(subject_headers))
+            if subject_headers
+            else "row"
+        )
+        subject_group_label = _pluralised_relation_label(subject_label)
+        measure_label = _lower_initial_label(" / ".join(headers))
+        lower_subject = (
+            lower["subject"].get("value")
+            if isinstance(lower.get("subject"), dict)
+            else None
+        )
+        higher_subject = (
+            higher["subject"].get("value")
+            if isinstance(higher.get("subject"), dict)
+            else None
+        )
+
+        if lower_subject and higher_subject:
+            summary = (
+                f"Among the highlighted {subject_group_label}, "
+                f"{lower_subject} had the lower {measure_label} at "
+                f"{lower['highlighted_value']}, while {higher_subject} "
+                f"had the higher value at {higher['highlighted_value']}."
+            )
+        else:
+            summary = (
+                f"Among the highlighted values for {measure_label}, "
+                f"{lower['highlighted_value']} was lower than "
+                f"{higher['highlighted_value']}."
+            )
+
+        contrasts.append(
+            {
+                "scope": "highlighted_values_only",
+                "measure_headers": list(headers),
+                "subject_header": subject_label,
+                "lower": {
+                    "subject": lower_subject,
+                    "value": lower["highlighted_value"],
+                    "numeric_value": lower["numeric_value"],
+                    "row_index": lower["row_index"],
+                },
+                "higher": {
+                    "subject": higher_subject,
+                    "value": higher["highlighted_value"],
+                    "numeric_value": higher["numeric_value"],
+                    "row_index": higher["row_index"],
+                },
+                "highlighted_value_count": len(distinct_entries),
+                "contrast_summary": summary,
+            }
+        )
+
+    return contrasts
+
+
+def _focused_record_style_relation(
+    *,
+    highlighted_role_value_pairs: list[dict[str, Any]],
+    page_title: str,
+    section_title: str,
+) -> dict[str, Any] | None:
+    text_pairs = [
+        pair
+        for pair in highlighted_role_value_pairs
+        if isinstance(pair, dict)
+        and _contains_letter(_cell_text(pair.get("value")))
+        and not _looks_like_measure_value(_cell_text(pair.get("value")))
+    ]
+    value_pairs = [
+        pair
+        for pair in highlighted_role_value_pairs
+        if isinstance(pair, dict)
+        and (value := _cell_text(pair.get("value")))
+        and not _contains_letter(value)
+        and (
+            _looks_like_measure_value(value)
+            or _looks_like_record_value(value)
+        )
+    ]
+
+    section_phrase = _lower_initial_label(section_title)
+    page_subject = _strip_parenthetical_suffix(page_title)
+
+    for value_pair in value_pairs:
+        value = _cell_text(value_pair.get("value"))
+        headers = [
+            str(header).strip()
+            for header in value_pair.get("headers", [])
+            if str(header).strip()
+        ]
+        if not headers:
+            continue
+
+        group_pair = next(
+            (
+                pair
+                for pair in text_pairs
+                if _cell_text(pair.get("value")) in headers
+            ),
+            None,
+        )
+        if group_pair is None and len(text_pairs) == 1:
+            group_pair = text_pairs[0]
+        if group_pair is None:
+            continue
+
+        group_label = _cell_text(group_pair.get("value"))
+        metric_headers = [
+            header
+            for header in headers
+            if header != group_label
+        ]
+        if not metric_headers:
+            continue
+
+        metric_label = _lower_initial_label(metric_headers[0])
+        compact_group, year = _split_final_year_label(group_label)
+        year_phrase = f" in {year}" if year else ""
+
+        record_like = (
+            _looks_like_record_value(value)
+            or "record" in section_phrase.casefold()
+            or metric_label.casefold() == "overall"
+        )
+        if metric_label.casefold() == "overall" and record_like:
+            metric_phrase = "overall record"
+        elif record_like and "record" not in metric_label.casefold():
+            metric_phrase = f"{metric_label} record"
+        else:
+            metric_phrase = f"{metric_label} value"
+
+        article = (
+            "an"
+            if re.match(r"(?i)[aeiou]", metric_phrase)
+            else "a"
+        )
+
+        if page_subject and section_phrase:
+            summary = (
+                f"{_possessive(page_subject)} {section_phrase} shows "
+                f"{compact_group}{year_phrase} with {article} "
+                f"{metric_phrase} of {value}."
+            )
+        elif section_phrase:
+            summary = (
+                f"The {section_phrase} shows {compact_group}{year_phrase} "
+                f"with {article} {metric_phrase} of {value}."
+            )
+        else:
+            summary = (
+                f"{compact_group}{year_phrase} has {article} "
+                f"{metric_phrase} of {value}."
+            )
+
+        return {
+            "scope": "focused_record_relation",
+            "page_subject": page_subject or None,
+            "section_title": section_title or None,
+            "group_label": group_label,
+            "compact_group_label": compact_group,
+            "year": year,
+            "metric_headers": metric_headers,
+            "value": value,
+            "relation_summary": summary,
+        }
+
+    return None
+
+
+def _focused_list_page_relation(
+    *,
+    highlighted_role_value_pairs: list[dict[str, Any]],
+    page_title: str,
+    section_title: str,
+) -> dict[str, Any] | None:
+    if not re.match(r"(?i)^\s*list of\b", page_title or ""):
+        return None
+
+    text_pairs = [
+        pair
+        for pair in highlighted_role_value_pairs
+        if isinstance(pair, dict)
+        and (value := _cell_text(pair.get("value")))
+        and _contains_letter(value)
+        and not _looks_like_measure_value(value)
+    ]
+    if len(text_pairs) != 1:
+        return None
+
+    pair = text_pairs[0]
+    value = _cell_text(pair.get("value"))
+    headers = [
+        str(header).strip()
+        for header in pair.get("headers", [])
+        if str(header).strip()
+    ]
+    if not headers:
+        return None
+
+    column_label = _lower_initial_label(headers[-1])
+    if not re.search(
+        r"\b(event|name|title|team|club|school|person|player|"
+        r"candidate|office|place|venue|city|country|entry)\b",
+        column_label,
+        re.IGNORECASE,
+    ):
+        return None
+
+    listed_domain = re.sub(
+        r"(?i)^\s*list of\s+",
+        "",
+        page_title,
+    ).strip()
+    member_category = _list_member_category_phrase(
+        listed_domain=listed_domain,
+        column_label=column_label,
+    )
+    section = section_title.strip()
+    if section:
+        if re.fullmatch(r"\d{4}(?:[–-]\d{2,4})?", section):
+            prefix = f"In {section}, "
+        else:
+            prefix = f"In the {section} section, "
+    else:
+        prefix = ""
+
+    if member_category:
+        summary = (
+            f"{prefix}{value} was {_indefinite_article(member_category)} "
+            f"{member_category}."
+        )
+    else:
+        summary = (
+            f"{prefix}{value} was {_indefinite_article(column_label)} "
+            f"{column_label} in the list of {listed_domain}."
+        )
+
+    return {
+        "scope": "focused_list_page_relation",
+        "page_title": page_title or None,
+        "listed_domain": listed_domain or None,
+        "member_category": member_category or None,
+        "section_title": section_title or None,
+        "column_header": headers[-1],
+        "value": value,
+        "relation_summary": summary,
+    }
+
+
+def _meaningful_same_row_context(
+    frame: pd.DataFrame,
+    highlighted: pd.DataFrame,
+) -> tuple[list[str], list[str]]:
+    row_context: list[str] = []
+    row_subjects: list[str] = []
+
+    for _, selected_cell in highlighted.iterrows():
+        row = _row_for_index(frame, selected_cell["row_index"])
+        selected_column = int(selected_cell["column_index"])
+        candidates: list[tuple[int, int, str]] = []
+
+        for _, cell in row.iterrows():
+            if bool(cell.get("is_highlighted", False)):
+                continue
+            text = _cell_text(cell.get("cell_value"))
+            if not text or _is_placeholder_cell(text):
+                continue
+
+            column_index = _cell_int(cell["column_index"])
+            row_context.append(text)
+            side_rank = 0 if column_index < selected_column else 1
+            distance = abs(column_index - selected_column)
+            if _contains_letter(text):
+                candidates.append((side_rank, distance, text))
+
+        if not candidates:
+            for _, cell in row.iterrows():
+                if bool(cell.get("is_highlighted", False)):
+                    continue
+                text = _cell_text(cell.get("cell_value"))
+                if not text or _is_placeholder_cell(text):
+                    continue
+                column_index = _cell_int(cell["column_index"])
+                side_rank = 0 if column_index < selected_column else 1
+                distance = abs(column_index - selected_column)
+                candidates.append((side_rank, distance, text))
+
+        if candidates:
+            row_subjects.append(
+                sorted(candidates, key=lambda item: (item[0], item[1]))[0][2]
+            )
+
+    return (
+        list(dict.fromkeys(row_context))[:8],
+        list(dict.fromkeys(row_subjects))[:3],
+    )
+
+
+def _nearby_context_before_highlight(
+    frame: pd.DataFrame,
+    highlighted: pd.DataFrame,
+) -> list[str]:
+    contexts: list[str] = []
+    for _, selected_cell in highlighted.iterrows():
+        row_index = _cell_int(selected_cell["row_index"])
+        selected_column = _cell_int(selected_cell["column_index"])
+        preceding = frame[
+            (frame["row_index"] < row_index)
+            & (frame["row_index"] >= max(0, row_index - 2))
+        ].sort_values(["row_index", "column_index"])
+        for _, cell in preceding.iterrows():
+            text = _cell_text(cell.get("cell_value"))
+            if not text or _is_placeholder_cell(text):
+                continue
+            start_column = _cell_int(cell["column_index"])
+            end_column = _cell_int(cell.get("column_end_index"), start_column)
+            if (
+                start_column <= selected_column <= end_column
+                or abs(start_column - selected_column) <= 2
+                or _contains_letter(text)
+            ):
+                contexts.append(text)
+
+    return list(dict.fromkeys(contexts))[:8]
+
+
+def _header_context_for_highlighted_cells(
+    frame: pd.DataFrame,
+    highlighted: pd.DataFrame,
+) -> tuple[list[str], float]:
+    if "is_header" not in frame.columns:
+        return [], 0.0
+
+    headers = frame[frame["is_header"].fillna(False).astype(bool)]
+    if headers.empty:
+        return [], 0.0
+
+    all_headers = _dedupe_meaningful(headers["cell_value"].tolist())
+    if not all_headers:
+        return [], 0.0
+
+    scored_headers: list[tuple[float, str]] = []
+    for _, selected_cell in highlighted.iterrows():
+        value = _cell_text(selected_cell["cell_value"])
+        selected_column = _cell_int(selected_cell["column_index"])
+        selected_row = _row_for_index(frame, selected_cell["row_index"])
+        max_row_column = _cell_int(selected_row["column_index"].max())
+        cell_fraction = (
+            (selected_column + 0.5) / (max_row_column + 1)
+            if max_row_column >= 0
+            else 0.0
+        )
+
+        for header_row_index, header_row in headers.groupby("row_index"):
+            ordered = header_row.sort_values("column_index")
+            row_headers = [
+                (
+                    _cell_int(row["column_index"]),
+                    _cell_int(row.get("column_end_index"), _cell_int(row["column_index"])),
+                    _cell_text(row["cell_value"]),
+                )
+                for _, row in ordered.iterrows()
+                if _cell_text(row["cell_value"])
+                and not _is_placeholder_cell(row["cell_value"])
+            ]
+            row_headers = [
+                item for item in row_headers if item[2] in all_headers
+            ]
+            if not row_headers:
+                continue
+
+            proportional_index = min(
+                len(row_headers) - 1,
+                max(
+                    0,
+                    int(cell_fraction * len(row_headers)),
+                ),
+            )
+            for header_position, (
+                header_column,
+                header_end_column,
+                header_text,
+            ) in enumerate(
+                row_headers
+            ):
+                score = _value_header_semantic_score(value, header_text)
+                if header_column <= selected_column <= header_end_column:
+                    score += 8.0
+                if header_position == proportional_index:
+                    score += 2.0
+                position_distance = abs(
+                    (header_position + 0.5) / len(row_headers)
+                    - cell_fraction
+                )
+                score += max(0.0, 2.0 - 8.0 * position_distance)
+                score -= 0.01 * float(header_row_index)
+                scored_headers.append((score, header_text))
+
+    if not scored_headers:
+        return all_headers[:8], 0.0
+
+    best_score = max(score for score, _ in scored_headers)
+    best_headers = [
+        header
+        for score, header in sorted(
+            scored_headers,
+            key=lambda item: item[0],
+            reverse=True,
+        )
+        if score >= best_score - 0.5
+    ]
+    return list(dict.fromkeys(best_headers))[:3], best_score
+
+
+def _focused_description_proposition(
+    *,
+    highlighted_values: list[str],
+    header_context: list[str],
+    row_context: list[str],
+    row_subjects: list[str],
+    page_title: str,
+    section_title: str,
+) -> str:
+    value_text = ", ".join(highlighted_values)
+    sentence = f"The selected table value is {value_text}"
+
+    if header_context:
+        sentence += f" under the {header_context[0]} header"
+
+    if row_context:
+        context_values = list(
+            dict.fromkeys([*row_subjects, *row_context])
+        )[:3]
+        sentence += (
+            " in the row containing "
+            + _natural_join(context_values)
+        )
+
+    table_context = " / ".join(
+        part
+        for part in [section_title, page_title]
+        if part
+    )
+    if table_context:
+        separator = ", within" if row_context else " within"
+        sentence += f"{separator} {table_context}"
+
+    if sentence[-1] not in ".!?":
+        sentence += "."
+    return sentence
+
+
+def _focused_table_context(
+    frame: pd.DataFrame,
+) -> dict[str, Any] | None:
+    required_columns = {
+        "cell_value",
+        "is_highlighted",
+        "row_index",
+        "column_index",
+    }
+    if not required_columns.issubset(frame.columns):
+        return None
+
+    highlighted = frame[frame["is_highlighted"].fillna(False).astype(bool)]
+    if highlighted.empty:
+        return None
+
+    highlighted_values = _dedupe_nonempty(highlighted["cell_value"].tolist())
+    if not highlighted_values:
+        return None
+
+    page_title = (
+        _cell_text(frame["page_title"].dropna().iloc[0])
+        if "page_title" in frame.columns and not frame["page_title"].dropna().empty
+        else ""
+    )
+    section_title = (
+        _cell_text(frame["section_title"].dropna().iloc[0])
+        if "section_title" in frame.columns and not frame["section_title"].dropna().empty
+        else ""
+    )
+    source_text = (
+        _cell_text(frame["source_text"].dropna().iloc[0])
+        if "source_text" in frame.columns and not frame["source_text"].dropna().empty
+        else ""
+    )
+
+    highlighted_rows = set(highlighted["row_index"].tolist())
+    same_row = frame[
+        frame["row_index"].isin(highlighted_rows)
+        & ~frame["is_highlighted"].fillna(False).astype(bool)
+    ]
+    raw_row_context = _dedupe_nonempty(same_row["cell_value"].tolist())[:12]
+    row_context, row_subjects = _meaningful_same_row_context(
+        frame,
+        highlighted,
+    )
+    nearby_context = _nearby_context_before_highlight(
+        frame,
+        highlighted,
+    )
+    header_context, header_confidence = _header_context_for_highlighted_cells(
+        frame,
+        highlighted,
+    )
+    logical_context = _logical_row_context_for_highlighted_cells(
+        frame,
+        highlighted,
+        page_title=page_title,
+    )
+    highlighted_measure_comparisons = (
+        _same_measure_comparisons_for_highlighted_cells(
+            frame,
+            highlighted,
+        )
+    )
+    highlighted_set_contrasts = _highlighted_set_contrasts(
+        frame,
+        highlighted,
+    )
+    highlighted_record_groups, highlighted_record_group_summary = (
+        _highlighted_record_groups(
+            frame,
+            highlighted,
+            page_title=page_title,
+        )
+    )
+    focused_record_relation = _focused_record_style_relation(
+        highlighted_role_value_pairs=logical_context[
+            "highlighted_role_value_pairs"
+        ],
+        page_title=page_title,
+        section_title=section_title,
+    )
+    focused_list_relation = _focused_list_page_relation(
+        highlighted_role_value_pairs=logical_context[
+            "highlighted_role_value_pairs"
+        ],
+        page_title=page_title,
+        section_title=section_title,
+    )
+    focused_context = {
+        "highlighted_values": highlighted_values,
+        "raw_row_context": raw_row_context,
+        "row_context": row_context,
+        **logical_context,
+    }
+    focused_numeric_tokens = _focused_support_numbers_from_context(
+        focused_context
+    )
+    description_proposition = _focused_description_proposition(
+        highlighted_values=highlighted_values,
+        header_context=header_context,
+        row_context=row_context,
+        row_subjects=row_subjects,
+        page_title=page_title,
+        section_title=section_title,
+    )
+    if focused_record_relation:
+        description_proposition = focused_record_relation[
+            "relation_summary"
+        ]
+    elif focused_list_relation:
+        description_proposition = focused_list_relation[
+            "relation_summary"
+        ]
+
+    context_parts = [
+        *([f"page title `{page_title}`"] if page_title else []),
+        *([f"section `{section_title}`"] if section_title else []),
+        *([f"column/header context `{', '.join(header_context)}`"] if header_context else []),
+        *([f"nearby row context `{', '.join(nearby_context)}`"] if nearby_context else []),
+        *([f"row context `{', '.join(row_context)}`"] if row_context else []),
+    ]
+    logical_row_description = _format_role_value_pairs(
+        logical_context["logical_row_context"]
+    )
+    highlighted_role_description = _format_role_value_pairs(
+        logical_context["highlighted_role_value_pairs"]
+    )
+    placeholder_description = _format_role_value_pairs(
+        logical_context["logical_row_placeholders"],
+        include_placeholders=True,
+    )
+    page_subject_description = [
+        (
+            f"{candidate['value']} may supply "
+            f"{' > '.join(candidate['related_headers'])}"
+        )
+        for candidate in logical_context["page_title_subject_candidates"]
+    ]
+    concise_output_focus = {
+        "prefer_highlighted_values": True,
+        "primary_subject_candidates": [
+            candidate["value"]
+            for candidate in logical_context[
+                "page_title_subject_candidates"
+            ]
+        ],
+        "highlighted_role_value_pairs": logical_context[
+            "highlighted_role_value_pairs"
+        ],
+        "highlighted_measure_comparisons": (
+            highlighted_measure_comparisons
+        ),
+        "highlighted_set_contrasts": highlighted_set_contrasts,
+        "highlighted_record_groups": highlighted_record_groups,
+        "highlighted_record_group_summary": (
+            highlighted_record_group_summary
+        ),
+        "focused_record_relation": focused_record_relation,
+        "focused_list_relation": focused_list_relation,
+        "treat_non_highlighted_row_values_as_context": True,
+        "omit_non_highlighted_measures_unless_needed": True,
+    }
+    if highlighted_role_description:
+        context_parts.append(
+            "highlighted role/value context `"
+            + "; ".join(highlighted_role_description)
+            + "`"
+        )
+    if logical_row_description:
+        context_parts.append(
+            "logical row context `"
+            + "; ".join(logical_row_description)
+            + "`"
+        )
+    if placeholder_description:
+        context_parts.append(
+            "logical row placeholders `"
+            + "; ".join(placeholder_description)
+            + "`"
+        )
+    if page_subject_description:
+        context_parts.append(
+            "page-title subject candidates `"
+            + "; ".join(page_subject_description)
+            + "`"
+        )
+    if concise_output_focus["primary_subject_candidates"]:
+        context_parts.append(
+            "short-form focus `prefer highlighted values with primary "
+            "subject candidate(s) "
+            + ", ".join(concise_output_focus["primary_subject_candidates"])
+            + "; treat other row values as optional context`"
+        )
+    comparison_description = []
+    for comparison in highlighted_measure_comparisons:
+        headers = " > ".join(comparison.get("headers", []))
+        comparison_description.append(
+            (
+                f"{headers or 'highlighted measure'} "
+                f"{comparison['highlighted_value']} ranks "
+                f"{comparison['rank_descending']} of "
+                f"{comparison['comparable_value_count']} comparable "
+                "non-aggregate values"
+            )
+            + (
+                " and is above half"
+                if comparison.get("is_majority_percentage")
+                else ""
+            )
+        )
+    if comparison_description:
+        context_parts.append(
+            "highlighted measure comparison `"
+            + "; ".join(comparison_description)
+            + "`"
+        )
+    contrast_description = [
+        str(contrast.get("contrast_summary") or "").strip()
+        for contrast in highlighted_set_contrasts
+        if isinstance(contrast, dict)
+        and str(contrast.get("contrast_summary") or "").strip()
+    ]
+    if contrast_description:
+        context_parts.append(
+            "highlighted-set contrast `"
+            + "; ".join(contrast_description)
+            + "`"
+        )
+    if highlighted_record_group_summary:
+        context_parts.append(
+            "highlighted record-group summary `"
+            + highlighted_record_group_summary
+            + "`"
+        )
+    if focused_record_relation:
+        context_parts.append(
+            "focused record-style relation `"
+            + focused_record_relation["relation_summary"]
+            + "`"
+        )
+    if focused_list_relation:
+        context_parts.append(
+            "focused list-page relation `"
+            + focused_list_relation["relation_summary"]
+            + "`"
+        )
+
+    return {
+        "highlighted_values": highlighted_values,
+        "highlighted_cell_count": int(len(highlighted)),
+        "highlighted_coordinates": [
+            {
+                "row_index": int(row["row_index"]),
+                "column_index": int(row["column_index"]),
+                "column_end_index": _cell_int(row.get("column_end_index"), _cell_int(row["column_index"])),
+            }
+            for _, row in highlighted.iterrows()
+        ],
+        "page_title": page_title or None,
+        "section_title": section_title or None,
+        "header_context": header_context,
+        "header_confidence": header_confidence,
+        "raw_row_context": raw_row_context,
+        "row_context": row_context,
+        "row_subjects": row_subjects,
+        "nearby_context": nearby_context,
+        **logical_context,
+        "focused_numeric_tokens": focused_numeric_tokens,
+        "highlighted_measure_comparisons": (
+            highlighted_measure_comparisons
+        ),
+        "highlighted_set_contrasts": highlighted_set_contrasts,
+        "highlighted_record_groups": highlighted_record_groups,
+        "highlighted_record_group_summary": (
+            highlighted_record_group_summary
+        ),
+        "focused_record_relation": focused_record_relation,
+        "focused_list_relation": focused_list_relation,
+        "concise_output_focus": concise_output_focus,
+        "context_description": "; ".join(context_parts),
+        "description_proposition": description_proposition,
+        "source_text_excerpt": source_text[:2_000] or None,
+    }
+
+
+def focused_table_analysis(
+    bundle: DataBundle,
+    plan: ExecutionPlan,
+    builder: EvidenceBuilder,
+) -> None:
+    if EvidenceCapability.FOCUSED_TABLE_REGION not in set(plan.selected_capabilities):
+        return
+
+    task_ids = [
+        task.task_id
+        for task in plan.tasks
+        if task.capability == EvidenceCapability.FOCUSED_TABLE_REGION
+    ]
+
+    for table_name, frame in bundle.tables.items():
+        context = _focused_table_context(frame)
+        if context is None:
+            continue
+
+        values_text = ", ".join(f"`{value}`" for value in context["highlighted_values"])
+        context_description = context["context_description"]
+        finding = f"The selected table cell value is {values_text}."
+        highlighted_roles = _format_role_value_pairs(
+            context.get("highlighted_role_value_pairs", [])
+        )
+        logical_rows = _format_role_value_pairs(
+            context.get("logical_row_context", [])
+        )
+        logical_placeholders = _format_role_value_pairs(
+            context.get("logical_row_placeholders", []),
+            include_placeholders=True,
+        )
+        page_subject_candidates = [
+            (
+                f"{candidate['value']} may supply "
+                f"{' > '.join(candidate['related_headers'])}"
+            )
+            for candidate in context.get(
+                "page_title_subject_candidates",
+                [],
+            )
+        ]
+        measure_comparisons = []
+        for comparison in context.get(
+            "highlighted_measure_comparisons",
+            [],
+        ):
+            headers = " > ".join(comparison.get("headers", []))
+            measure_comparisons.append(
+                (
+                    f"{headers or 'highlighted measure'} "
+                    f"{comparison['highlighted_value']} ranks "
+                    f"{comparison['rank_descending']} of "
+                    f"{comparison['comparable_value_count']} comparable "
+                    "non-aggregate values"
+                )
+                + (
+                    " and is above half"
+                    if comparison.get("is_majority_percentage")
+                    else ""
+                )
+            )
+        highlighted_set_contrasts = [
+            str(contrast.get("contrast_summary") or "").strip()
+            for contrast in context.get(
+                "highlighted_set_contrasts",
+                [],
+            )
+            if isinstance(contrast, dict)
+            and str(contrast.get("contrast_summary") or "").strip()
+        ]
+        focused_record_relation = context.get("focused_record_relation")
+        focused_record_summary = (
+            str(focused_record_relation.get("relation_summary") or "").strip()
+            if isinstance(focused_record_relation, dict)
+            else ""
+        )
+        focused_list_relation = context.get("focused_list_relation")
+        focused_list_summary = (
+            str(focused_list_relation.get("relation_summary") or "").strip()
+            if isinstance(focused_list_relation, dict)
+            else ""
+        )
+        highlighted_record_group_summary = str(
+            context.get("highlighted_record_group_summary") or ""
+        ).strip()
+        if highlighted_roles:
+            finding += (
+                " Highlighted role/value context: "
+                + "; ".join(highlighted_roles)
+                + "."
+            )
+        if logical_rows:
+            finding += (
+                " Same logical-row role/value context: "
+                + "; ".join(logical_rows)
+                + "."
+            )
+        if logical_placeholders:
+            finding += (
+                " Placeholder roles in the same logical row: "
+                + "; ".join(logical_placeholders)
+                + "."
+            )
+        if page_subject_candidates:
+            finding += (
+                " Page-title subject candidates for placeholder roles: "
+                + "; ".join(page_subject_candidates)
+                + "."
+            )
+        if measure_comparisons:
+            finding += (
+                " Highlighted measure comparison: "
+                + "; ".join(measure_comparisons)
+                + "."
+            )
+        if highlighted_set_contrasts:
+            finding += (
+                " Highlighted-set contrast scoped only to selected cells: "
+                + "; ".join(highlighted_set_contrasts)
+            )
+        if highlighted_record_group_summary:
+            finding += (
+                " Highlighted record-group summary: "
+                + highlighted_record_group_summary
+            )
+        if focused_record_summary:
+            finding += (
+                " Focused record-style relation: "
+                + focused_record_summary
+            )
+        if focused_list_summary:
+            finding += (
+                " Focused list-page relation: "
+                + focused_list_summary
+            )
+        focus = context.get("concise_output_focus", {})
+        if isinstance(focus, dict) and focus.get(
+            "primary_subject_candidates"
+        ):
+            finding += (
+                " Short-form output focus: centre the highlighted role/value "
+                "pair on the most specific supported primary subject "
+                "candidate; treat other same-row values as optional context "
+                "unless needed for disambiguation."
+            )
+        proposition = context.get("description_proposition")
+        if isinstance(proposition, str) and proposition.strip():
+            finding += f" A safe focused description is: {proposition.strip()}"
+        if context_description:
+            finding += f" Its table context is {context_description}."
+
+        builder.add(
+            route=AnalysisRoute.DESCRIPTIVE,
+            task_ids=task_ids,
+            capability=EvidenceCapability.FOCUSED_TABLE_REGION,
+            evidence_type="focused_table_region",
+            finding=finding,
+            metrics=context,
+            source_tables=[table_name],
+            source_columns=[
+                column
+                for column in [
+                    "cell_value",
+                    "is_highlighted",
+                    "row_index",
+                    "raw_column_index",
+                    "column_index",
+                    "column_end_index",
+                    "page_title",
+                    "section_title",
+                    "is_header",
+                    "source_text",
+                ]
+                if column in frame.columns
+            ],
+            method=(
+                "Direct inspection of the focused table region marked in the "
+                "benchmark input."
+            ),
+            practical_interpretation=(
+                "This identifies the selected cell and nearby table context. "
+                "When span-aware logical row context is available, prefer "
+                "the role/value mapping over raw adjacent-cell context. When "
+                "multiple highlighted numeric cells share the same measure, "
+                "a lower/higher contrast is supported only within the "
+                "highlighted set unless table-wide rank evidence is cited. "
+                "When a highlighted group or section label is paired with a "
+                "highlighted record-like value, prefer the supplied "
+                "record-style relation over a mechanical cell-coordinate "
+                "description. When a highlighted text cell appears under a "
+                "meaningful column in a list page, prefer the supplied "
+                "list-page relation over unrelated row details. "
+                "When "
+                "row semantics remain ambiguous, describe the selected value "
+                "as being in or under the supplied context rather than "
+                "assigning it to an entity as an action or result."
+            ),
+            strength_label="focused_table_region",
+            claim_permissions=[ClaimPermission.DESCRIPTIVE],
+            factual_confidence=1.0,
+            methodological_strength=1.0,
+            user_relevance=1.0,
+            salience=1.0,
+            recommended_use=RecommendedUse.HEADLINE,
+            limitations=[
+                "The output should describe only the focused table region and its supplied context."
+            ],
+            prohibited_interpretations=[
+                "Do not describe unrelated table cells as the main result.",
+                "Do not add dataset profiling, missingness, correlation, modelling or data-quality discussion unless explicitly requested.",
+            ],
+        )
+
+
+def _clean_record_text(value: Any) -> str:
+    text = str(value or "").strip()
+    return re.sub(r"\s+", " ", text)
+
+
+def _structured_record_rows(frame: pd.DataFrame) -> list[dict[str, str]]:
+    records: list[dict[str, str]] = []
+    columns = set(frame.columns)
+    has_triples = {"subject", "relation", "object"}.issubset(columns)
+
+    for _, row in frame.iterrows():
+        record_kind = _clean_record_text(row.get("record_kind"))
+        if has_triples and _clean_record_text(row.get("subject")):
+            subject = _clean_record_text(row.get("subject"))
+            relation = _clean_record_text(row.get("relation"))
+            obj = _clean_record_text(row.get("object"))
+            if subject and relation and obj:
+                records.append(
+                    {
+                        "record_kind": "triple",
+                        "subject": subject,
+                        "relation": relation,
+                        "object": obj,
+                    }
+                )
+            continue
+
+        attribute_name = _clean_record_text(row.get("attribute_name"))
+        attribute_value = _clean_record_text(row.get("attribute_value"))
+        if attribute_name and attribute_value:
+            records.append(
+                {
+                    "record_kind": record_kind or "attribute",
+                    "attribute_name": attribute_name,
+                    "attribute_value": attribute_value,
+                }
+            )
+
+    return records
+
+
+def _record_numeric_values(records: list[dict[str, str]]) -> list[float]:
+    values: list[float] = []
+    for record in records:
+        for item in record.values():
+            for match in re.findall(r"-?\d+(?:\.\d+)?", str(item)):
+                try:
+                    values.append(float(match))
+                except ValueError:
+                    continue
+    return values
+
+
+def structured_record_verbalisation_analysis(
+    bundle: DataBundle,
+    plan: ExecutionPlan,
+    builder: EvidenceBuilder,
+) -> None:
+    if (
+        EvidenceCapability.STRUCTURED_RECORD_VERBALISATION
+        not in set(plan.selected_capabilities)
+    ):
+        return
+
+    task_ids = [
+        task.task_id
+        for task in plan.tasks
+        if task.capability
+        == EvidenceCapability.STRUCTURED_RECORD_VERBALISATION
+    ]
+
+    for table_name, frame in bundle.tables.items():
+        records = _structured_record_rows(frame)
+        if not records:
+            continue
+
+        triple_count = sum(
+            record.get("record_kind") == "triple"
+            for record in records
+        )
+        attribute_count = len(records) - triple_count
+        evidence_type = (
+            "triple_record"
+            if triple_count and not attribute_count
+            else (
+                "attribute_record"
+                if attribute_count and not triple_count
+                else "structured_record"
+            )
+        )
+
+        if evidence_type == "triple_record":
+            record_text = "; ".join(
+                (
+                    f"{record['subject']} | {record['relation']} | "
+                    f"{record['object']}"
+                )
+                for record in records
+            )
+            finding = "The supplied triples are: " + record_text + "."
+        else:
+            record_text = "; ".join(
+                (
+                    f"{record['attribute_name']} = "
+                    f"{record['attribute_value']}"
+                )
+                for record in records
+                if record.get("record_kind") != "triple"
+            )
+            finding = "The supplied attributes are: " + record_text + "."
+
+        source_text = next(
+            (
+                _clean_record_text(value)
+                for value in frame.get("source_text", [])
+                if _clean_record_text(value)
+            ),
+            "",
+        )
+        request = next(
+            (
+                _clean_record_text(value)
+                for value in frame.get("request", [])
+                if _clean_record_text(value)
+            ),
+            "",
+        )
+
+        builder.add(
+            route=AnalysisRoute.DESCRIPTIVE,
+            task_ids=task_ids,
+            capability=EvidenceCapability.STRUCTURED_RECORD_VERBALISATION,
+            evidence_type=evidence_type,
+            finding=finding,
+            metrics={
+                "records": records,
+                "record_count": len(records),
+                "attribute_count": attribute_count,
+                "triple_count": triple_count,
+                "numeric_values": _record_numeric_values(records),
+                "source_text": source_text or None,
+                "request": request or None,
+            },
+            source_tables=[table_name],
+            source_columns=[
+                column
+                for column in [
+                    "attribute_name",
+                    "attribute_value",
+                    "subject",
+                    "relation",
+                    "object",
+                    "source_text",
+                ]
+                if column in frame.columns
+            ],
+            method=(
+                "Direct extraction of supplied attribute or triple records "
+                "from the benchmark input representation."
+            ),
+            practical_interpretation=(
+                "This records the complete supplied structured meaning "
+                "representation for concise natural-language verbalisation."
+            ),
+            strength_label=evidence_type,
+            claim_permissions=[ClaimPermission.DESCRIPTIVE],
+            factual_confidence=1.0,
+            methodological_strength=1.0,
+            user_relevance=0.95,
+            salience=0.95,
+            recommended_use=RecommendedUse.HEADLINE,
+            prohibited_interpretations=[
+                "Do not add attributes, triples, entities or relations that "
+                "are absent from the supplied structured record.",
+                "Do not discuss dataset profiling, missingness, correlation, "
+                "modelling or data quality for this short verbalisation task.",
+            ],
+        )
+
+
 def event_analysis(
     bundle: DataBundle,
     plan: ExecutionPlan,
@@ -218,6 +2519,21 @@ def event_analysis(
             if semantic_query_mode and semantic_map is not None
             else event_capability_evidence(payload)
         )
+        if semantic_query_mode:
+            semantic_supplemental_records = [
+                record
+                for record in event_capability_evidence(payload)
+                if record.evidence_type
+                in {
+                    "event_sequence",
+                    "participant_record_context",
+                    "score_progression",
+                }
+            ]
+            records = [
+                *records,
+                *semantic_supplemental_records,
+            ]
         if not records:
             continue
 
@@ -2458,9 +4774,23 @@ def execute_plan(
         ReportGenre.EVENT_REPORT,
         ReportGenre.SPORTS_GAME_REPORT,
     }
+    focused_table_task = (
+        EvidenceCapability.FOCUSED_TABLE_REGION
+        in set(plan.selected_capabilities)
+    )
+    structured_record_task = (
+        EvidenceCapability.STRUCTURED_RECORD_VERBALISATION
+        in set(plan.selected_capabilities)
+    )
 
     if event_input:
         event_analysis(bundle, plan, builder, semantic_map)
+
+    if focused_table_task:
+        focused_table_analysis(bundle, plan, builder)
+
+    if structured_record_task:
+        structured_record_verbalisation_analysis(bundle, plan, builder)
 
     for route in plan.route_order:
         tasks = tasks_for_route(plan, route)
@@ -2471,13 +4801,19 @@ def execute_plan(
                 for task in tasks
                 if task.capability
                 not in {
+                    EvidenceCapability.FOCUSED_TABLE_REGION,
+                    EvidenceCapability.STRUCTURED_RECORD_VERBALISATION,
                     EvidenceCapability.EVENT_OUTCOME,
                     EvidenceCapability.ENTITY_PERFORMANCE,
                     EvidenceCapability.RANKING,
                     EvidenceCapability.GROUP_COMPARISON,
                 }
             ]
-            if not (event_input and event_genre):
+            if tabular_tasks and not (
+                (event_input and event_genre)
+                or focused_table_task
+                or structured_record_task
+            ):
                 descriptive_analysis(bundle, tabular_tasks, builder)
 
         elif route == AnalysisRoute.ASSOCIATION_COMPARISON:
@@ -2487,7 +4823,11 @@ def execute_plan(
                 if task.capability != EvidenceCapability.GROUP_COMPARISON
                 or not event_input
             ]
-            if tabular_tasks and not (event_input and event_genre):
+            if tabular_tasks and not (
+                (event_input and event_genre)
+                or focused_table_task
+                or structured_record_task
+            ):
                 association_analysis(
                     bundle,
                     tabular_tasks,

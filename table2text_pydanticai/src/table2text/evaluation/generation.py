@@ -15,6 +15,7 @@ from .models import (
     BenchmarkExample,
     GenerationBackend,
     GenerationRecord,
+    OutputMode,
     TaskFamily,
     VariantConfig,
 )
@@ -44,7 +45,11 @@ def plain_generation_id(
 def materialise_input(example: BenchmarkExample, directory: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{example.dataset_id}__{example.example_id}.json"
-    if example.task_family == TaskFamily.HIGHLIGHTED_TABLE_DESCRIPTION:
+    if example.task_family in {
+        TaskFamily.HIGHLIGHTED_TABLE_DESCRIPTION,
+        TaskFamily.ATTRIBUTE_VERBALISATION,
+        TaskFamily.TRIPLE_VERBALISATION,
+    }:
         payload = {
             "__table2text_benchmark_example__": True,
             "dataset_id": example.dataset_id,
@@ -74,6 +79,52 @@ def report_genre_for_task(task_family: TaskFamily) -> Any:
     if task_family in {TaskFamily.LONG_FORM_TABLE_REPORT, TaskFamily.ANALYTICAL_EXPLANATION}:
         return ReportGenre.DATA_SCIENCE_REPORT
     return ReportGenre.DATASET_OVERVIEW
+
+
+def communication_task_for_task(task_family: TaskFamily) -> Any:
+    from table2text.schemas import CommunicationTask
+
+    mapping = {
+        TaskFamily.EVENT_REPORT: CommunicationTask.EVENT_REPORT,
+        TaskFamily.CROSS_LINGUAL_EVENT_REPORT: CommunicationTask.EVENT_REPORT,
+        TaskFamily.LONG_FORM_TABLE_REPORT: CommunicationTask.DATA_SCIENCE_REPORT,
+        TaskFamily.ANALYTICAL_EXPLANATION: CommunicationTask.DATA_SCIENCE_REPORT,
+        TaskFamily.HIGHLIGHTED_TABLE_DESCRIPTION: (
+            CommunicationTask.FOCUSED_TABLE_DESCRIPTION
+        ),
+        TaskFamily.LOGICAL_TABLE_STATEMENT: CommunicationTask.TABLE_ENTAILMENT,
+        TaskFamily.TABLE_QUESTION_ANSWERING: (
+            CommunicationTask.TABLE_QUESTION_ANSWERING
+        ),
+        TaskFamily.ATTRIBUTE_VERBALISATION: (
+            CommunicationTask.ATTRIBUTE_VERBALISATION
+        ),
+        TaskFamily.TRIPLE_VERBALISATION: (
+            CommunicationTask.TRIPLE_VERBALISATION
+        ),
+    }
+    return mapping.get(task_family, CommunicationTask.CUSTOM)
+
+
+def output_form_for_mode(output_mode: Any) -> Any:
+    from table2text.schemas import OutputForm
+
+    mapping = {
+        OutputMode.ONE_SENTENCE: OutputForm.ONE_SENTENCE,
+        OutputMode.DIRECT_ANSWER: OutputForm.DIRECT_ANSWER,
+        OutputMode.SHORT_TEXT: OutputForm.SHORT_TEXT,
+        OutputMode.PARAGRAPH: OutputForm.PARAGRAPH,
+        OutputMode.MULTI_PARAGRAPH_REPORT: (
+            OutputForm.MULTI_PARAGRAPH_REPORT
+        ),
+    }
+    return mapping.get(output_mode, OutputForm.MULTI_PARAGRAPH_REPORT)
+
+
+def focus_scope_for_task(task_family: TaskFamily) -> str | None:
+    if task_family == TaskFamily.HIGHLIGHTED_TABLE_DESCRIPTION:
+        return "highlighted_cells"
+    return None
 
 
 def valid_setting_names() -> set[str]:
@@ -153,6 +204,11 @@ def table2text_generate(
                 metadata_paths=[],
             ),
             report_genre=report_genre_for_task(example.task_family),
+            communication_task=communication_task_for_task(
+                example.task_family
+            ),
+            output_form=output_form_for_mode(example.output_mode),
+            focus_scope=focus_scope_for_task(example.task_family),
         )
         output = result.final_writer_output
         pipeline_result_path = settings.output_dir / result.run_id / "pipeline_result.json"
@@ -270,6 +326,11 @@ async def table2text_generate_async(
                 metadata_paths=[],
             ),
             report_genre=report_genre_for_task(example.task_family),
+            communication_task=communication_task_for_task(
+                example.task_family
+            ),
+            output_form=output_form_for_mode(example.output_mode),
+            focus_scope=focus_scope_for_task(example.task_family),
         )
         output = result.final_writer_output
         pipeline_result_path = settings.output_dir / result.run_id / "pipeline_result.json"

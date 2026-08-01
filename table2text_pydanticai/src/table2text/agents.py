@@ -19,6 +19,7 @@ from .audit import (
     PREDICTIVE_PATTERN,
     build_evidence_lookup,
     content_requirement_errors,
+    extract_number_tokens,
     fact_support_numbers,
     flatten_numbers,
     numbers_supported,
@@ -29,6 +30,7 @@ from .audit import (
 )
 from .config import Settings
 from .capabilities import (
+    normalise_semantic_map,
     normalise_event_evidence_queries,
     validate_event_query_priorities,
     validate_evidence_queries,
@@ -46,6 +48,7 @@ from .schemas import (
     DataUnderstanding,
     EvidenceCapability,
     ExecutionPlan,
+    FactCandidate,
     FactCandidateSet,
     FactLedger,
     InsightCandidate,
@@ -294,13 +297,18 @@ def build_data_understanding_agent(settings: Settings) -> Agent:
             )
         ]
         semantic_errors = validate_semantic_map(
-            output.semantic_map,
+            normalise_semantic_map(output.semantic_map),
             catalog,
         )
         if semantic_errors:
             raise ModelRetry(
                 "Semantic-map validation failed:\n- " + "\n- ".join(semantic_errors[:12])
             )
+        output = output.model_copy(
+            update={
+                "semantic_map": normalise_semantic_map(output.semantic_map)
+            }
+        )
         if context.deps.payload.get("semantic_map_required") and (
             output.semantic_map is None or not output.semantic_map.bindings
         ):
@@ -370,10 +378,12 @@ Rules:
   should remember.
 - A sports report may ask which verified facts describe the result, salient
   performances, team contrasts, and supported conventional milestones.
-- An event report must request event_result, leading_performance,
-  main_contrast and scope_limitations content slots only when their required
-  evidence or safety constraints are available. It must not treat reference
-  text as operational evidence.
+- An event report must request event_result, event_context,
+  participant_record_context, score_progression, event_sequence,
+  leading_performance, main_contrast and scope_limitations content slots only
+  when their required evidence or safety constraints are available. It must not
+  treat reference text as operational evidence, and sequence evidence must not
+  be inflated into unsupported causality, momentum or turning-point claims.
 - When a semantic map is supplied, create generic evidence queries using only
   semantic binding IDs. Use `retrieve` for context, `compare` for participant
   measures, and `rank` for entity measures. Do not hard-code field aliases or
@@ -659,6 +669,7 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
                         tasks=output.tasks,
                         available_capabilities=available_capabilities,
                         request=user_request or "",
+                        structural_catalog=structural_catalog,
                     )
                 }
             )
@@ -740,22 +751,6 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
                     + ", ".join(duplicate_query_ids)
                 )
 
-            query_capabilities = {query.capability for query in output.evidence_queries}
-            required_query_capabilities = available_capabilities & {
-                EvidenceCapability.EVENT_OUTCOME,
-                EvidenceCapability.RANKING,
-                EvidenceCapability.GROUP_COMPARISON,
-            }
-            missing_query_capabilities = required_query_capabilities - query_capabilities
-            if missing_query_capabilities:
-                raise ModelRetry(
-                    "The event plan is missing supported semantic query "
-                    "capabilities: "
-                    + ", ".join(
-                        sorted(capability.value for capability in missing_query_capabilities)
-                    )
-                )
-
             binding_roles = {binding.role for binding in semantic_map.bindings}
             query_evidence_types = {query.evidence_type for query in output.evidence_queries}
             required_evidence_types: set[str] = set()
@@ -817,6 +812,14 @@ Rules:
   records. A rank result must preserve the supplied order, values and tie
   annotations. Compose identities only from the supplied entity, group and
   context values.
+- For focused-table evidence, preserve direct highlighted role/value pairs,
+  supplied highlighted record groups, supplied highlighted-set contrasts, and
+  supplied focused record-style relations or list-page relations as
+  writer-eligible fact candidates. If the evidence supplies a highlighted
+  record-group summary, preserve it as a first-class candidate instead of
+  dropping later highlighted rows for brevity. Keep lower/higher contrast
+  wording scoped to the highlighted cells unless a cited table-wide rank fact
+  explicitly supports a broader claim.
 """
 
 
@@ -855,25 +858,41 @@ def build_evidence_agent(settings: Settings) -> Agent:
             output,
             ledger,
         )
-        required_query_evidence_ids = {
-            item.evidence_id
-            for item in ledger.items
-            if item.query_id is not None
-            and item.eligible_for_writer
-        }
-        covered_evidence_ids = {
-            evidence_id
-            for candidate in output.candidates
-            for evidence_id in candidate.evidence_ids
-        }
-        missing_query_evidence_ids = (
-            required_query_evidence_ids - covered_evidence_ids
-        )
-        if missing_query_evidence_ids:
-            errors.append(
-                "Create at least one atomic fact candidate for every "
-                "writer-eligible semantic query result. Missing evidence "
-                f"IDs: {sorted(missing_query_evidence_ids)}"
+        valid_candidates: list[FactCandidate] = []
+        dropped_notes: list[str] = []
+        seen_candidate_ids: set[str] = set()
+        for candidate in output.candidates:
+            if candidate.candidate_id in seen_candidate_ids:
+                dropped_notes.append(
+                    f"Dropped duplicate fact candidate {candidate.candidate_id}."
+                )
+                continue
+            seen_candidate_ids.add(candidate.candidate_id)
+            candidate_errors = validate_fact_candidates(
+                FactCandidateSet(candidates=[candidate]),
+                ledger,
+            )
+            if candidate_errors:
+                dropped_notes.append(
+                    f"Dropped invalid fact candidate {candidate.candidate_id}: "
+                    + "; ".join(candidate_errors)
+                )
+                continue
+            valid_candidates.append(candidate)
+
+        if dropped_notes and valid_candidates:
+            output = output.model_copy(
+                update={
+                    "candidates": valid_candidates,
+                    "synthesis_notes": [
+                        *output.synthesis_notes,
+                        *dropped_notes,
+                    ],
+                }
+            )
+            errors = validate_fact_candidates(
+                output,
+                ledger,
             )
 
         if errors:
@@ -1006,6 +1025,12 @@ Rules:
    implication, a direct narrative summary supported by one compound fact, or
    event-report evidence that is already a structured outcome, context,
    status, ranking, performance, or participant contrast.
+   Focused-table descriptions are also a single-fact exception when the
+   highlighted cell evidence plus supplied table context expresses the
+   requested relation.
+   Structured-record verbalisation tasks are also a single-fact exception
+   when the supplied attributes or triples contain the complete meaning
+   representation to express.
 9. Do not merely paraphrase one fact, or several facts that repeat the same
    result, and label the restatement an insight.
 10. Do not turn correlation into causation.
@@ -1020,31 +1045,77 @@ Rules:
     dataset.
 16. Set `contribution` to `analytical_implication` for analytical reports,
    `event_synthesis` for event reports, and `descriptive_synthesis` for a
-   concise dataset overview.
+   concise dataset overview, focused table description, direct answer, or
+   other short grounded verbalisation task.
 17. For `analytical_implication`, `why_it_matters` must add a concrete,
    evidence-bounded consequence for interpretation or analysis; it must not
    restate coefficients, effect labels, or the candidate statement.
 18. For `event_synthesis`, `why_it_matters` may be omitted. Relating supported
    rankings, performances, outcomes or participant contrasts is sufficient
    when it contributes to the event report and remains event-scoped.
-19. A possible reason why a pattern exists is a hypothesis, including claims
+19. For focused-table evidence, a useful descriptive synthesis may infer the
+   table relation expressed by the highlighted cell using only page/section
+   titles, headers, row context, highlighted-cell markers and supplied source
+   text. It may rewrite cell-context evidence into a natural proposition, but
+   it must not use held-out references or outside knowledge. Set
+   `interpretation_level` to `bounded_insight`, `contribution` to
+   `descriptive_synthesis`, and `insight_type` to `narrative_summary` for this
+   kind of candidate; do not label it as a direct `finding`.
+20. For focused-table tasks, row co-entities, headings and source text help
+   identify the table relation. They are not automatically the grammatical
+   subject of the output. Prefer the concise proposition conveyed by the
+   highlighted cell when the local context supports it; use a conservative
+   selected-cell description only when the relation remains ambiguous.
+21. When focused-table evidence includes span-aware logical row context,
+   highlighted role/value pairs, placeholder roles, or page-title subject
+   candidates, treat those structured fields as higher priority than raw
+   adjacent-cell context. A page-title subject candidate may fill a missing
+   role only when the supplied logical-row evidence and table context support
+   that reading.
+22. For one-sentence focused-table tasks, centre the candidate on the
+   highlighted role/value pair and the most specific supported primary subject
+   candidate. Treat non-highlighted same-row values as context; include them
+   only when they are needed to identify the highlighted relation. Do not
+   combine a page-title subject candidate with row co-entities into a joint
+   subject unless the supplied evidence explicitly represents a combined
+   entity. Use supplied highlighted-measure comparisons when they support a
+   concise outcome-like relation, but do not calculate new comparisons.
+   When supplied highlighted-set contrasts relate multiple highlighted values
+   under the same header, prefer scoped wording such as "among the highlighted
+   rows/entities" and lower/higher language over table-wide highest/lowest
+   wording unless a table-wide rank fact is explicitly cited.
+   When supplied highlighted record groups preserve multiple highlighted rows,
+   keep all grouped records that contribute to the focused proposition; do not
+   drop later highlighted records simply to shorten the sentence.
+   When supplied focused record-style relations pair a highlighted group or
+   section label with a highlighted record-like value, prefer that natural
+   proposition over wording about cell coordinates, headers, or "Total" rows.
+   When supplied focused list-page relations connect a highlighted cell to a
+   list page title, section, and column header, prefer that proposition over
+   unrelated same-row details.
+23. For structured-record verbalisation tasks, infer only the natural
+   sentence-level relation licensed by the supplied attributes or triples.
+   Preserve every supplied entity, relation and value needed by the task, but
+   do not introduce dataset profiling, data-quality, correlation, modelling or
+   outside/domain facts.
+24. A possible reason why a pattern exists is a hypothesis, including claims
    that a pattern may reflect a dependency, data artifact, collection process,
    or unmeasured mechanism. Do not hide a hypothesis in `why_it_matters`, a
    limitation, or a recommendation.
-20. A hypothesis must be explicitly labelled as a hypothesis.
-21. A hypothesis must not be suitable for the main report unless hypotheses
+25. A hypothesis must be explicitly labelled as a hypothesis.
+26. A hypothesis must not be suitable for the main report unless hypotheses
    are explicitly allowed.
-22. Preserve deterministic qualitative strength labels. Do not relabel a
+27. Preserve deterministic qualitative strength labels. Do not relabel a
    strong association as moderate, or vice versa.
-23. For missingness, prefer the directly supported scope of the complete-case
+28. For missingness, prefer the directly supported scope of the complete-case
    subset over an assumed bias mechanism. For duplicates, describe a possible
    influence only as a bounded methodological risk, never as a measured effect.
-24. Do not claim that data are complete, contain no missing values, or contain
+29. Do not claim that data are complete, contain no missing values, or contain
    no duplicates unless the cited facts reference evidence that measured that
    exact data-quality property.
-25. Include limitations or alternative explanations where needed, but keep
+30. Include limitations or alternative explanations where needed, but keep
    unverified explanations in explicitly labelled hypothesis candidates.
-26. Generate every distinct, report-relevant insight supported by the supplied
+31. Generate every distinct, report-relevant insight supported by the supplied
    facts. Do not target a fixed number. Stop when additional candidates would
    only duplicate existing synthesis or add weak, irrelevant material.
 
@@ -1078,8 +1149,28 @@ analytical implication: rankings, performances, outcomes and participant
 contrasts can provide bounded narrative synthesis. In an event report, a
 single structured outcome, context, status, ranking, performance, or
 participant contrast can be report-worthy event synthesis when it fills the
-selected report contract. Outside that event-report case, a direct-finding
-restatement must be rejected. A candidate containing a possible explanation must be
+selected report contract. For focused-table evidence, a statement that relates
+the highlighted value to supplied page/section title, row context, headers and
+source text may be verified as descriptive synthesis even without a separate
+analytical implication. It is acceptable for this relation to be supported by
+one compound focused-table fact when that fact carries the highlighted value
+and its local table context. If the evidence contains span-aware logical
+role/value pairs or page-title subject candidates, evaluate the statement
+against those structured fields before raw adjacent-cell context. If the
+evidence contains a concise output focus, highlighted-measure comparison,
+highlighted-set contrast, focused record-style relation, or focused list-page
+relation, prefer the shortest supported statement centred on highlighted
+values and required subject context. A lower/higher contrast must remain
+scoped to the highlighted set unless a cited table-wide rank fact supports a
+broader highest/lowest claim. Do not require unhighlighted numeric row context
+in the final wording unless it is needed for disambiguation.
+For structured-record verbalisation evidence, a concise sentence expressing
+the supplied attributes or triples may be verified as descriptive synthesis
+when it preserves the supplied entities, relations and values and adds no
+outside information.
+Outside those event, focused-table and structured-record cases, a
+direct-finding restatement must be rejected. A candidate containing a possible
+explanation must be
 hypothesis_only or rejected.
 
 Check that every cited fact exists and genuinely contributes; every number,
@@ -1120,6 +1211,16 @@ MISSINGNESS_CLAIM_PATTERN = re.compile(
 DUPLICATE_CLAIM_PATTERN = re.compile(
     r"\b(no|without|zero)\s+(?:exact\s+)?duplicates?\b|"
     r"\bduplicates?|deduplicat(?:e|ed|ion)\b",
+    re.IGNORECASE,
+)
+
+EVENT_REPORT_META_OMISSION_PATTERN = re.compile(
+    r"\b(?:this\s+)?(?:report|summary)\b[^.]{0,120}"
+    r"\b(?:does\s+not|did\s+not|not|no)\b[^.]{0,80}"
+    r"\b(?:analy[sz]e[ds]?|include[ds]?|report(?:ed)?|cover(?:ed)?)\b|"
+    r"\b(?:detailed\s+)?(?:event\s+)?(?:chronology|play[- ]by[- ]play|sequence)\b"
+    r"[^.]{0,120}\b(?:not|no)\b[^.]{0,80}"
+    r"\b(?:analy[sz]ed|included|reported|covered)\b",
     re.IGNORECASE,
 )
 
@@ -1343,16 +1444,13 @@ def _supports_data_quality_dimension(
     return False
 
 
-def _event_candidate_has_reportworthy_evidence(
+def _candidate_has_reportworthy_evidence(
     *,
     candidate: InsightCandidate,
     fact_lookup: dict[str, VerifiedFact],
     evidence_lookup: dict[str, Any],
     report_genre: ReportGenre,
 ) -> bool:
-    if report_genre not in EVENT_INSIGHT_GENRES:
-        return False
-
     fact_evidence_ids = {
         evidence_id
         for fact_id in candidate.source_fact_ids
@@ -1360,35 +1458,66 @@ def _event_candidate_has_reportworthy_evidence(
         for evidence_id in fact_lookup[fact_id].evidence_ids
     }
     fact_evidence_ids.update(candidate.source_evidence_ids)
-    event_evidence_types = {
+    evidence_types = {
         evidence_lookup[evidence_id].evidence_type
         for evidence_id in fact_evidence_ids
         if evidence_id in evidence_lookup
     }
-    event_capabilities = {
+    capabilities = {
         evidence_lookup[evidence_id].capability
         for evidence_id in fact_evidence_ids
         if evidence_id in evidence_lookup
     }
 
+    if (
+        EvidenceCapability.FOCUSED_TABLE_REGION in capabilities
+        or "focused_table_region" in evidence_types
+        or "focused_cell_context" in evidence_types
+    ):
+        return True
+
+    if report_genre not in EVENT_INSIGHT_GENRES:
+        return False
+
     return bool(
-        event_evidence_types
+        evidence_types
         & {
             "event_context",
             "event_status",
+            "participant_record_context",
+            "score_progression",
             "event_outcome",
             "entity_ranking",
             "entity_performance",
+            "event_sequence",
             "participant_comparison",
             "event_contrast",
         }
-        or event_capabilities
+        or capabilities
         & {
             EvidenceCapability.EVENT_OUTCOME,
             EvidenceCapability.ENTITY_PERFORMANCE,
             EvidenceCapability.RANKING,
             EvidenceCapability.GROUP_COMPARISON,
         }
+    )
+
+
+def _event_candidate_has_reportworthy_evidence(
+    *,
+    candidate: InsightCandidate,
+    fact_lookup: dict[str, VerifiedFact],
+    evidence_lookup: dict[str, Any],
+    report_genre: ReportGenre,
+) -> bool:
+    return (
+        report_genre in EVENT_INSIGHT_GENRES
+        and _candidate_has_reportworthy_evidence(
+            candidate=candidate,
+            fact_lookup=fact_lookup,
+            evidence_lookup=evidence_lookup,
+            report_genre=report_genre,
+        )
     )
 
 
@@ -1499,6 +1628,16 @@ def validate_insight_candidates(
             )
         )
         if (
+            report_genre in EVENT_INSIGHT_GENRES
+            and EVENT_REPORT_META_OMISSION_PATTERN.search(
+                writer_visible_text
+            )
+        ):
+            errors.append(
+                f"{candidate_id} describes report omissions rather than "
+                "supported event content."
+            )
+        if (
             report_genre == ReportGenre.DATA_SCIENCE_REPORT
             and candidate.interpretation_level
             == InterpretationLevel.BOUNDED_INSIGHT
@@ -1570,8 +1709,8 @@ def validate_insight_candidates(
                 "source facts."
             )
 
-        event_single_fact_synthesis = (
-            _event_candidate_has_reportworthy_evidence(
+        reportworthy_single_fact_synthesis = (
+            _candidate_has_reportworthy_evidence(
                 candidate=candidate,
                 fact_lookup=fact_lookup,
                 evidence_lookup=evidence_lookup,
@@ -1586,7 +1725,7 @@ def validate_insight_candidates(
             < settings.min_facts_per_bounded_insight
             and candidate.insight_type
             not in SINGLE_FACT_INSIGHT_TYPES
-            and not event_single_fact_synthesis
+            and not reportworthy_single_fact_synthesis
         ):
             errors.append(
                 f"{candidate_id} is a single-fact pseudo-insight; "
@@ -1628,9 +1767,18 @@ def validate_insight_candidates(
                 "classified as a bounded insight."
             )
 
+        finding_label_allowed_for_reportworthy_synthesis = (
+            reportworthy_single_fact_synthesis
+            and candidate.contribution
+            in {
+                InsightContribution.DESCRIPTIVE_SYNTHESIS,
+                InsightContribution.EVENT_SYNTHESIS,
+            }
+        )
         if (
             candidate.interpretation_level
             == InterpretationLevel.FINDING
+            and not finding_label_allowed_for_reportworthy_synthesis
         ):
             errors.append(
                 f"{candidate_id} is a finding, not a second-pass bounded "
@@ -1837,7 +1985,7 @@ def validate_insight_verification(
             InsightVerificationStatus.VERIFIED,
             InsightVerificationStatus.VERIFIED_WITH_CAVEAT,
         }
-        event_reportworthy = _event_candidate_has_reportworthy_evidence(
+        reportworthy = _candidate_has_reportworthy_evidence(
             candidate=candidate,
             fact_lookup=_candidate_fact_lookup(fact_ledger),
             evidence_lookup=build_evidence_lookup(evidence_ledger),
@@ -1846,7 +1994,7 @@ def validate_insight_verification(
         if (
             verified_status
             and not record.adds_bounded_synthesis
-            and not event_reportworthy
+            and not reportworthy
         ):
             errors.append(
                 f"{record.insight_id} is a direct-finding restatement rather "
@@ -2321,6 +2469,23 @@ def writer_sentence_grounding_errors(
             fact.structured_values
         )
     ]
+    support_numbers.extend(
+        number
+        for fact in supporting_facts
+        for _, number in extract_number_tokens(
+            fact.fact_summary
+        )
+    )
+    for insight_id in sentence.insight_ids:
+        insight = insight_lookup.get(insight_id)
+        if insight is None:
+            continue
+        support_numbers.extend(
+            number
+            for _, number in extract_number_tokens(
+                insight.statement
+            )
+        )
     if not numbers_supported(
         sentence.text,
         support_numbers,
@@ -2441,7 +2606,9 @@ are enabled, place them only in a separate "Questions for Further
 Investigation" section, label each as a hypothesis or question, state what
 additional analysis is needed, and never present it as a result.
 
-Respect the selected genre, content slots, perspective and maximum word count.
+Respect the selected genre, content slots and perspective. Respect a maximum
+word count only when `maximum_length_words` is provided; otherwise treat
+`target_length_words` as guidance rather than a hard ceiling.
 A data-science
 report uses bounded analytical prose. A dataset overview stays concise and
 mainly finding-led. An event report communicates the verified result, leading
@@ -2453,8 +2620,9 @@ season context or historical significance. Neutral perspective is the
 default; subject-centred perspective changes selection only, never facts.
 
 For an event report, lead with the supported result when available, integrate
-supported date, venue and status as context, then relate salient entity
-performances and participant-level contrasts. End with a short event-scoped
+supported date, venue, participant record context, segment score progression
+and status as context, then relate salient entity performances and
+participant-level contrasts. End with a short event-scoped
 limitation. Do not discuss wrapper row counts, constant columns, missingness,
 correlation, regression, statistical power, feature removal or predictive
 modelling unless the user explicitly requested that analysis. A single event
@@ -2463,24 +2631,74 @@ in event terms: the comparisons describe only the supplied event, do not
 establish why the result occurred and do not support claims about broader
 performance. Avoid generic boilerplate about "observed associations" or
 "unadjusted group comparisons" in an event report.
+If event-sequence evidence is present, you may mention that recorded sequence
+or score-state information exists, but prefer concrete supported
+score-changing facts over generic availability statements. Do not infer
+unverified chronology, momentum or turning points. If actionable sequence
+facts are present in `content_requirements`, do not satisfy that slot by
+saying sequence detail was not analysed; use the supported sequence facts or
+omit unsupported commentary.
 
 There is no fixed findings or insights quota. Cover required content first,
 then use as many additional distinct, relevant verified facts and insights as
-improve the report without exceeding `maximum_length_words`. Do not pad the
-report, repeat findings, or omit a stronger supported item merely to reach a
-particular count.
+improve the report. If `maximum_length_words` is provided, stay within it; if
+it is not provided, keep the report concise but do not omit strong supported
+material merely to hit the target length. Do not pad the report, repeat
+findings, or omit a stronger supported item merely to reach a particular
+count.
 
 When the Writer payload contains `content_requirements`, treat it as a
 controller-enforced coverage checklist. Use enough supported facts or verified
 insights from each listed content unit to satisfy `minimum_items`. If
 `enforce_minimum_words` is true, write at least `minimum_word_count` useful
-words while staying below `maximum_length_words`. Expand by adding supported
-event context, secondary performances, participant contrasts, and scoped
-limitations; do not expand by adding unsupported explanation or filler.
+words. If an explicit `maximum_length_words` is provided, stay below it.
+Expand by adding supported event context, secondary performances, participant
+contrasts, and scoped limitations; do not expand by adding unsupported
+explanation or filler.
+For event-sequence units, prefer verified sequence insights for coherent
+narration, then cite additional sequence fact IDs only for score-changing
+steps not already covered by the insight. Do not expose internal role labels
+such as `lead_change` or `late_score_change`; express the supplied scores and
+events naturally.
 When `narrative_requirements` are present, satisfy them with connected event
 prose: use verified insights or multi-fact synthesis, contrastive connectors
 such as "while" or "despite" where the support allows them, and an event-scoped
 caveat. Do not satisfy narration by inventing chronology, momentum or causes.
+
+For focused-table, structured-record verbalisation, direct-answer,
+one-sentence or short-text tasks, the report contract overrides normal report
+structure. Write only the requested answer form from the focused or supplied
+record facts and verified insights. If headings are not allowed, use the title
+and section fields only as hidden structure; they will not be rendered. Do not
+add dataset overview, data quality, missingness, correlation, modelling,
+generic limitations, or unrelated table facts unless the user explicitly asks
+for them.
+When a verified focused-table descriptive insight is available, prefer its
+natural table relation over a mechanical description of the highlighted cell
+coordinates. Keep the sentence within the requested output form and cite the
+insight plus its source facts.
+When structured-record evidence is available for an attribute or triple
+verbalisation task, express all and only those supplied records as fluent
+natural language. Prefer natural wording over a mechanical key/value dump, but
+do not add unsupported attributes, entities, relations or background facts.
+If the focused evidence or content requirements include a short-form selection
+policy, centre the sentence on highlighted role/value pairs and the most
+specific supported primary subject candidate. Treat non-highlighted same-row
+values as context. Omit them unless they are needed to identify the subject or
+relation. Do not combine that primary subject with row co-entities into a
+joint subject unless the supplied evidence explicitly represents a combined
+entity. Use supplied highlighted-measure comparisons for concise
+outcome-like wording when the table context supports it; do not calculate new
+comparisons. If the evidence supplies a highlighted-set contrast, prefer it
+for one-sentence lower/higher wording, and keep the wording scoped to the
+highlighted cells unless a cited table-wide rank fact supports a broader
+highest/lowest claim. If the evidence supplies highlighted record groups,
+preserve all grouped highlighted records that contribute to the focused
+answer, including repeated same-pattern rows. If the evidence supplies a focused record-style
+relation, prefer that relation over a mechanical description of highlighted
+cell labels, headers, or summary rows. If the evidence supplies a focused
+list-page relation, prefer it over venue, location, opponent, or other
+same-row details unless the user explicitly asks for those details.
 
 You have freedom over:
 - wording;
@@ -2705,28 +2923,43 @@ def build_writer_agent(settings: Settings) -> Agent:
         content_requirements = context.deps.payload.get(
             "writer_content_requirements"
         )
+        short_form_without_headings = bool(
+            isinstance(content_requirements, dict)
+            and (
+                content_requirements.get("allow_headings") is False
+                or content_requirements.get("output_form")
+                in {"one_sentence", "direct_answer", "short_text"}
+            )
+        )
 
         errors: list[str] = []
 
+        draft_text_parts = (
+            [
+                sentence.text
+                for section in output.sections
+                for sentence in section.sentences
+            ]
+            if short_form_without_headings
+            else [
+                output.title,
+                *[
+                    part
+                    for section in output.sections
+                    for part in [
+                        section.heading,
+                        *[
+                            sentence.text
+                            for sentence in section.sentences
+                        ],
+                    ]
+                ],
+            ]
+        )
         draft_word_count = len(
             re.findall(
                 r"\b[\w'-]+\b",
-                " ".join(
-                    [
-                        output.title,
-                        *[
-                            part
-                            for section in output.sections
-                            for part in [
-                                section.heading,
-                                *[
-                                    sentence.text
-                                    for sentence in section.sentences
-                                ],
-                            ]
-                        ],
-                    ]
-                ),
+                " ".join(draft_text_parts),
             )
         )
         if maximum_length_words is not None:
@@ -2737,7 +2970,7 @@ def build_writer_agent(settings: Settings) -> Agent:
                 )
 
         unknown_title_fact_ids = set(output.title_fact_ids) - valid_fact_ids
-        if unknown_title_fact_ids:
+        if unknown_title_fact_ids and not short_form_without_headings:
             errors.append(f"The title uses unknown fact IDs: {sorted(unknown_title_fact_ids)}")
         title_entities = {
             entity
@@ -2755,7 +2988,11 @@ def build_writer_agent(settings: Settings) -> Agent:
                 )
             )
         )
-        if factual_title and not output.title_fact_ids:
+        if (
+            factual_title
+            and not output.title_fact_ids
+            and not short_form_without_headings
+        ):
             errors.append("A factual title must list supporting title_fact_ids.")
         if output.title_fact_ids and not unknown_title_fact_ids:
             supported_title_entities = {
@@ -2771,7 +3008,11 @@ def build_writer_agent(settings: Settings) -> Agent:
             unsupported_title_entities = (
                 mentioned_title_entities - supported_title_entities
             )
-            if factual_title and unsupported_title_entities:
+            if (
+                factual_title
+                and unsupported_title_entities
+                and not short_form_without_headings
+            ):
                 errors.append(
                     "The title contains entities unsupported by its facts: "
                     f"{sorted(unsupported_title_entities)}"
@@ -2793,6 +3034,23 @@ def build_writer_agent(settings: Settings) -> Agent:
             errors.append(
                 "Return at least one report section."
             )
+
+        if short_form_without_headings and isinstance(content_requirements, dict):
+            sentence_texts = [
+                sentence.text
+                for section in output.sections
+                for sentence in section.sentences
+                if sentence.text.strip()
+            ]
+            if (
+                content_requirements.get("require_complete_sentence")
+                and sentence_texts
+                and sentence_texts[-1].strip()[-1] not in ".!?"
+            ):
+                errors.append(
+                    "The draft must provide a complete sentence for this "
+                    "output form."
+                )
 
         for section_index, section in enumerate(
             output.sections,
@@ -3068,6 +3326,9 @@ Detect:
 - forecast overclaims;
 - unsupported metadata;
 - missing material caveats.
+- limitations that say supplied structure or evidence is unavailable/not
+  captured when the evidence ledger shows it exists. In that case, repair to
+  "not analysed in this report" or remove the limitation.
 
 B. Targeted repair
 For each high-confidence repairable error:
@@ -3883,8 +4144,14 @@ def fallback_execution_plan(
             (
                 EvidenceCapability.EVENT_OUTCOME,
                 AnalysisRoute.DESCRIPTIVE,
-                "What is the verified event result and status?",
-                ["event_outcome", "event_status"],
+                "What is the verified event result, context, status and score progression?",
+                [
+                    "event_outcome",
+                    "event_context",
+                    "event_status",
+                    "participant_record_context",
+                    "score_progression",
+                ],
             ),
             (
                 EvidenceCapability.ENTITY_PERFORMANCE,
@@ -4189,7 +4456,6 @@ def fallback_execution_plan(
             ),
             maximum_length_words=(
                 settings.writer_max_words
-                or settings.writer_target_words
             ),
             maximum_main_findings=settings.writer_max_main_findings,
             maximum_supporting_facts=(
@@ -4198,6 +4464,7 @@ def fallback_execution_plan(
             preferred_sections=(
                 [
                     "Event overview",
+                    "Score progression",
                     "Key performances",
                     "Participant contrasts",
                     "Scope limitations",
@@ -4232,7 +4499,10 @@ def fallback_execution_plan(
                 [
                     "event_result",
                     "event_context",
+                    "participant_record_context",
                     "event_status",
+                    "score_progression",
+                    "event_sequence",
                     "leading_performance",
                     "main_contrast",
                     "scope_limitations",

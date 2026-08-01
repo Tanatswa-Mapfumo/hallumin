@@ -1,0 +1,43 @@
+{
+  "baseline_variant": null,
+  "cases": [
+    {
+      "case_id": "basketball_latest",
+      "dataset_id": "basketball_data",
+      "input_paths": [
+        "/Users/realgobs/Documents/MScproject/table2text_pydanticai/inputs/basketball_data.json"
+      ],
+      "input_relationships": [],
+      "notes": [],
+      "pipeline_result_path": "/Users/realgobs/Documents/MScproject/table2text_pydanticai/runs_notebook/20260723T144943Z_ecf6ef31da",
+      "reference_text_path": null,
+      "replicate": 0,
+      "request_text": "Understand the dataset and report its strongest findings.",
+      "run_manifest_path": null,
+      "seed": null,
+      "split": "test",
+      "variant": "capability_genre_aware"
+    }
+  ],
+  "config": {
+    "bootstrap_resamples": 5000,
+    "claim_similarity_threshold": 0.52,
+    "confidence_level": 0.95,
+    "enforce_reference_isolation": true,
+    "include_excluded_external_metrics": false,
+    "metric_plugins": [
+      {
+        "enabled": true,
+        "name": "lexical_overlap",
+        "options": {},
+        "python_executable": null,
+        "required": false,
+        "timeout_seconds": 900
+      }
+    ],
+    "random_seed": 42,
+    "semantic_support_threshold": 0.7
+  },
+  "description": "Gold-free evaluation from notebook.",
+  "experiment_id": "eval_notebook_001"
+}

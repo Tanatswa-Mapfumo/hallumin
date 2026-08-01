@@ -43,6 +43,26 @@ class ReportGenre(str, Enum):
     SPORTS_GAME_REPORT = "sports_game_report"
 
 
+class CommunicationTask(str, Enum):
+    DATA_SCIENCE_REPORT = "data_science_report"
+    DATASET_OVERVIEW = "dataset_overview"
+    EVENT_REPORT = "event_report"
+    FOCUSED_TABLE_DESCRIPTION = "focused_table_description"
+    TABLE_ENTAILMENT = "table_entailment"
+    TABLE_QUESTION_ANSWERING = "table_question_answering"
+    ATTRIBUTE_VERBALISATION = "attribute_verbalisation"
+    TRIPLE_VERBALISATION = "triple_verbalisation"
+    CUSTOM = "custom"
+
+
+class OutputForm(str, Enum):
+    ONE_SENTENCE = "one_sentence"
+    DIRECT_ANSWER = "direct_answer"
+    SHORT_TEXT = "short_text"
+    PARAGRAPH = "paragraph"
+    MULTI_PARAGRAPH_REPORT = "multi_paragraph_report"
+
+
 class ReportPerspective(str, Enum):
     NEUTRAL = "neutral"
     SUBJECT_CENTRED = "subject_centred"
@@ -111,6 +131,8 @@ class InputRepresentationStatus(str, Enum):
 
 class EvidenceCapability(str, Enum):
     DATASET_PROFILE = "dataset_profile"
+    FOCUSED_TABLE_REGION = "focused_table_region"
+    STRUCTURED_RECORD_VERBALISATION = "structured_record_verbalisation"
     MISSINGNESS = "missingness"
     DUPLICATES = "duplicates"
     DISTRIBUTION_SUMMARY = "distribution_summary"
@@ -446,16 +468,23 @@ class ReportSpecification(StrictModel):
     report_purpose: str
 
     genre: ReportGenre = ReportGenre.DATA_SCIENCE_REPORT
+    communication_task: CommunicationTask = CommunicationTask.DATA_SCIENCE_REPORT
+    output_form: OutputForm = OutputForm.MULTI_PARAGRAPH_REPORT
+    focus_scope: str | None = None
+    allow_headings: bool = True
+    max_sentences: int | None = Field(default=None, ge=1)
+    max_paragraphs: int | None = Field(default=None, ge=1)
+    require_complete_sentence: bool = True
     audience: str = "general analytical reader"
     perspective: ReportPerspective = ReportPerspective.NEUTRAL
     communication_goal: str = (
         "Summarise the strongest supported findings."
     )
 
-    target_length_words: int = Field(ge=150, le=2_500)
+    target_length_words: int = Field(ge=1, le=2_500)
     maximum_length_words: int | None = Field(
         default=None,
-        ge=150,
+        ge=1,
         le=2_500,
     )
     maximum_main_findings: int | None = Field(default=None, ge=2)
@@ -1138,6 +1167,9 @@ class RunManifest(StrictModel):
         InputRepresentationStatus.VALID
     )
     report_genre: ReportGenre = ReportGenre.DATA_SCIENCE_REPORT
+    communication_task: CommunicationTask = CommunicationTask.DATA_SCIENCE_REPORT
+    output_form: OutputForm = OutputForm.MULTI_PARAGRAPH_REPORT
+    focus_scope: str | None = None
 
 
 class PipelineResult(StrictModel):

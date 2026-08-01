@@ -48,6 +48,11 @@ evaluation-deepeval = [
     "deepeval",
 ]
 
+evaluation-hhem = [
+    "transformers>=4.46,<5.0",
+    "torch>=2.3,<3.0",
+]
+
 evaluation-opik = [
     "opik",
 ]
@@ -73,6 +78,7 @@ evaluation-phoenix = [
 ]
 
 evaluation-alignscore = [
+    "huggingface-hub>=0.27,<1.0",
     "spacy>=3.7,<4.0",
 ]
 

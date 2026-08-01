@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections.abc import Mapping, Sequence
 from collections import Counter, defaultdict
 from typing import Any
 
@@ -20,6 +21,7 @@ from .schemas import (
     AuditReport,
     ClaimPermission,
     ColumnProfile,
+    CommunicationTask,
     DataProfile,
     ErrorType,
     EvidenceCapability,
@@ -37,6 +39,7 @@ from .schemas import (
     InsightVerificationStatus,
     InputStructureProfile,
     InterpretationLevel,
+    OutputForm,
     QualityStatus,
     ProfileSupportRecord,
     RecommendedUse,
@@ -68,13 +71,21 @@ from .config import Settings
 NUMBER_PATTERN = re.compile(
     r"(?<![\w.])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?(?!\w|\.(?=\d))"
 )
+DATE_LIKE_TOKEN_PATTERN = re.compile(
+    r"(?<!\w)(\d{1,4})[_/-](\d{1,2})[_/-](\d{1,4})(?!\w)"
+)
 
 ABBREVIATION_DOT_PLACEHOLDER = "__T2T_ABBR_DOT__"
 INITIALISM_PATTERN = re.compile(r"\b(?:[A-Z]\.){2,}")
 SINGLE_INITIAL_PATTERN = re.compile(r"\b([A-Z])\.(?=\s+[A-Z][a-z])")
+COMMON_SENTENCE_ABBREVIATION_PATTERN = re.compile(
+    r"\b(?:vs|v|etc|e\.g|i\.e)\.",
+    re.IGNORECASE,
+)
 
 CAUSAL_PATTERN = re.compile(
-    r"\b(caused|causes|causing|drives?|drove|driven by|led to|effect of|"
+    r"\b(caused|causes|causing|drives?(?!\s+in\s+\d)|"
+    r"drove(?!\s+in\s+\d)|driven by|led to|effect of|"
     r"responsible for|result(?:s|ed|ing)? in|"
     r"contribut(?:e|es|ed|ing) to|because of|due to|explains?)\b",
     re.IGNORECASE,
@@ -213,6 +224,21 @@ DATASET_GENERALISATION_PATTERN = re.compile(
 UNSUPPORTED_SPORTS_NARRATIVE_PATTERN = re.compile(
     r"\b(dominated throughout|single-handedly|comeback|turning point|"
     r"all-time classic|historic victory|upset|cruised to victory)\b",
+    re.IGNORECASE,
+)
+
+SCORE_STATE_TIE_CLAIM_PATTERN = re.compile(
+    r"\b(?:game[- ]tying|tie[ds]?\s+(?:the\s+)?game|"
+    r"tying\s+(?:the\s+)?game|level(?:led)?\s+(?:the\s+)?score|"
+    r"score\s+was\s+level|equali[sz](?:ed|er))\b",
+    re.IGNORECASE,
+)
+NEGATED_SCORE_STATE_TIE_PATTERN = re.compile(
+    r"\b(?:could|can|did|does|would|will|was|were|is|are)?\s*"
+    r"(?:not|n't|never|failed\s+to|unable\s+to|without)\s+"
+    r"(?:tie[ds]?\s+(?:the\s+)?game|tying\s+(?:the\s+)?game|"
+    r"level(?:led)?\s+(?:the\s+)?score|"
+    r"equali[sz](?:e|ed))\b",
     re.IGNORECASE,
 )
 
@@ -492,6 +518,20 @@ def extract_number_tokens(text: str) -> list[tuple[str, float]]:
 
         tokens.append((raw, number))
 
+    for match in DATE_LIKE_TOKEN_PATTERN.finditer(text or ""):
+        parts = [part for part in match.groups()]
+        for part in parts:
+            try:
+                tokens.append((part, float(part)))
+            except ValueError:
+                continue
+        if len(parts[-1]) == 2 and len(parts[0]) != 4:
+            try:
+                year = int(parts[-1])
+            except ValueError:
+                continue
+            tokens.append((f"20{year:02d}", float(2000 + year)))
+
     return tokens
 
 
@@ -598,6 +638,10 @@ def protect_sentence_abbreviations(text: str) -> str:
         replace_initialism,
         text,
     )
+    protected = COMMON_SENTENCE_ABBREVIATION_PATTERN.sub(
+        replace_initialism,
+        protected,
+    )
     return SINGLE_INITIAL_PATTERN.sub(
         rf"\1{ABBREVIATION_DOT_PLACEHOLDER}",
         protected,
@@ -702,6 +746,29 @@ EVENT_CONTENT_UNIT_DEFINITIONS = {
         "evidence_types": {"event_status"},
         "minimum": 1,
     },
+    "participant_record_context": {
+        "description": (
+            "Include supplied participant record or standing context when "
+            "it helps frame the event."
+        ),
+        "evidence_types": {"participant_record_context"},
+        "minimum": 1,
+    },
+    "score_progression": {
+        "description": (
+            "Use supplied segment-level score progression when it is available."
+        ),
+        "evidence_types": {"score_progression"},
+        "minimum": 1,
+    },
+    "event_sequence": {
+        "description": (
+            "Use supplied ordered event-sequence or score-changing evidence "
+            "when it is available."
+        ),
+        "evidence_types": {"event_sequence"},
+        "minimum": 1,
+    },
     "leading_performance": {
         "description": (
             "Use leading entity rankings or entity-performance facts."
@@ -740,9 +807,40 @@ EVENT_SCOPE_LIMITATION_PATTERN = re.compile(
     r"describe(?:s|d)? only|supplied event|single event|this event|"
     r"this game|broader performance|broader outcomes|generaliz|"
     r"does not establish why|do not establish why|does not imply|"
-    r"do not imply|not evidence of causal|scope limitations?|"
+    r"do not imply|not evidence of causal|does not establish causality|"
+    r"do not establish causality|does not establish causal|"
+    r"do not establish causal|limited to values present|"
+    r"limited to (?:the )?supplied|scope limitations?|"
     r"rankings? (?:are|is) limited"
     r")\b",
+    re.IGNORECASE,
+)
+EVENT_SEQUENCE_ABSENCE_PATTERN = re.compile(
+    r"\b(?:does not|do not|cannot|can't|lacks?|missing|without)\b"
+    r"(?:(?!\.).){0,120}"
+    r"\b(?:chronolog(?:y|ical)|sequence|timeline|progression|"
+    r"event dynamics|game dynamics|score(?:ing)? state|score(?:ing)? "
+    r"progression|play[- ]?by[- ]?play)\b",
+    re.IGNORECASE,
+)
+EVENT_SEQUENCE_OMISSION_PATTERN = re.compile(
+    r"\b(?:this\s+)?(?:report|summary)\b[^.]{0,120}"
+    r"\b(?:does\s+not|did\s+not|not|no)\b[^.]{0,80}"
+    r"\b(?:analy[sz]e[ds]?|include[ds]?|report(?:ed)?|cover(?:ed)?)\b|"
+    r"\b(?:detailed\s+)?(?:event\s+)?(?:chronology|play[- ]by[- ]play|"
+    r"sequence)\b[^.]{0,120}\b(?:not|no)\b[^.]{0,80}"
+    r"\b(?:analy[sz]ed|included|reported|covered)\b",
+    re.IGNORECASE,
+)
+EVENT_SEGMENT_RANKING_PATTERN = re.compile(
+    r"\b(?:inning|half(?:-|\s)?inning|period|quarter|round|segment|"
+    r"phase|frame|set|leg|stage|play|turn|timeline|sequence)\b",
+    re.IGNORECASE,
+)
+EVENT_LOW_PRIORITY_ENTITY_METRIC_PATTERN = re.compile(
+    r"\b(?:against|allowed|at\s+bats?|batters?\s+faced|blown|career|"
+    r"conceded|earned|errors?|holds?|loss(?:es)?|number\s+of\s+pitches|"
+    r"pitch(?:es)?|putouts?|season|strikes?|turnovers?)\b",
     re.IGNORECASE,
 )
 
@@ -854,6 +952,134 @@ def build_writer_content_requirements(
         settings=settings,
     )
 
+    communication_task = getattr(
+        report_specification,
+        "communication_task",
+        None,
+    )
+    output_form = getattr(
+        report_specification,
+        "output_form",
+        None,
+    )
+    if communication_task == CommunicationTask.FOCUSED_TABLE_DESCRIPTION:
+        lookup = build_evidence_lookup(evidence)
+        candidate_fact_ids = _fact_ids_for_evidence_types(
+            facts=fact_ledger.writer_ready_facts,
+            evidence_lookup=lookup,
+            evidence_types={"focused_table_region", "focused_cell_context"},
+        )
+        candidate_insight_ids = [
+            insight.insight_id
+            for insight in insight_ledger.verified_insights
+            if (
+                EvidenceCapability.FOCUSED_TABLE_REGION
+                in insight.source_capabilities
+            )
+        ]
+        units = []
+        if candidate_fact_ids or candidate_insight_ids:
+            units.append(
+                {
+                    "unit_id": "focused_table_region",
+                    "description": (
+                        "Express the concise relation conveyed by the "
+                        "selected table cell or focused region using its "
+                        "supplied row, header, table and source-text context."
+                    ),
+                    "minimum_items": 1,
+                    "candidate_fact_ids": candidate_fact_ids,
+                    "candidate_insight_ids": candidate_insight_ids,
+                }
+            )
+        return {
+            "minimum_word_count": 1,
+            "enforce_minimum_words": False,
+            "output_form": (
+                output_form.value
+                if isinstance(output_form, OutputForm)
+                else str(output_form or OutputForm.ONE_SENTENCE.value)
+            ),
+            "allow_headings": False,
+            "max_sentences": getattr(report_specification, "max_sentences", 1) or 1,
+            "max_paragraphs": getattr(report_specification, "max_paragraphs", 1) or 1,
+            "require_complete_sentence": True,
+            "short_form_selection_policy": {
+                "prefer_highlighted_role_value_pairs": True,
+                "prefer_primary_subject_candidate": True,
+                "treat_non_highlighted_row_values_as_context": True,
+                "omit_secondary_numeric_values_unless_needed": True,
+                "avoid_joint_subject_without_combined_entity_evidence": True,
+                "use_supplied_highlighted_measure_comparisons": True,
+                "use_supplied_highlighted_set_contrasts": True,
+                "use_supplied_highlighted_record_groups": True,
+                "use_supplied_focused_record_relations": True,
+                "use_supplied_focused_list_relations": True,
+                "scope_lower_higher_to_highlighted_set": True,
+            },
+            "units": units,
+        }
+
+    if communication_task in {
+        CommunicationTask.ATTRIBUTE_VERBALISATION,
+        CommunicationTask.TRIPLE_VERBALISATION,
+    }:
+        lookup = build_evidence_lookup(evidence)
+        candidate_fact_ids = _fact_ids_for_evidence_types(
+            facts=fact_ledger.writer_ready_facts,
+            evidence_lookup=lookup,
+            evidence_types={
+                "attribute_record",
+                "triple_record",
+                "structured_record",
+            },
+        )
+        candidate_insight_ids = [
+            insight.insight_id
+            for insight in insight_ledger.verified_insights
+            if (
+                EvidenceCapability.STRUCTURED_RECORD_VERBALISATION
+                in insight.source_capabilities
+            )
+        ]
+        units = []
+        if candidate_fact_ids or candidate_insight_ids:
+            units.append(
+                {
+                    "unit_id": "structured_record_verbalisation",
+                    "description": (
+                        "Express all and only the supplied attributes or "
+                        "triples as concise natural language. Do not add "
+                        "dataset-profile, data-quality, correlation or "
+                        "modelling discussion."
+                    ),
+                    "minimum_items": 1,
+                    "candidate_fact_ids": candidate_fact_ids,
+                    "candidate_insight_ids": candidate_insight_ids,
+                }
+            )
+        return {
+            "minimum_word_count": 1,
+            "enforce_minimum_words": False,
+            "output_form": (
+                output_form.value
+                if isinstance(output_form, OutputForm)
+                else str(output_form or OutputForm.SHORT_TEXT.value)
+            ),
+            "allow_headings": False,
+            "max_sentences": getattr(report_specification, "max_sentences", 2) or 2,
+            "max_paragraphs": getattr(report_specification, "max_paragraphs", 1) or 1,
+            "require_complete_sentence": True,
+            "short_form_selection_policy": {
+                "use_all_supplied_records": True,
+                "prefer_natural_phrasing": True,
+                "avoid_key_value_dump_when_relation_is_clear": True,
+                "do_not_add_unsupplied_attributes": True,
+                "do_not_discuss_dataset_profile": True,
+            },
+            "units": units,
+        }
+
     event_report = report_specification.genre in {
         ReportGenre.EVENT_REPORT,
         ReportGenre.SPORTS_GAME_REPORT,
@@ -882,19 +1108,58 @@ def build_writer_content_requirements(
         *report_specification.required_content_slots,
         *report_specification.optional_content_slots,
     ]
+    if event_report:
+        slot_priority = {
+            "event_result": 0,
+            "event_context": 1,
+            "participant_record_context": 2,
+            "event_status": 3,
+            "score_progression": 4,
+            "leading_performance": 5,
+            "main_contrast": 6,
+            "event_sequence": 7,
+            "secondary_performance": 8,
+            "scope_limitations": 9,
+        }
+        ordered_slots = sorted(
+            dict.fromkeys(ordered_slots),
+            key=lambda slot: (
+                slot_priority.get(slot, 100),
+                ordered_slots.index(slot),
+            ),
+        )
     for slot in dict.fromkeys(ordered_slots):
         definition = EVENT_CONTENT_UNIT_DEFINITIONS.get(slot)
         if definition is None:
             continue
 
-        candidate_fact_ids = _fact_ids_for_evidence_types(
-            facts=facts,
-            evidence_lookup=lookup,
-            evidence_types=set(definition["evidence_types"]),
-        )
+        candidate_fact_ids = [
+            fact.fact_id
+            for fact in facts
+            if (
+                fact.recommended_use
+                != RecommendedUse.OMIT_UNLESS_REQUESTED
+                and event_fact_slot(fact, lookup) == slot
+            )
+        ]
+        if slot == "event_sequence":
+            actionable_candidate_fact_ids = [
+                fact.fact_id
+                for fact in facts
+                if (
+                    fact.fact_id in candidate_fact_ids
+                    and event_sequence_fact_is_actionable(fact, lookup)
+                )
+            ]
+            if actionable_candidate_fact_ids:
+                candidate_fact_ids = actionable_candidate_fact_ids
         if not candidate_fact_ids:
             continue
 
+        candidate_insight_ids = _insight_ids_for_fact_ids(
+            insights=insights,
+            fact_ids=set(candidate_fact_ids),
+        )
         minimum_items = min(
             int(definition["minimum"]),
             len(candidate_fact_ids),
@@ -905,10 +1170,16 @@ def build_writer_content_requirements(
                 "description": definition["description"],
                 "minimum_items": minimum_items,
                 "candidate_fact_ids": candidate_fact_ids,
-                "candidate_insight_ids": _insight_ids_for_fact_ids(
-                    insights=insights,
-                    fact_ids=set(candidate_fact_ids),
-                ),
+                "candidate_insight_ids": candidate_insight_ids,
+                "candidate_insight_fact_ids": {
+                    insight.insight_id: [
+                        fact_id
+                        for fact_id in insight.source_fact_ids
+                        if fact_id in candidate_fact_ids
+                    ]
+                    for insight in insights
+                    if insight.insight_id in candidate_insight_ids
+                },
             }
         )
 
@@ -919,6 +1190,9 @@ def build_writer_content_requirements(
         in {
             "event_result",
             "event_context",
+            "participant_record_context",
+            "score_progression",
+            "event_sequence",
             "leading_performance",
             "main_contrast",
         }
@@ -1026,11 +1300,20 @@ def content_requirement_errors(
         candidate_insight_ids = set(unit.get("candidate_insight_ids", []))
         if not candidate_fact_ids and not candidate_insight_ids:
             continue
-        covered_items = (
-            candidate_fact_ids & used_fact_ids
-        ) | (
-            candidate_insight_ids & used_insight_ids
-        )
+        covered_fact_ids = candidate_fact_ids & used_fact_ids
+        insight_fact_coverage = unit.get("candidate_insight_fact_ids") or {}
+        for insight_id in candidate_insight_ids & used_insight_ids:
+            covered_fact_ids.update(
+                fact_id
+                for fact_id in insight_fact_coverage.get(insight_id, [])
+                if fact_id in candidate_fact_ids
+            )
+        covered_insight_ids = {
+            insight_id
+            for insight_id in candidate_insight_ids & used_insight_ids
+            if not insight_fact_coverage.get(insight_id)
+        }
+        covered_items = covered_fact_ids | covered_insight_ids
         minimum_items = int(unit.get("minimum_items", 1))
         if len(covered_items) < minimum_items:
             errors.append(
@@ -1049,6 +1332,7 @@ def writer_output_content_requirement_errors(
     requirements: dict[str, Any] | None,
     include_word_count: bool = False,
 ) -> list[str]:
+    requirements = requirements or {}
     used_fact_ids = {
         *writer_output.title_fact_ids,
         *[
@@ -1060,9 +1344,9 @@ def writer_output_content_requirement_errors(
     used_insight_ids = {
         insight_id
         for support in writer_output.sentence_support
-        for insight_id in support.insight_ids
+            for insight_id in support.insight_ids
     }
-    return content_requirement_errors(
+    errors = content_requirement_errors(
         used_fact_ids=used_fact_ids,
         used_insight_ids=used_insight_ids,
         word_count=writer_output_word_count(writer_output),
@@ -1072,6 +1356,45 @@ def writer_output_content_requirement_errors(
         ),
         include_word_count=include_word_count,
     )
+    if requirements.get("allow_headings") is False and re.search(
+        r"(?m)^#{1,6}\s+",
+        writer_output.markdown,
+    ):
+        errors.append("The output must not contain Markdown headings.")
+
+    max_sentences = requirements.get("max_sentences")
+    if max_sentences is not None:
+        sentence_count = len(
+            split_markdown_sentences(writer_output.markdown)
+        )
+        if sentence_count > int(max_sentences):
+            errors.append(
+                f"The output contains {sentence_count} sentences; at most "
+                f"{max_sentences} are allowed for this output form."
+            )
+
+    max_paragraphs = requirements.get("max_paragraphs")
+    if max_paragraphs is not None:
+        paragraphs = [
+            paragraph
+            for paragraph in re.split(
+                r"\n\s*\n",
+                writer_output.markdown.strip(),
+            )
+            if paragraph.strip()
+        ]
+        if len(paragraphs) > int(max_paragraphs):
+            errors.append(
+                f"The output contains {len(paragraphs)} paragraphs; at most "
+                f"{max_paragraphs} are allowed for this output form."
+            )
+
+    if requirements.get("require_complete_sentence"):
+        text = writer_output.markdown.strip()
+        if text and text[-1] not in ".!?":
+            errors.append("The output must be a complete sentence.")
+
+    return errors
 
 
 def fact_support_numbers(
@@ -1079,7 +1402,11 @@ def fact_support_numbers(
     evidence: EvidenceLedger,
 ) -> list[float]:
     lookup = evidence_lookup(evidence)
-    numbers = flatten_numbers(fact.structured_values)
+    numbers = [
+        number
+        for _, number in extract_number_tokens(fact.fact_summary)
+    ]
+    numbers.extend(flatten_numbers(fact.structured_values))
 
     for evidence_id in fact.evidence_ids:
         item = lookup.get(evidence_id)
@@ -1598,6 +1925,427 @@ def _profile_records_support_sentence(
     )
 
 
+def _focused_role_value_text(pair: dict[str, Any]) -> str | None:
+    headers = [
+        str(header)
+        for header in pair.get("headers", [])
+        if str(header).strip()
+    ]
+    value = str(pair.get("value", "")).strip()
+    if not value:
+        return None
+
+    header_text = " / ".join(headers) if headers else "value"
+    return f"{header_text} = {value}"
+
+
+def _focused_table_fact_summary(item: EvidenceItem) -> str:
+    metrics = item.metrics
+    record_relation = metrics.get("focused_record_relation")
+    record_summary = (
+        str(record_relation.get("relation_summary") or "").strip()
+        if isinstance(record_relation, dict)
+        else ""
+    )
+    list_relation = metrics.get("focused_list_relation")
+    list_summary = (
+        str(list_relation.get("relation_summary") or "").strip()
+        if isinstance(list_relation, dict)
+        else ""
+    )
+    record_group_summary = str(
+        metrics.get("highlighted_record_group_summary") or ""
+    ).strip()
+    pair_texts = [
+        text
+        for pair in metrics.get("highlighted_role_value_pairs", [])
+        if isinstance(pair, dict)
+        and (text := _focused_role_value_text(pair))
+    ]
+
+    if record_summary:
+        summary = record_summary
+    elif list_summary:
+        summary = list_summary
+    elif record_group_summary:
+        summary = record_group_summary
+    elif pair_texts:
+        summary = "Highlighted table values: " + "; ".join(pair_texts) + "."
+    else:
+        highlighted_values = [
+            str(value)
+            for value in metrics.get("highlighted_values", [])
+            if str(value).strip()
+        ]
+        if highlighted_values:
+            summary = (
+                "Highlighted table value"
+                + ("s" if len(highlighted_values) != 1 else "")
+                + ": "
+                + ", ".join(highlighted_values)
+                + "."
+            )
+        else:
+            proposition = str(
+                metrics.get("description_proposition") or ""
+            ).strip()
+            summary = proposition or item.finding
+
+    primary_subjects = [
+        str(subject)
+        for subject in (
+            (metrics.get("concise_output_focus") or {})
+            .get("primary_subject_candidates", [])
+        )
+        if str(subject).strip()
+    ]
+    if primary_subjects:
+        summary += (
+            " Structurally supported primary subject candidate"
+            + ("s" if len(primary_subjects) != 1 else "")
+            + ": "
+            + ", ".join(primary_subjects)
+            + "."
+        )
+
+    highlighted_set_contrasts = [
+        str(contrast.get("contrast_summary") or "").strip()
+        for contrast in metrics.get("highlighted_set_contrasts", [])
+        if isinstance(contrast, dict)
+        and str(contrast.get("contrast_summary") or "").strip()
+    ]
+    if highlighted_set_contrasts:
+        summary += (
+            " Highlighted-set contrast scoped only to selected cells: "
+            + "; ".join(highlighted_set_contrasts)
+        )
+
+    record_group_summary = str(
+        metrics.get("highlighted_record_group_summary") or ""
+    ).strip()
+    if record_group_summary and record_group_summary not in summary:
+        summary += " Highlighted record-group summary: "
+        summary += record_group_summary
+
+    context_parts = [
+        str(metrics.get("section_title") or "").strip(),
+        str(metrics.get("page_title") or "").strip(),
+    ]
+    context = " / ".join(
+        part
+        for part in context_parts
+        if part and not extract_number_tokens(part)
+    )
+    if context:
+        summary += f" Context: {context}."
+
+    comparisons = metrics.get("highlighted_measure_comparisons") or []
+    comparison_notes = []
+    for comparison in comparisons:
+        if not isinstance(comparison, dict):
+            continue
+        value = str(comparison.get("highlighted_value") or "").strip()
+        if not value:
+            continue
+        note_parts = [value]
+        if comparison.get("is_highest_comparable_value"):
+            note_parts.append("is the highest comparable highlighted measure")
+        if comparison.get("is_majority_percentage"):
+            note_parts.append("is above half")
+        if len(note_parts) > 1:
+            comparison_notes.append(" ".join(note_parts))
+    if comparison_notes:
+        summary += " Highlighted measure context: "
+        summary += "; ".join(comparison_notes) + "."
+
+    return summary
+
+
+def _focused_table_local_contrast_summary(
+    metrics: dict[str, Any],
+) -> str | None:
+    contrasts = metrics.get("highlighted_set_contrasts") or []
+    for contrast in contrasts:
+        if not isinstance(contrast, dict):
+            continue
+        summary = str(contrast.get("contrast_summary") or "").strip()
+        if summary:
+            return summary
+    return None
+
+
+def _structured_record_fact_summary(item: EvidenceItem) -> str:
+    records = [
+        record
+        for record in item.metrics.get("records", [])
+        if isinstance(record, dict)
+    ]
+    triples = [
+        record
+        for record in records
+        if str(record.get("record_kind") or "") == "triple"
+    ]
+    attributes = [
+        record
+        for record in records
+        if str(record.get("record_kind") or "") != "triple"
+    ]
+
+    if triples and not attributes:
+        parts = [
+            (
+                f"{record.get('subject')} | {record.get('relation')} | "
+                f"{record.get('object')}"
+            )
+            for record in triples
+            if record.get("subject")
+            and record.get("relation")
+            and record.get("object")
+        ]
+        if parts:
+            return "Supplied triples: " + "; ".join(parts) + "."
+
+    parts = [
+        f"{record.get('attribute_name')} = {record.get('attribute_value')}"
+        for record in attributes
+        if record.get("attribute_name") and record.get("attribute_value")
+    ]
+    if parts:
+        return "Supplied attributes: " + "; ".join(parts) + "."
+
+    return item.finding
+
+
+def _semantic_event_fact_summary(item: EvidenceItem) -> str:
+    if item.evidence_type in {"event_context", "event_status"}:
+        values = [
+            value
+            for value in item.metrics.get("values", [])
+            if isinstance(value, dict)
+            and value.get("label") is not None
+            and value.get("value") is not None
+        ]
+        if values:
+            parts = [
+                f"{value['label']} is {value['value']}"
+                for value in values[:4]
+            ]
+            return "Event context includes " + ", ".join(parts) + "."
+
+    if item.evidence_type in {"entity_ranking", "entity_performance"}:
+        ranking = [
+            record
+            for record in item.metrics.get("ranking", [])
+            if isinstance(record, dict)
+            and record.get("entity") is not None
+            and record.get("value") is not None
+        ]
+        if ranking:
+            measure = str(
+                item.metrics.get("semantic_label")
+                or ranking[0].get("measure")
+                or "recorded value"
+            )
+            measure = re.sub(
+                r"^entity ranking for\s+",
+                "",
+                measure,
+                flags=re.IGNORECASE,
+            )
+
+            def entity_name(record: dict[str, Any]) -> str:
+                entity = str(record["entity"])
+                group = record.get("group")
+                if group and str(group) not in entity:
+                    return f"{entity} ({group})"
+                return entity
+
+            leaders = [
+                record
+                for record in ranking
+                if record.get("rank") == 1
+            ]
+            if len(leaders) > 1:
+                names = ", ".join(entity_name(record) for record in leaders[:4])
+                return (
+                    f"In the ranking for {measure}, {names} tied for the lead "
+                    f"with {float(leaders[0]['value']):g} each."
+                )
+
+            leader = ranking[0]
+            summary = (
+                f"In the ranking for {measure}, {entity_name(leader)} led "
+                f"with {float(leader['value']):g}"
+            )
+            followers = [
+                record
+                for record in ranking[1:4]
+                if record.get("value") is not None
+            ]
+            if followers:
+                summary += ", followed by " + ", ".join(
+                    f"{entity_name(record)} ({float(record['value']):g})"
+                    for record in followers
+                )
+            return summary + "."
+
+    if item.evidence_type not in {
+        "event_outcome",
+        "participant_comparison",
+        "event_contrast",
+    }:
+        return item.finding
+
+    records = [
+        record
+        for record in item.metrics.get("records", [])
+        if isinstance(record, dict)
+        and record.get("entity") is not None
+        and record.get("value") is not None
+    ]
+    if len(records) < 2:
+        return item.finding
+
+    ordered = sorted(
+        records,
+        key=lambda record: float(record["value"]),
+        reverse=True,
+    )
+    high = ordered[0]
+    low = ordered[-1]
+    high_entity = str(high["entity"])
+    low_entity = str(low["entity"])
+    high_value = float(high["value"])
+    low_value = float(low["value"])
+    high_measure = str(high.get("measure") or "outcome value")
+    low_measure = str(low.get("measure") or high_measure)
+    difference = abs(high_value - low_value)
+
+    if high_value == low_value:
+        return (
+            f"{high_entity} and {low_entity} both recorded "
+            f"{high_value:g} for the supplied outcome measure."
+        )
+
+    return (
+        f"{high_entity} recorded {high_value:g} for {high_measure}, "
+        f"while {low_entity} recorded {low_value:g} for {low_measure}; "
+        f"the difference is {difference:g}."
+    )
+
+
+def event_sequence_evidence_is_actionable(item: EvidenceItem) -> bool:
+    if item.evidence_type != "event_sequence":
+        return False
+
+    if normalise_strength_label(item.strength_label) == (
+        "event_sequence_highlight"
+    ):
+        return True
+
+    metrics = item.metrics
+    if metrics.get("sequence_type") == "score_changing_sequence":
+        return True
+
+    return any(
+        isinstance(highlight, dict)
+        and str(highlight.get("event_text") or "").strip()
+        and str(highlight.get("score_phrase") or "").strip()
+        for highlight in metrics.get("highlights", [])
+    )
+
+
+def event_sequence_fact_is_actionable(
+    fact: VerifiedFact,
+    evidence_lookup: dict[str, EvidenceItem],
+) -> bool:
+    return any(
+        event_sequence_evidence_is_actionable(item)
+        for item in evidence_for_fact(fact, evidence_lookup)
+    )
+
+
+def _event_sequence_highlight_summary(
+    highlight: dict[str, Any],
+) -> str | None:
+    event_text = str(highlight.get("event_text") or "").strip()
+    score_phrase = str(highlight.get("score_phrase") or "").strip()
+    if not event_text or not score_phrase:
+        return None
+
+    return f"{event_text}, after which {score_phrase}."
+
+
+def _event_sequence_highlight_salience(
+    *,
+    item: EvidenceItem,
+    highlight: dict[str, Any],
+) -> float:
+    roles = {
+        str(role)
+        for role in highlight.get("sequence_roles", [])
+    }
+    bonus = 0.0
+    if roles & {"lead_change", "tie", "largest_score_change"}:
+        bonus += 0.04
+    if roles & {"late_score_change", "final_score_change", "late_narrowing"}:
+        bonus += 0.03
+    if roles & {"opening_score"}:
+        bonus += 0.02
+    return min(1.0, item.salience + bonus)
+
+
+def deterministic_fact_candidates_from_evidence(
+    *,
+    item: EvidenceItem,
+    start_ordinal: int,
+) -> list[FactCandidate]:
+    highlights = [
+        highlight
+        for highlight in item.metrics.get("highlights", [])
+        if isinstance(highlight, dict)
+    ]
+    if event_sequence_evidence_is_actionable(item) and highlights:
+        candidates: list[FactCandidate] = []
+        for offset, highlight in enumerate(highlights):
+            summary = _event_sequence_highlight_summary(highlight)
+            if summary is None:
+                continue
+            candidates.append(
+                FactCandidate(
+                    candidate_id=f"CAN_{start_ordinal + offset:04d}",
+                    fact_summary=summary,
+                    evidence_ids=[item.evidence_id],
+                    claim_permissions=item.claim_permissions,
+                    allowed_interpretations=(
+                        [item.practical_interpretation]
+                        if item.practical_interpretation
+                        else []
+                    ),
+                    prohibited_interpretations=item.prohibited_interpretations,
+                    required_caveats=item.limitations,
+                    factual_confidence=item.factual_confidence,
+                    methodological_strength=item.methodological_strength,
+                    user_relevance=item.user_relevance,
+                    salience=_event_sequence_highlight_salience(
+                        item=item,
+                        highlight=highlight,
+                    ),
+                    recommended_use=RecommendedUse.MAIN_FINDING,
+                    eligible_for_writer=True,
+                )
+            )
+        if candidates:
+            return candidates
+
+    return [
+        deterministic_fact_candidate_from_evidence(
+            item=item,
+            ordinal=start_ordinal,
+        )
+    ]
+
+
 def candidate_support(
     candidate: FactCandidate,
     evidence: EvidenceLedger,
@@ -1711,15 +2459,45 @@ def collect_entity_strings(value: Any) -> set[str]:
     return entities
 
 
-def fallback_fact_candidates(
+def deterministic_fact_candidate_from_evidence(
+    *,
+    item: EvidenceItem,
+    ordinal: int,
+) -> FactCandidate:
+    return FactCandidate(
+        candidate_id=f"CAN_{ordinal:04d}",
+        fact_summary=deterministic_fact_summary_from_evidence(item),
+        evidence_ids=[item.evidence_id],
+        claim_permissions=item.claim_permissions,
+        allowed_interpretations=(
+            [item.practical_interpretation]
+            if item.practical_interpretation
+            else []
+        ),
+        prohibited_interpretations=item.prohibited_interpretations,
+        required_caveats=item.limitations,
+        factual_confidence=item.factual_confidence,
+        methodological_strength=item.methodological_strength,
+        user_relevance=item.user_relevance,
+        salience=item.salience,
+        recommended_use=item.recommended_use,
+        eligible_for_writer=True,
+    )
+
+
+def deterministic_fact_candidate_scaffold(
     evidence: EvidenceLedger,
     maximum_facts: int | None,
+    *,
+    synthesis_note: str = (
+        "Deterministic evidence-to-fact scaffold was created before "
+        "LLM enrichment."
+    ),
 ) -> FactCandidateSet:
     eligible_items = [
         item
         for item in evidence.items
         if item.eligible_for_writer
-        and item.query_id is None
     ]
 
     ranked = sorted(
@@ -1737,29 +2515,152 @@ def fallback_fact_candidates(
         if maximum_facts is None
         else ranked[:maximum_facts]
     )
-    candidates = [
-        FactCandidate(
-            candidate_id=f"CAN_{index:04d}",
-            fact_summary=item.finding,
-            evidence_ids=[item.evidence_id],
-            claim_permissions=item.claim_permissions,
-            allowed_interpretations=[item.practical_interpretation],
-            prohibited_interpretations=item.prohibited_interpretations,
-            required_caveats=item.limitations,
-            factual_confidence=item.factual_confidence,
-            methodological_strength=item.methodological_strength,
-            user_relevance=item.user_relevance,
-            salience=item.salience,
-            recommended_use=item.recommended_use,
-            eligible_for_writer=True,
+    candidates: list[FactCandidate] = []
+    next_ordinal = 1
+    for item in selected_items:
+        item_candidates = deterministic_fact_candidates_from_evidence(
+            item=item,
+            start_ordinal=next_ordinal,
         )
-        for index, item in enumerate(selected_items, start=1)
-    ]
+        candidates.extend(item_candidates)
+        next_ordinal += len(item_candidates)
 
     return FactCandidateSet(
         candidates=candidates,
+        synthesis_notes=[synthesis_note],
+    )
+
+
+def fallback_fact_candidates(
+    evidence: EvidenceLedger,
+    maximum_facts: int | None,
+) -> FactCandidateSet:
+    return deterministic_fact_candidate_scaffold(
+        evidence,
+        maximum_facts,
+        synthesis_note="Deterministic evidence-to-fact fallback was used.",
+    )
+
+
+def empty_fact_candidate_enrichment() -> FactCandidateSet:
+    return FactCandidateSet(
+        candidates=[],
         synthesis_notes=[
-            "Deterministic evidence-to-fact fallback was used."
+            "LLM fact-candidate enrichment was unavailable; "
+            "the deterministic scaffold was retained."
+        ],
+    )
+
+
+def merge_fact_candidate_scaffold(
+    *,
+    scaffold: FactCandidateSet,
+    enrichment: FactCandidateSet,
+    evidence: EvidenceLedger,
+) -> FactCandidateSet:
+    """Preserve deterministic coverage while accepting valid LLM enrichment."""
+
+    valid_enrichment: list[FactCandidate] = []
+    dropped_notes: list[str] = []
+    seen_enrichment_ids: set[str] = set()
+
+    for candidate in enrichment.candidates:
+        if candidate.candidate_id in seen_enrichment_ids:
+            dropped_notes.append(
+                f"Dropped duplicate enriched candidate {candidate.candidate_id}."
+            )
+            continue
+        seen_enrichment_ids.add(candidate.candidate_id)
+
+        errors = validate_fact_candidates(
+            FactCandidateSet(candidates=[candidate]),
+            evidence,
+        )
+        if errors:
+            dropped_notes.append(
+                f"Dropped invalid enriched candidate {candidate.candidate_id}: "
+                + "; ".join(errors)
+            )
+            continue
+        valid_enrichment.append(candidate)
+
+    lookup = evidence_lookup(evidence)
+    merged: list[FactCandidate] = list(scaffold.candidates)
+    scaffold_indices_by_evidence_id: dict[str, list[int]] = defaultdict(list)
+    for index, candidate in enumerate(merged):
+        if len(candidate.evidence_ids) == 1:
+            scaffold_indices_by_evidence_id[candidate.evidence_ids[0]].append(
+                index
+            )
+
+    replaced_count = 0
+    added_count = 0
+    seen_signatures: set[tuple[tuple[str, ...], str]] = {
+        (
+            tuple(candidate.evidence_ids),
+            candidate.fact_summary.strip().lower(),
+        )
+        for candidate in merged
+    }
+
+    for candidate in valid_enrichment:
+        signature = (
+            tuple(candidate.evidence_ids),
+            candidate.fact_summary.strip().lower(),
+        )
+        if signature in seen_signatures:
+            continue
+
+        if (
+            len(candidate.evidence_ids) == 1
+            and len(
+                scaffold_indices_by_evidence_id.get(
+                    candidate.evidence_ids[0],
+                    [],
+                )
+            )
+            == 1
+            and not event_sequence_evidence_is_actionable(
+                lookup[candidate.evidence_ids[0]]
+            )
+        ):
+            index = scaffold_indices_by_evidence_id[
+                candidate.evidence_ids[0]
+            ][0]
+            seen_signatures.discard(
+                (
+                    tuple(merged[index].evidence_ids),
+                    merged[index].fact_summary.strip().lower(),
+                )
+            )
+            merged[index] = candidate
+            seen_signatures.add(signature)
+            replaced_count += 1
+            continue
+
+        merged.append(candidate)
+        seen_signatures.add(signature)
+        added_count += 1
+
+    renumbered = [
+        candidate.model_copy(
+            update={"candidate_id": f"CAN_{index:04d}"}
+        )
+        for index, candidate in enumerate(merged, start=1)
+    ]
+
+    return FactCandidateSet(
+        candidates=renumbered,
+        synthesis_notes=[
+            *scaffold.synthesis_notes,
+            *enrichment.synthesis_notes,
+            (
+                "Merged fact candidates by retaining deterministic "
+                f"coverage, replacing {replaced_count} scaffold "
+                f"candidate(s), and appending {added_count} enriched "
+                "synthesis candidate(s)."
+            ),
+            *dropped_notes,
         ],
     )
 
@@ -1789,6 +2690,86 @@ def fallback_verification(
         overall_notes=[
             "Deterministic verification fallback was used."
         ],
+    )
+
+
+MISSING_EVIDENCE_REJECTION_PATTERN = re.compile(
+    r"\b(?:cited\s+)?evidence\b.*\b(?:not present|not found|unknown|missing)\b|"
+    r"\b(?:not present|not found|unknown|missing)\b.*\bevidence\b",
+    re.IGNORECASE,
+)
+
+
+def repair_spurious_missing_evidence_rejections(
+    *,
+    candidate_set: FactCandidateSet,
+    verification: VerificationResult,
+    evidence: EvidenceLedger,
+) -> VerificationResult:
+    """Keep local evidence-ID validation authoritative over verifier slips."""
+
+    candidates = {
+        candidate.candidate_id: candidate
+        for candidate in candidate_set.candidates
+    }
+    repaired_reviews: list[FactReview] = []
+    repair_notes: list[str] = []
+
+    for review in verification.reviews:
+        candidate = candidates.get(review.candidate_id)
+        if (
+            candidate is not None
+            and review.decision == ReviewDecision.REJECT
+            and MISSING_EVIDENCE_REJECTION_PATTERN.search(
+                review.rationale
+            )
+            and not validate_fact_candidates(
+                FactCandidateSet(candidates=[candidate]),
+                evidence,
+            )
+        ):
+            repaired_reviews.append(
+                FactReview(
+                    candidate_id=review.candidate_id,
+                    decision=(
+                        ReviewDecision.CAUTION
+                        if candidate.required_caveats
+                        else ReviewDecision.APPROVE
+                    ),
+                    rationale=(
+                        "Local deterministic validation confirmed the cited "
+                        "evidence IDs exist and support this candidate; "
+                        "overrode a spurious missing-evidence rejection."
+                    ),
+                    required_caveats=[
+                        *candidate.required_caveats,
+                        *review.required_caveats,
+                    ],
+                    prohibited_interpretations=[
+                        *candidate.prohibited_interpretations,
+                        *review.prohibited_interpretations,
+                    ],
+                )
+            )
+            repair_notes.append(
+                f"Repaired spurious missing-evidence rejection for "
+                f"{review.candidate_id}."
+            )
+            continue
+
+        repaired_reviews.append(review)
+
+    if not repair_notes:
+        return verification
+
+    return verification.model_copy(
+        update={
+            "reviews": repaired_reviews,
+            "overall_notes": [
+                *verification.overall_notes,
+                *repair_notes,
+            ],
+        }
     )
 
 
@@ -2012,11 +2993,29 @@ def evidence_subtype(
         item.strength_label
     )
 
+    if item.capability == EvidenceCapability.FOCUSED_TABLE_REGION:
+        return "focused_table_region"
+
+    if (
+        item.capability
+        == EvidenceCapability.STRUCTURED_RECORD_VERBALISATION
+    ):
+        return "structured_record_verbalisation"
+
     if item.evidence_type == "event_context":
         return "event_context"
 
     if item.evidence_type == "event_status":
         return "event_status"
+
+    if item.evidence_type == "participant_record_context":
+        return "participant_record_context"
+
+    if item.evidence_type == "score_progression":
+        return "score_progression"
+
+    if item.evidence_type == "event_sequence":
+        return "event_sequence"
 
     if item.capability == EvidenceCapability.EVENT_OUTCOME:
         return "event_outcome"
@@ -2184,7 +3183,13 @@ def classify_fact_component(
     if "data_quality" in subtypes:
         return ReportComponent.DATA_QUALITY
 
-    if subtypes & {"event_outcome", "entity_performance"}:
+    if subtypes & {
+        "event_outcome",
+        "entity_performance",
+        "event_sequence",
+        "participant_record_context",
+        "score_progression",
+    }:
         return ReportComponent.DATASET_OVERVIEW
 
     if (
@@ -2297,8 +3302,10 @@ def evidence_priority_score(
 
 def eligible_for_deterministic_fact_recovery(
     item: EvidenceItem,
+    *,
+    allow_query_evidence: bool = False,
 ) -> bool:
-    if item.query_id is not None:
+    if item.query_id is not None and not allow_query_evidence:
         return False
 
     if not item.eligible_for_writer:
@@ -2318,11 +3325,17 @@ def eligible_for_deterministic_fact_recovery(
     if subtype == "dataset_overview":
         return True
 
+    if subtype == "focused_table_region":
+        return True
+
     if subtype in {
         "event_context",
         "event_status",
+        "participant_record_context",
+        "score_progression",
         "event_outcome",
         "entity_performance",
+        "event_sequence",
     }:
         return True
 
@@ -2365,6 +3378,43 @@ def eligible_for_deterministic_fact_recovery(
     return False
 
 
+def deterministic_fact_summary_from_evidence(
+    item: EvidenceItem,
+) -> str:
+    if item.capability == EvidenceCapability.FOCUSED_TABLE_REGION:
+        return _focused_table_fact_summary(item)
+
+    if (
+        item.capability
+        == EvidenceCapability.STRUCTURED_RECORD_VERBALISATION
+    ):
+        return _structured_record_fact_summary(item)
+
+    if (
+        item.capability
+        in {
+            EvidenceCapability.EVENT_OUTCOME,
+            EvidenceCapability.ENTITY_PERFORMANCE,
+            EvidenceCapability.RANKING,
+            EvidenceCapability.GROUP_COMPARISON,
+        }
+        or evidence_subtype(item)
+        in {
+            "event_context",
+            "event_status",
+            "participant_record_context",
+            "score_progression",
+            "event_outcome",
+            "entity_performance",
+            "event_sequence",
+            "group_comparison",
+        }
+    ):
+        return _semantic_event_fact_summary(item)
+
+    return item.finding
+
+
 def deterministic_fact_from_evidence(
     *,
     item: EvidenceItem,
@@ -2391,7 +3441,7 @@ def deterministic_fact_from_evidence(
             VerificationMethod
             .DETERMINISTIC_EVIDENCE_RECOVERY
         ),
-        fact_summary=item.finding,
+        fact_summary=deterministic_fact_summary_from_evidence(item),
         evidence_ids=[item.evidence_id],
         source_capabilities=[item.capability],
         structured_values={
@@ -2480,9 +3530,7 @@ def augment_fact_ledger_for_report_coverage(
             if (
                 item.evidence_id
                 not in represented_evidence_ids
-                and eligible_for_deterministic_fact_recovery(
-                    item
-                )
+                and eligible_for_deterministic_fact_recovery(item)
             )
         ],
         key=evidence_priority_score,
@@ -2517,8 +3565,11 @@ def augment_fact_ledger_for_report_coverage(
         "causal_feasibility": 1,
         "event_context": 2,
         "event_status": 2,
+        "participant_record_context": 2,
+        "score_progression": 2,
         "event_outcome": 2,
         "entity_performance": 4,
+        "event_sequence": 2,
     }
 
     recovered: list[VerifiedFact] = []
@@ -2590,8 +3641,33 @@ def augment_fact_ledger_for_report_coverage(
 
     def recover_best(
         subtype: str,
+        *,
+        allow_query_evidence: bool = False,
+        allow_represented_evidence: bool = False,
     ) -> bool:
-        for item in candidates:
+        source_items = candidates
+        if allow_query_evidence or allow_represented_evidence:
+            source_items = sorted(
+                [
+                    item
+                    for item in evidence.items
+                    if (
+                        (
+                            allow_represented_evidence
+                            or item.evidence_id
+                            not in represented_evidence_ids
+                        )
+                        and eligible_for_deterministic_fact_recovery(
+                            item,
+                            allow_query_evidence=allow_query_evidence,
+                        )
+                    )
+                ],
+                key=evidence_priority_score,
+                reverse=True,
+            )
+
+        for item in source_items:
             if (
                 evidence_subtype(item)
                 == subtype
@@ -2606,22 +3682,47 @@ def augment_fact_ledger_for_report_coverage(
     slot_subtypes = {
         "event_context": "event_context",
         "event_status": "event_status",
+        "participant_record_context": "participant_record_context",
+        "score_progression": "score_progression",
+        "event_sequence": "event_sequence",
         "event_result": "event_outcome",
         "leading_performance": "entity_performance",
         "main_contrast": "group_comparison",
         "secondary_performance": "entity_performance",
     }
 
+    def existing_required_slot_fact_count(
+        subtype: str,
+    ) -> int:
+        return sum(
+            1
+            for fact in fact_ledger.writer_ready_facts
+            if (
+                fact.recommended_use
+                != RecommendedUse.OMIT_UNLESS_REQUESTED
+                and any(
+                    evidence_id in lookup
+                    and evidence_subtype(lookup[evidence_id])
+                    == subtype
+                    for evidence_id in fact.evidence_ids
+                )
+            )
+        )
+
     for slot in required_content_slots or []:
         subtype = slot_subtypes.get(slot)
         if subtype is None:
             continue
         if (
-            existing_counts[subtype]
+            existing_required_slot_fact_count(subtype)
             + recovered_counts[subtype]
             == 0
         ):
-            recover_best(subtype)
+            recover_best(
+                subtype,
+                allow_query_evidence=True,
+                allow_represented_evidence=True,
+            )
 
     if (
         ReportComponent.DATASET_OVERVIEW
@@ -3143,8 +4244,11 @@ def fact_is_relevant_to_genre(
         "event_outcome",
         "event_context",
         "event_status",
+        "participant_record_context",
+        "score_progression",
         "entity_ranking",
         "entity_performance",
+        "event_sequence",
         "participant_comparison",
         "event_contrast",
     }
@@ -3171,6 +4275,52 @@ def evidence_analytical_function(
         return None
 
 
+def event_evidence_is_segment_ranking(
+    item: EvidenceItem,
+) -> bool:
+    if item.evidence_type not in {
+        "entity_ranking",
+        "entity_performance",
+    }:
+        return False
+
+    text_parts = [
+        item.finding,
+        item.strength_label,
+        item.metrics.get("semantic_label"),
+        item.metrics.get("question"),
+        item.metrics.get("measure"),
+        *item.source_paths,
+    ]
+    text = " ".join(str(part) for part in text_parts if part)
+    return bool(EVENT_SEGMENT_RANKING_PATTERN.search(text))
+
+
+def event_fact_has_low_priority_entity_metric(
+    fact: VerifiedFact,
+    evidence_lookup: dict[str, EvidenceItem],
+) -> bool:
+    for item in evidence_for_fact(fact, evidence_lookup):
+        if item.evidence_type not in {
+            "entity_ranking",
+            "entity_performance",
+        }:
+            continue
+        text_parts = [
+            item.finding,
+            item.strength_label,
+            item.metrics.get("semantic_label"),
+            item.metrics.get("question"),
+            item.metrics.get("measure"),
+            fact.fact_summary,
+            *item.source_paths,
+        ]
+        text = " ".join(str(part) for part in text_parts if part)
+        if EVENT_LOW_PRIORITY_ENTITY_METRIC_PATTERN.search(text):
+            return True
+    return False
+
+
 def event_fact_slot(
     fact: VerifiedFact,
     evidence_lookup: dict[str, EvidenceItem],
@@ -3187,6 +4337,15 @@ def event_fact_slot(
     if "event_status" in evidence_types:
         return "event_status"
 
+    if "participant_record_context" in evidence_types:
+        return "participant_record_context"
+
+    if "score_progression" in evidence_types:
+        return "score_progression"
+
+    if "event_sequence" in evidence_types:
+        return "event_sequence"
+
     if "event_context" in evidence_types:
         return "event_context"
 
@@ -3197,6 +4356,9 @@ def event_fact_slot(
             for item in items
         ):
             return "participation"
+
+        if any(event_evidence_is_segment_ranking(item) for item in items):
+            return "event_sequence"
 
         return "leading_performance"
 
@@ -3221,6 +4383,7 @@ def select_event_priority_facts(
     def event_priority_score(
         fact: VerifiedFact,
     ) -> float:
+        slot = event_fact_slot(fact, evidence_lookup)
         analytical_functions = {
             evidence_analytical_function(item)
             for item in evidence_for_fact(
@@ -3231,13 +4394,22 @@ def select_event_priority_facts(
         component_bonus = (
             0.20
             if (
-                event_fact_slot(fact, evidence_lookup)
-                == "main_contrast"
+                slot == "main_contrast"
                 and AnalyticalFunction.OUTCOME_COMPONENT
                 in analytical_functions
             )
             else 0.0
         )
+        sequence_bonus = 0.0
+        if slot == "event_sequence":
+            sequence_bonus = (
+                0.35
+                if event_sequence_fact_is_actionable(
+                    fact,
+                    evidence_lookup,
+                )
+                else -0.25
+            )
 
         return (
             evidence_priority_score_for_fact(
@@ -3245,6 +4417,7 @@ def select_event_priority_facts(
                 evidence_lookup,
             )
             + component_bonus
+            + sequence_bonus
         )
 
     ranked = sorted(
@@ -3252,33 +4425,115 @@ def select_event_priority_facts(
         key=event_priority_score,
         reverse=True,
     )
+    explicit_detail_requested = bool(
+        re.search(
+            r"\b(all|complete|detailed|every|exhaustive|full)\b",
+            request,
+            re.IGNORECASE,
+        )
+    )
+    supporting_limit = (
+        settings.writer_supporting_fact_limit
+        if settings.writer_supporting_fact_limit is not None
+        else None
+    )
+    actionable_sequence_available = any(
+        event_fact_slot(fact, evidence_lookup) == "event_sequence"
+        and event_sequence_fact_is_actionable(fact, evidence_lookup)
+        for fact in facts
+    )
+
     selected: list[VerifiedFact] = []
     selected_ids: set[str] = set()
+    slot_counts: dict[str, int] = {}
+    slot_limits: dict[str, int | None] = {
+        "event_result": 2,
+        "event_context": 1,
+        "event_status": 1,
+        "participant_record_context": 1,
+        "score_progression": 1,
+        "event_sequence": None,
+        "main_contrast": 2,
+        "leading_performance": None,
+        "participation": None if explicit_detail_requested else 0,
+    }
+
+    def can_use_fact(
+        fact: VerifiedFact,
+        *,
+        as_supporting: bool = False,
+    ) -> bool:
+        if fact.fact_id in selected_ids and not as_supporting:
+            return False
+        if (
+            fact.recommended_use == RecommendedUse.OMIT_UNLESS_REQUESTED
+            and not explicit_detail_requested
+        ):
+            return False
+        slot = event_fact_slot(fact, evidence_lookup)
+        if slot == "participation" and not explicit_detail_requested:
+            return False
+        if (
+            slot == "event_sequence"
+            and actionable_sequence_available
+            and not event_sequence_fact_is_actionable(
+                fact,
+                evidence_lookup,
+            )
+        ):
+            return False
+        if (
+            slot == "leading_performance"
+            and event_fact_has_low_priority_entity_metric(
+                fact,
+                evidence_lookup,
+            )
+            and not explicit_detail_requested
+        ):
+            return False
+        return True
 
     for slot in (
         "event_result",
         "event_context",
+        "participant_record_context",
         "event_status",
+        "score_progression",
         "leading_performance",
         "main_contrast",
+        "event_sequence",
         "participation",
     ):
+        limit = slot_limits.get(slot)
+        if limit == 0:
+            continue
         for fact in ranked:
-            if fact.fact_id in selected_ids:
-                continue
-
             if event_fact_slot(fact, evidence_lookup) != slot:
                 continue
+            if not can_use_fact(fact):
+                continue
+            if (
+                limit is not None
+                and slot_counts.get(slot, 0) >= limit
+            ):
+                break
 
             selected.append(fact)
             selected_ids.add(fact.fact_id)
+            slot_counts[slot] = slot_counts.get(slot, 0) + 1
 
     supporting: list[VerifiedFact] = []
     for fact in ranked:
         if fact.fact_id in selected_ids:
             continue
-
+        if not can_use_fact(fact, as_supporting=True):
+            continue
         supporting.append(fact)
+        if (
+            supporting_limit is not None
+            and len(supporting) >= supporting_limit
+        ):
+            break
 
     return selected, supporting
 
@@ -3348,8 +4603,34 @@ def build_writer_evidence_pack(
         ReportGenre.EVENT_REPORT,
         ReportGenre.SPORTS_GAME_REPORT,
     }
+    focused_table_task = (
+        getattr(plan.report_specification, "communication_task", None)
+        == CommunicationTask.FOCUSED_TABLE_DESCRIPTION
+    )
 
-    if event_genre:
+    if focused_table_task:
+        focused_facts = [
+            fact
+            for fact in facts
+            if EvidenceCapability.FOCUSED_TABLE_REGION
+            in fact.source_capabilities
+            or any(
+                evidence_lookup[evidence_id].capability
+                == EvidenceCapability.FOCUSED_TABLE_REGION
+                for evidence_id in fact.evidence_ids
+                if evidence_id in evidence_lookup
+            )
+        ]
+        priority = sorted(
+            focused_facts,
+            key=lambda fact: evidence_priority_score_for_fact(
+                fact,
+                evidence_lookup,
+            ),
+            reverse=True,
+        )
+        supporting = []
+    elif event_genre:
         priority, supporting = select_event_priority_facts(
             facts=facts,
             evidence=evidence,
@@ -3396,7 +4677,7 @@ def build_writer_evidence_pack(
             if (
                 fact.recommended_use == RecommendedUse.LIMITATION
                 or ClaimPermission.INSUFFICIENCY in fact.claim_permissions
-                or fact.required_caveats
+                or (fact.required_caveats and not event_genre)
             )
         ],
         key=lambda fact: evidence_priority_score_for_fact(fact, evidence_lookup),
@@ -3561,9 +4842,22 @@ def validate_writer_output(
             "The title contains entities unsupported by its facts: "
             f"{sorted(unsupported_title_entities)}"
         )
+    title_support_numbers = [
+        number
+        for fact in title_facts
+        for number in [
+            *[
+                value
+                for _, value in extract_number_tokens(
+                    fact.fact_summary
+                )
+            ],
+            *flatten_numbers(fact.structured_values),
+        ]
+    ]
     if title_facts and not numbers_supported(
         output.title,
-        [number for fact in title_facts for number in flatten_numbers(fact.structured_values)],
+        title_support_numbers,
     ):
         errors.append("The title contains a number unsupported by its facts.")
     if CAUSAL_PATTERN.search(output.title) and not any(
@@ -3756,7 +5050,15 @@ def validate_writer_output(
         support_numbers = [
             number
             for fact in supporting_facts
-            for number in flatten_numbers(fact.structured_values)
+            for number in [
+                *[
+                    value
+                    for _, value in extract_number_tokens(
+                        fact.fact_summary
+                    )
+                ],
+                *flatten_numbers(fact.structured_values),
+            ]
         ]
         if (
             supporting_facts
@@ -3787,11 +5089,12 @@ def validate_writer_output(
             )
 
     declared = set(output.selected_fact_ids)
-    used = {
+    used = set(output.title_fact_ids)
+    used.update(
         fact_id
         for support in output.sentence_support
         for fact_id in support.fact_ids
-    }
+    )
 
     if declared != used:
         errors.append(
@@ -3877,11 +5180,13 @@ def materialise_writer_output(
     *,
     insight_ledger: InsightLedger | None = None,
     allow_hypotheses_in_report: bool = False,
+    content_requirements: dict[str, Any] | None = None,
     writer_mode: str = "llm_writer",
     eligible_for_primary_evaluation: bool = True,
     quality_revision_round: int = 0,
     quality_revision_summary: str | None = None,
 ) -> WriterOutput:
+    content_requirements = content_requirements or {}
     insight_ledger = insight_ledger or InsightLedger(
         synthesis_enabled=False
     )
@@ -3901,19 +5206,43 @@ def materialise_writer_output(
         **verified_insight_lookup,
         **hypothesis_insight_lookup,
     }
+    output_form = content_requirements.get("output_form")
+    short_form_without_headings = bool(
+        content_requirements.get("allow_headings") is False
+        or output_form
+        in {
+            OutputForm.ONE_SENTENCE.value,
+            OutputForm.DIRECT_ANSWER.value,
+            OutputForm.SHORT_TEXT.value,
+        }
+    )
     unknown_title_fact_ids = [
         fact_id for fact_id in draft.title_fact_ids if fact_id not in fact_lookup
     ]
-    if unknown_title_fact_ids:
+    if unknown_title_fact_ids and not short_form_without_headings:
         raise ValueError(f"Writer draft title contains unknown fact IDs: {unknown_title_fact_ids}")
 
-    lines: list[str] = [
-        f"# {draft.title.strip()}",
-        "",
-    ]
+    lines: list[str] = (
+        []
+        if short_form_without_headings
+        else [
+            f"# {draft.title.strip()}",
+            "",
+        ]
+    )
+    max_rendered_sentences = (
+        int(content_requirements["max_sentences"])
+        if short_form_without_headings
+        and content_requirements.get("max_sentences") is not None
+        else None
+    )
 
     sentence_support: list[SentenceSupport] = []
-    selected_fact_ids: list[str] = list(dict.fromkeys(draft.title_fact_ids))
+    selected_fact_ids: list[str] = (
+        []
+        if short_form_without_headings
+        else list(dict.fromkeys(draft.title_fact_ids))
+    )
     sentence_number = 1
 
     for section in draft.sections:
@@ -3927,14 +5256,29 @@ def materialise_writer_output(
         if not heading:
             continue
 
-        lines.extend(
-            [
-                f"## {heading}",
-                "",
-            ]
-        )
+        if (
+            short_form_without_headings
+            and max_rendered_sentences is not None
+            and sentence_number > max_rendered_sentences
+        ):
+            break
+
+        if not short_form_without_headings:
+            lines.extend(
+                [
+                    f"## {heading}",
+                    "",
+                ]
+            )
 
         for sentence_draft in section.sentences:
+            if (
+                short_form_without_headings
+                and max_rendered_sentences is not None
+                and sentence_number > max_rendered_sentences
+            ):
+                break
+
             sentence_text = re.sub(
                 r"\s+",
                 " ",
@@ -4065,6 +5409,13 @@ def materialise_writer_output(
             )
 
             for rendered_sentence in rendered_sentences:
+                if (
+                    short_form_without_headings
+                    and max_rendered_sentences is not None
+                    and sentence_number > max_rendered_sentences
+                ):
+                    break
+
                 lines.append(rendered_sentence)
 
                 sentence_support.append(
@@ -4095,7 +5446,8 @@ def materialise_writer_output(
 
                 sentence_number += 1
 
-        lines.append("")
+        if not short_form_without_headings:
+            lines.append("")
 
     selected_fact_ids = list(
         dict.fromkeys(selected_fact_ids)
@@ -4107,8 +5459,16 @@ def materialise_writer_output(
     ]
 
     output = WriterOutput(
-        title=draft.title.strip(),
-        title_fact_ids=list(dict.fromkeys(draft.title_fact_ids)),
+        title=(
+            "Focused table description"
+            if short_form_without_headings
+            else draft.title.strip()
+        ),
+        title_fact_ids=(
+            []
+            if short_form_without_headings
+            else list(dict.fromkeys(draft.title_fact_ids))
+        ),
         markdown=(
             "\n".join(lines).strip()
             + "\n"
@@ -4138,6 +5498,13 @@ def materialise_writer_output(
         fact_ledger,
         insight_ledger,
         allow_hypotheses_in_report,
+    )
+    errors.extend(
+        writer_output_content_requirement_errors(
+            writer_output=output,
+            requirements=content_requirements,
+            include_word_count=True,
+        )
     )
 
     if errors:
@@ -4211,12 +5578,9 @@ def accept_writer_quality_revision(
         ),
         settings=settings,
     )
-    maximum_words = (
-        report_specification.maximum_length_words
-        or report_specification.target_length_words
-    )
+    maximum_words = report_specification.maximum_length_words
 
-    if after_words > maximum_words:
+    if maximum_words is not None and after_words > maximum_words:
         reasons.append(
             "The revision exceeds the configured report word ceiling."
         )
@@ -4292,6 +5656,494 @@ def accept_writer_quality_revision(
         list(dict.fromkeys(reasons)),
     )
 
+
+def _focused_table_fallback_writer(
+    pack: WriterEvidencePack,
+    evidence_by_id: dict[str, EvidenceItem],
+) -> WriterOutput | None:
+    available_facts = list(
+        {
+            fact.fact_id: fact
+            for fact in (
+                pack.priority_facts
+                + pack.supporting_facts
+                + pack.limitation_facts
+            )
+        }.values()
+    )
+    fact_lookup = {
+        fact.fact_id: fact
+        for fact in available_facts
+    }
+    focused_insight = next(
+        (
+            insight
+            for insight in [
+                *pack.priority_verified_insights,
+                *pack.supporting_verified_insights,
+            ]
+            if any(
+                evidence_by_id[evidence_id].capability
+                == EvidenceCapability.FOCUSED_TABLE_REGION
+                for evidence_id in insight.source_evidence_ids
+                if evidence_id in evidence_by_id
+            )
+        ),
+        None,
+    )
+    if focused_insight is not None:
+        sentence = re.sub(
+            r"\s+",
+            " ",
+            focused_insight.statement,
+        ).strip()
+        if sentence and sentence[-1] not in ".!?":
+            sentence += "."
+        fact_ids = [
+            fact_id
+            for fact_id in focused_insight.source_fact_ids
+            if fact_id in fact_lookup
+        ]
+        evidence_ids = list(focused_insight.source_evidence_ids)
+        support = SentenceSupport(
+            sentence_id="SENT_0001",
+            sentence_text=sentence,
+            fact_ids=fact_ids,
+            evidence_ids=evidence_ids,
+            insight_ids=[focused_insight.insight_id],
+            interpretation_level=InterpretationLevel.BOUNDED_INSIGHT,
+            support_type=SupportType.MULTI_FACT_SYNTHESIS,
+        )
+        return WriterOutput(
+            title="Focused table description",
+            markdown=sentence + "\n",
+            sentence_support=[support],
+            selected_fact_ids=fact_ids,
+            omitted_fact_ids=[
+                fact.fact_id
+                for fact in available_facts
+                if fact.fact_id not in set(fact_ids)
+            ],
+            writer_notes=[
+                "Deterministic writer fallback used a verified focused-table insight.",
+                "This output is preserved for debugging "
+                "and is not eligible for primary evaluation.",
+            ],
+            writer_mode="deterministic_fallback",
+            eligible_for_primary_evaluation=False,
+        )
+
+    focused_fact = next(
+        (
+            fact
+            for fact in available_facts
+            if any(
+                evidence_by_id[evidence_id].capability
+                == EvidenceCapability.FOCUSED_TABLE_REGION
+                for evidence_id in fact.evidence_ids
+                if evidence_id in evidence_by_id
+            )
+        ),
+        None,
+    )
+    if focused_fact is None:
+        return None
+
+    evidence_item = next(
+        (
+            evidence_by_id[evidence_id]
+            for evidence_id in focused_fact.evidence_ids
+            if evidence_id in evidence_by_id
+            and evidence_by_id[evidence_id].capability
+            == EvidenceCapability.FOCUSED_TABLE_REGION
+        ),
+        None,
+    )
+    metrics = evidence_item.metrics if evidence_item is not None else {}
+
+    values = [
+        str(value).strip()
+        for value in metrics.get("highlighted_values", [])
+        if str(value).strip()
+    ]
+    row_context = [
+        str(value).strip()
+        for value in metrics.get("row_context", [])
+        if str(value).strip()
+    ]
+    header_context = [
+        str(value).strip()
+        for value in metrics.get("header_context", [])
+        if str(value).strip()
+    ]
+    page_title = str(metrics.get("page_title") or "").strip()
+    section_title = str(metrics.get("section_title") or "").strip()
+    proposition = str(metrics.get("description_proposition") or "").strip()
+    local_contrast = _focused_table_local_contrast_summary(metrics)
+    record_relation = metrics.get("focused_record_relation")
+    record_summary = (
+        str(record_relation.get("relation_summary") or "").strip()
+        if isinstance(record_relation, dict)
+        else ""
+    )
+    list_relation = metrics.get("focused_list_relation")
+    list_summary = (
+        str(list_relation.get("relation_summary") or "").strip()
+        if isinstance(list_relation, dict)
+        else ""
+    )
+    record_group_summary = str(
+        metrics.get("highlighted_record_group_summary") or ""
+    ).strip()
+
+    value_text = ", ".join(values)
+    sentence = focused_fact.fact_summary
+    if local_contrast:
+        sentence = local_contrast
+    elif record_summary:
+        sentence = record_summary
+    elif list_summary:
+        sentence = list_summary
+    elif record_group_summary:
+        sentence = record_group_summary
+    elif proposition:
+        sentence = proposition
+    elif value_text:
+        if row_context and header_context:
+            sentence = (
+                f"The selected table value is {value_text} under the "
+                f"{header_context[0]} header in the row containing "
+                f"{row_context[0]}"
+            )
+        elif row_context:
+            sentence = (
+                f"The selected table value is {value_text} in the row "
+                f"containing {row_context[0]}"
+            )
+        else:
+            sentence = f"The selected table cell value is {value_text}"
+
+        context_parts = [
+            part
+            for part in [section_title, page_title]
+            if part
+        ]
+        if context_parts:
+            sentence += " in " + " / ".join(context_parts)
+
+    sentence = re.sub(r"\s+", " ", sentence).strip()
+    if sentence and sentence[-1] not in ".!?":
+        sentence += "."
+
+    support = SentenceSupport(
+        sentence_id="SENT_0001",
+        sentence_text=sentence,
+        fact_ids=[focused_fact.fact_id],
+        evidence_ids=list(focused_fact.evidence_ids),
+        support_type=SupportType.DIRECT,
+    )
+
+    return WriterOutput(
+        title="Focused table description",
+        markdown=sentence + "\n",
+        sentence_support=[support],
+        selected_fact_ids=[focused_fact.fact_id],
+        omitted_fact_ids=[
+            fact.fact_id
+            for fact in available_facts
+            if fact.fact_id != focused_fact.fact_id
+        ],
+        writer_notes=[
+            "Deterministic writer fallback was used.",
+            "This output is preserved for debugging "
+            "and is not eligible for primary evaluation.",
+        ],
+        writer_mode="deterministic_fallback",
+        eligible_for_primary_evaluation=False,
+    )
+
+
+def _humanise_record_key(value: str) -> str:
+    text = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", value)
+    text = text.replace("_", " ").replace("-", " ")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _attribute_sentence(
+    records: list[dict[str, Any]],
+) -> str:
+    attributes = [
+        (
+            _humanise_record_key(str(record.get("attribute_name") or "")),
+            str(record.get("attribute_value") or "").strip(),
+        )
+        for record in records
+        if str(record.get("record_kind") or "") != "triple"
+        and str(record.get("attribute_name") or "").strip()
+        and str(record.get("attribute_value") or "").strip()
+    ]
+    if not attributes:
+        return ""
+
+    by_key = {
+        re.sub(r"[^a-z0-9]+", "", key.casefold()): (key, value)
+        for key, value in attributes
+    }
+    subject = next(
+        (
+            value
+            for key in ["name", "title", "label"]
+            if key in by_key
+            for _, value in [by_key[key]]
+        ),
+        None,
+    )
+    if subject is None:
+        subject = attributes[0][1]
+
+    used_keys: set[str] = set()
+    clauses: list[str] = []
+    type_value = next(
+        (
+            value
+            for key in ["eattype", "type", "category"]
+            if key in by_key
+            for _, value in [by_key[key]]
+        ),
+        None,
+    )
+    if type_value:
+        article = "an" if type_value[:1].casefold() in {"a", "e", "i", "o", "u"} else "a"
+        clauses.append(f"is {article} {type_value}")
+        used_keys.update({"eattype", "type", "category"})
+
+    relation_clauses: list[str] = []
+    for normalised_key, (key, value) in by_key.items():
+        if normalised_key in used_keys or normalised_key in {"name", "title", "label"}:
+            continue
+        if normalised_key == "near":
+            relation_clauses.append(f"near {value}")
+        elif normalised_key == "area":
+            relation_clauses.append(f"in the {value} area")
+        elif normalised_key == "food":
+            relation_clauses.append(f"serves {value} food")
+        elif normalised_key in {"customerrating", "rating"}:
+            relation_clauses.append(f"has a {key} of {value}")
+        elif normalised_key == "pricerange":
+            relation_clauses.append(f"has a {key} of {value}")
+        elif normalised_key == "familyfriendly":
+            if value.casefold() in {"yes", "true", "1"}:
+                relation_clauses.append("is family friendly")
+            elif value.casefold() in {"no", "false", "0"}:
+                relation_clauses.append("is not family friendly")
+            else:
+                relation_clauses.append(f"has {key} {value}")
+        else:
+            relation_clauses.append(f"has {key} {value}")
+
+    if clauses:
+        sentence = f"{subject} " + " and ".join(clauses)
+        if relation_clauses:
+            prepositional = [
+                clause
+                for clause in relation_clauses
+                if clause.startswith(("near ", "in ", "at ", "on "))
+            ]
+            predicates = [
+                clause
+                for clause in relation_clauses
+                if clause not in prepositional
+            ]
+            if prepositional:
+                sentence += " " + " and ".join(prepositional)
+            if predicates:
+                sentence += " and " + " and ".join(predicates)
+    else:
+        details = [
+            f"{key} {value}"
+            for key, value in attributes
+            if value != subject
+        ]
+        sentence = (
+            f"{subject} has " + ", ".join(details)
+            if details
+            else str(subject)
+        )
+
+    return sentence.strip()
+
+
+def _triple_sentence(
+    records: list[dict[str, Any]],
+) -> str:
+    triples = [
+        (
+            str(record.get("subject") or "").strip(),
+            _humanise_record_key(str(record.get("relation") or "")),
+            str(record.get("object") or "").strip(),
+        )
+        for record in records
+        if str(record.get("record_kind") or "") == "triple"
+        and str(record.get("subject") or "").strip()
+        and str(record.get("relation") or "").strip()
+        and str(record.get("object") or "").strip()
+    ]
+    if not triples:
+        return ""
+
+    grouped: dict[str, list[tuple[str, str]]] = {}
+    for subject, relation, obj in triples:
+        grouped.setdefault(subject, []).append((relation, obj))
+
+    sentences: list[str] = []
+    for subject, relations in grouped.items():
+        relation_text = ", ".join(
+            f"{relation} {obj}"
+            for relation, obj in relations
+        )
+        sentences.append(f"{subject} {relation_text}")
+    return "; ".join(sentences)
+
+
+def _structured_record_fallback_writer(
+    pack: WriterEvidencePack,
+    evidence_by_id: dict[str, EvidenceItem],
+) -> WriterOutput | None:
+    available_facts = list(
+        {
+            fact.fact_id: fact
+            for fact in (
+                pack.priority_facts
+                + pack.supporting_facts
+                + pack.limitation_facts
+            )
+        }.values()
+    )
+    fact_lookup = {
+        fact.fact_id: fact
+        for fact in available_facts
+    }
+    structured_insight = next(
+        (
+            insight
+            for insight in [
+                *pack.priority_verified_insights,
+                *pack.supporting_verified_insights,
+            ]
+            if any(
+                evidence_by_id[evidence_id].capability
+                == EvidenceCapability.STRUCTURED_RECORD_VERBALISATION
+                for evidence_id in insight.source_evidence_ids
+                if evidence_id in evidence_by_id
+            )
+        ),
+        None,
+    )
+    if structured_insight is not None:
+        sentence = re.sub(r"\s+", " ", structured_insight.statement).strip()
+        if sentence and sentence[-1] not in ".!?":
+            sentence += "."
+        fact_ids = [
+            fact_id
+            for fact_id in structured_insight.source_fact_ids
+            if fact_id in fact_lookup
+        ]
+        evidence_ids = list(structured_insight.source_evidence_ids)
+        return WriterOutput(
+            title="Structured record verbalisation",
+            markdown=sentence + "\n",
+            sentence_support=[
+                SentenceSupport(
+                    sentence_id="SENT_0001",
+                    sentence_text=sentence,
+                    fact_ids=fact_ids,
+                    evidence_ids=evidence_ids,
+                    insight_ids=[structured_insight.insight_id],
+                    interpretation_level=InterpretationLevel.BOUNDED_INSIGHT,
+                    support_type=SupportType.MULTI_FACT_SYNTHESIS,
+                )
+            ],
+            selected_fact_ids=fact_ids,
+            omitted_fact_ids=[
+                fact.fact_id
+                for fact in available_facts
+                if fact.fact_id not in set(fact_ids)
+            ],
+            writer_notes=[
+                "Deterministic writer fallback used a verified structured-record insight.",
+                "This output is preserved for debugging "
+                "and is not eligible for primary evaluation.",
+            ],
+            writer_mode="deterministic_fallback",
+            eligible_for_primary_evaluation=False,
+        )
+
+    structured_fact = next(
+        (
+            fact
+            for fact in available_facts
+            if any(
+                evidence_by_id[evidence_id].capability
+                == EvidenceCapability.STRUCTURED_RECORD_VERBALISATION
+                for evidence_id in fact.evidence_ids
+                if evidence_id in evidence_by_id
+            )
+        ),
+        None,
+    )
+    if structured_fact is None:
+        return None
+
+    evidence_item = next(
+        (
+            evidence_by_id[evidence_id]
+            for evidence_id in structured_fact.evidence_ids
+            if evidence_id in evidence_by_id
+            and evidence_by_id[evidence_id].capability
+            == EvidenceCapability.STRUCTURED_RECORD_VERBALISATION
+        ),
+        None,
+    )
+    metrics = evidence_item.metrics if evidence_item is not None else {}
+    records = [
+        record
+        for record in metrics.get("records", [])
+        if isinstance(record, dict)
+    ]
+    sentence = _triple_sentence(records) or _attribute_sentence(records)
+    sentence = sentence or structured_fact.fact_summary
+    sentence = re.sub(r"\s+", " ", sentence).strip()
+    if sentence and sentence[-1] not in ".!?":
+        sentence += "."
+
+    return WriterOutput(
+        title="Structured record verbalisation",
+        markdown=sentence + "\n",
+        sentence_support=[
+            SentenceSupport(
+                sentence_id="SENT_0001",
+                sentence_text=sentence,
+                fact_ids=[structured_fact.fact_id],
+                evidence_ids=list(structured_fact.evidence_ids),
+                support_type=SupportType.DIRECT,
+            )
+        ],
+        selected_fact_ids=[structured_fact.fact_id],
+        omitted_fact_ids=[
+            fact.fact_id
+            for fact in available_facts
+            if fact.fact_id != structured_fact.fact_id
+        ],
+        writer_notes=[
+            "Deterministic writer fallback was used.",
+            "This output is preserved for debugging "
+            "and is not eligible for primary evaluation.",
+        ],
+        writer_mode="deterministic_fallback",
+        eligible_for_primary_evaluation=False,
+    )
+
+
 def fallback_writer(
     pack: WriterEvidencePack,
 ) -> WriterOutput:
@@ -4310,6 +6162,29 @@ def fallback_writer(
             ReportGenre.SPORTS_GAME_REPORT,
         }
     )
+    evidence_by_id = build_evidence_lookup(
+        pack.evidence_ledger
+    )
+    if (
+        pack.report_specification.communication_task
+        == CommunicationTask.FOCUSED_TABLE_DESCRIPTION
+    ):
+        focused_output = _focused_table_fallback_writer(
+            pack,
+            evidence_by_id,
+        )
+        if focused_output is not None:
+            return focused_output
+    if pack.report_specification.communication_task in {
+        CommunicationTask.ATTRIBUTE_VERBALISATION,
+        CommunicationTask.TRIPLE_VERBALISATION,
+    }:
+        structured_output = _structured_record_fallback_writer(
+            pack,
+            evidence_by_id,
+        )
+        if structured_output is not None:
+            return structured_output
 
     priority_facts = pack.priority_facts
     if pack.report_specification.maximum_main_findings is not None:
@@ -4325,10 +6200,6 @@ def fallback_writer(
                 + pack.limitation_facts
             )
         }.values()
-    )
-
-    evidence_by_id = build_evidence_lookup(
-        pack.evidence_ledger
     )
 
     sections: dict[
@@ -4856,6 +6727,11 @@ def assess_genre_quality(
         for item in evidence.items
         if item.eligible_for_writer
     }
+    actionable_sequence_evidence_ids = {
+        evidence_id
+        for evidence_id, item in evidence_lookup.items()
+        if event_sequence_evidence_is_actionable(item)
+    }
     used_evidence_ids = {
         evidence_id
         for support in writer_output.sentence_support
@@ -4865,14 +6741,25 @@ def assess_genre_quality(
     def matching_evidence(slot: str) -> set[str]:
         matches: set[str] = set()
         for evidence_id, item in evidence_lookup.items():
-            if slot == "event_result" and item.evidence_type == "event_outcome":
+            if (
+                slot in {"focused_table_region", "focused_cell_context"}
+                and item.capability == EvidenceCapability.FOCUSED_TABLE_REGION
+            ):
+                matches.add(evidence_id)
+            elif (
+                slot == "structured_record_verbalisation"
+                and item.capability
+                == EvidenceCapability.STRUCTURED_RECORD_VERBALISATION
+            ):
+                matches.add(evidence_id)
+            elif slot == "event_result" and item.evidence_type == "event_outcome":
                 matches.add(evidence_id)
             elif slot == "leading_performance" and item.capability in {
                 EvidenceCapability.ENTITY_PERFORMANCE,
                 EvidenceCapability.RANKING,
             } and evidence_analytical_function(item) != (
                 AnalyticalFunction.PARTICIPATION
-            ):
+            ) and not event_evidence_is_segment_ranking(item):
                 matches.add(evidence_id)
             elif slot == "main_contrast" and item.evidence_type in {
                 "participant_comparison",
@@ -4884,9 +6771,29 @@ def assess_genre_quality(
                 matches.add(evidence_id)
             elif slot == "event_status" and item.evidence_type == "event_status":
                 matches.add(evidence_id)
+            elif (
+                slot == "participant_record_context"
+                and item.evidence_type == "participant_record_context"
+            ):
+                matches.add(evidence_id)
+            elif (
+                slot == "score_progression"
+                and item.evidence_type == "score_progression"
+            ):
+                matches.add(evidence_id)
+            elif (
+                slot == "event_sequence"
+                and item.evidence_type == "event_sequence"
+            ):
+                if (
+                    actionable_sequence_evidence_ids
+                    and evidence_id not in actionable_sequence_evidence_ids
+                ):
+                    continue
+                matches.add(evidence_id)
             elif slot == "secondary_performance" and item.capability == (
                 EvidenceCapability.RANKING
-            ):
+            ) and not event_evidence_is_segment_ranking(item):
                 matches.add(evidence_id)
             elif slot == "dataset_scope" and item.evidence_type in {
                 "dataset_overview",
@@ -4971,6 +6878,29 @@ def assess_genre_quality(
             "supported event context, performances and participant contrasts."
         )
 
+    if (
+        event_report
+        and (
+            actionable_sequence_evidence_ids
+            or any(
+                item.evidence_type == "event_sequence"
+                for item in evidence_lookup.values()
+            )
+        )
+        and (
+            EVENT_SEQUENCE_ABSENCE_PATTERN.search(writer_output.markdown)
+            or EVENT_SEQUENCE_OMISSION_PATTERN.search(writer_output.markdown)
+        )
+    ):
+        findings.append(
+            "The event report omits or disclaims event-sequence narration "
+            "even though supported event-sequence evidence is available."
+        )
+        recommendations.append(
+            "Use the supported event-sequence evidence without inferring "
+            "unsupported causes, momentum or turning points."
+        )
+
     if event_material_available:
         narrative_stats = sentence_support_narrative_stats(
             writer_output.sentence_support
@@ -5020,6 +6950,7 @@ def assess_genre_quality(
             }
             and evidence_analytical_function(item)
             != AnalyticalFunction.PARTICIPATION
+            and not event_evidence_is_segment_ranking(item)
         }
         used_participation = {
             evidence_id
@@ -5059,6 +6990,31 @@ def assess_genre_quality(
     )
 
 
+REPAIR_DRIVING_ERROR_TYPES = {
+    ErrorType.INCORRECT_NAMED_ENTITY,
+    ErrorType.INCORRECT_NUMBER,
+    ErrorType.INCORRECT_WORD,
+    ErrorType.CONTEXT_ERROR,
+    ErrorType.SUPPORT_MAPPING_ERROR,
+}
+
+
+def annotation_requires_repair(
+    annotation: AuditAnnotation,
+) -> bool:
+    return (
+        annotation.error_type in REPAIR_DRIVING_ERROR_TYPES
+        and annotation.severity
+        in {
+            Severity.MEDIUM,
+            Severity.HIGH,
+            Severity.CRITICAL,
+        }
+        and annotation.confidence >= 0.80
+        and bool(annotation.correction_goal.strip())
+    )
+
+
 def decide_release_status(
     *,
     annotations: list[AuditAnnotation],
@@ -5087,11 +7043,18 @@ def decide_release_status(
         and annotation.confidence >= 0.80
         for annotation in annotations
     )
+    unresolved_repairable = any(
+        annotation_requires_repair(annotation)
+        for annotation in annotations
+    )
 
     if unresolved_critical:
         return ReleaseStatus.HUMAN_REVIEW_REQUIRED
 
-    if unresolved_high and repair_budget_exhausted:
+    if (
+        repair_budget_exhausted
+        and (unresolved_high or unresolved_repairable)
+    ):
         return ReleaseStatus.HUMAN_REVIEW_REQUIRED
 
     if (
@@ -5162,11 +7125,105 @@ def negative_causal(sentence: str) -> bool:
     return bool(
         re.search(
             r"\b(no causal|not causal|does not establish causation|"
-            r"causality is not established|causal conclusion is not)\b",
+            r"causality is not established|causal conclusion is not|"
+            r"do(?:es)? not explain why|cannot explain why|"
+            r"do(?:es)? not establish why|"
+            r"without explaining why)\b",
             sentence,
             re.IGNORECASE,
         )
     )
+
+
+def _normalised_text_contains(
+    haystack: str,
+    needle: Any,
+) -> bool:
+    needle_text = str(needle or "").strip()
+    if not needle_text:
+        return False
+
+    return needle_text.casefold() in haystack.casefold()
+
+
+def _highlight_describes_tied_score(
+    highlight: Mapping[str, Any],
+) -> bool:
+    left_value = highlight.get("left_value")
+    right_value = highlight.get("right_value")
+    if isinstance(left_value, (int, float)) and isinstance(
+        right_value,
+        (int, float),
+    ):
+        return float(left_value) == float(right_value)
+
+    score_phrase = str(highlight.get("score_phrase") or "")
+    return bool(
+        re.search(
+            r"\b(?:level|tie[sd]?)\b",
+            score_phrase,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _highlight_referenced_by_sentence(
+    sentence: str,
+    highlight: Mapping[str, Any],
+) -> bool:
+    event_text = str(highlight.get("event_text") or "")
+    actor = event_text.split(" recorded ", 1)[0]
+    actor = re.sub(
+        r"^.*?:\s*",
+        "",
+        actor,
+    ).strip()
+    score_phrase = str(highlight.get("score_phrase") or "")
+
+    return any(
+        _normalised_text_contains(sentence, value)
+        for value in [
+            actor,
+            score_phrase,
+            f"{highlight.get('left_value'):g}-{highlight.get('right_value'):g}"
+            if isinstance(highlight.get("left_value"), (int, float))
+            and isinstance(highlight.get("right_value"), (int, float))
+            else None,
+        ]
+    )
+
+
+def score_state_tie_claim_supported(
+    sentence: str,
+    evidence_items: Sequence[EvidenceItem],
+) -> bool:
+    if not SCORE_STATE_TIE_CLAIM_PATTERN.search(sentence):
+        return True
+    if NEGATED_SCORE_STATE_TIE_PATTERN.search(sentence):
+        return True
+
+    sequence_items = [
+        item
+        for item in evidence_items
+        if item.evidence_type == "event_sequence"
+    ]
+    if not sequence_items:
+        return False
+
+    for item in sequence_items:
+        highlights = item.metrics.get("highlights", [])
+        if not isinstance(highlights, list):
+            continue
+
+        for highlight in highlights:
+            if not isinstance(highlight, Mapping):
+                continue
+            if not _highlight_describes_tied_score(highlight):
+                continue
+            if _highlight_referenced_by_sentence(sentence, highlight):
+                return True
+
+    return False
 
 
 def negative_predictive(sentence: str) -> bool:
@@ -5586,6 +7643,32 @@ def deterministic_audit(
             for evidence_id in supporting_evidence_ids
             if evidence_id in evidence_lookup_by_id
         ]
+        if not score_state_tie_claim_supported(
+            sentence,
+            supporting_evidence_items,
+        ):
+            add_annotation(
+                annotations,
+                sentence=sentence,
+                text_span=sentence,
+                error_type=ErrorType.CONTEXT_ERROR,
+                subtype="unsupported_event_score_state",
+                severity=Severity.HIGH,
+                explanation=(
+                    "The sentence uses tying or score-level wording without "
+                    "mapped event-sequence evidence showing that the referenced "
+                    "event left the score tied."
+                ),
+                correction_goal=(
+                    "Remove the tying wording or map the sentence to exact "
+                    "event-sequence evidence whose score state supports it."
+                ),
+                fact_ids=support.fact_ids,
+                evidence_ids=sorted(supporting_evidence_ids),
+                insight_ids=support.insight_ids,
+                confidence=0.95,
+            )
+
         for conflict in qualitative_strength_conflicts(
             sentence,
             supporting_evidence_items,
@@ -6365,11 +8448,8 @@ def deterministic_audit(
             "Start with a concrete dataset overview or leading supported finding."
         )
 
-    maximum_words = (
-        report_specification.maximum_length_words
-        or report_specification.target_length_words
-    )
-    if word_count > maximum_words:
+    maximum_words = report_specification.maximum_length_words
+    if maximum_words is not None and word_count > maximum_words:
         quality_findings.append(
             f"The report contains {word_count} words and exceeds the "
             f"{maximum_words}-word ceiling."
@@ -6662,10 +8742,7 @@ def deterministic_audit(
     )
 
     serious = any(
-        annotation.severity in {
-            Severity.HIGH,
-            Severity.CRITICAL,
-        }
+        annotation_requires_repair(annotation)
         for annotation in annotations
     )
 
@@ -6808,10 +8885,7 @@ def merge_audit_proposal(
     )
 
     serious = any(
-        annotation.severity in {
-            Severity.HIGH,
-            Severity.CRITICAL,
-        }
+        annotation_requires_repair(annotation)
         for annotation in annotations
     )
 

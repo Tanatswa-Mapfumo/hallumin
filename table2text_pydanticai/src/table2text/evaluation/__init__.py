@@ -9,31 +9,40 @@ from .models import (
     MetricObservation,
     VariantConfig,
 )
+from .alignscore_client import AlignScoreClient
+from .external_factuality import ExternalFactualityResult, HHEMEvaluator
 from .notebook import (
     aggregate_for_notebook,
     default_paths,
     diagnostics_for_notebook,
     generate_reports_for_notebook,
     init_notebook_evaluation,
+    load_project_env,
     prepare_examples_for_notebook,
     read_jsonl_as_frame,
+    score_deepeval_for_notebook,
     score_reference_metrics_for_notebook,
 )
 
 __all__ = [
     "aggregate_for_notebook",
+    "AlignScoreClient",
     "BenchmarkExample",
     "DatasetConfig",
     "default_paths",
     "DeepEvalObservation",
     "diagnostics_for_notebook",
+    "ExternalFactualityResult",
     "ExperimentConfig",
     "generate_reports_for_notebook",
     "GenerationRecord",
+    "HHEMEvaluator",
     "init_notebook_evaluation",
+    "load_project_env",
     "MetricObservation",
     "prepare_examples_for_notebook",
     "read_jsonl_as_frame",
+    "score_deepeval_for_notebook",
     "score_reference_metrics_for_notebook",
     "VariantConfig",
 ]

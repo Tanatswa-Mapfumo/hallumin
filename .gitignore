@@ -19,6 +19,7 @@ table2text_pydanticai/.env.*
 .uv-cache/
 .uv-python/
 table2text_pydanticai/.venv/
+table2text_pydanticai/.venv-alignscore/
 table2text_pydanticai/.bootstrap39/
 table2text_pydanticai/.uv-cache/
 table2text_pydanticai/.uv-python/

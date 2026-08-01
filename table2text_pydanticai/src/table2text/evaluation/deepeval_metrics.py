@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -7,6 +8,7 @@ from typing import Any, Callable
 from .datasets import write_jsonl
 from .models import DeepEvalConfig, DeepEvalObservation, GenerationRecord, MetricStatus
 from .reference_metrics import plain_text
+from table2text.config import load_env_files
 
 
 def make_observation(
@@ -55,6 +57,78 @@ def reference_for_judge(record: GenerationRecord) -> str | None:
     return "\n\n--- ALTERNATIVE REFERENCE ---\n\n".join(record.references)
 
 
+def source_chunks_for_judge(record: GenerationRecord, config: DeepEvalConfig) -> list[str]:
+    source = source_for_judge(record, config)
+    chunks = [chunk.strip() for chunk in source.split("\n\n") if chunk.strip()]
+    return chunks or ([source] if source.strip() else [])
+
+
+def _first_env(*names: str) -> str | None:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and value.strip():
+            return value.strip()
+    return None
+
+
+def _normalise_deepseek_model_name(model_name: str) -> str:
+    if model_name.startswith("deepseek:"):
+        return model_name.split(":", 1)[1]
+    return model_name
+
+
+def apply_deepeval_env_overrides(config: DeepEvalConfig) -> DeepEvalConfig:
+    updates: dict[str, Any] = {}
+    provider = _first_env(
+        "T2T_DEEPEVAL_JUDGE_PROVIDER",
+        "DEEPEVAL_JUDGE_PROVIDER",
+    )
+    if provider is not None:
+        updates["judge_provider"] = provider.lower()
+
+    model = _first_env(
+        "T2T_DEEPEVAL_JUDGE_MODEL",
+        "DEEPEVAL_JUDGE_MODEL",
+    )
+    if model is not None:
+        updates["judge_model"] = model
+
+    repetitions = _first_env(
+        "T2T_DEEPEVAL_JUDGE_REPETITIONS",
+        "DEEPEVAL_JUDGE_REPETITIONS",
+    )
+    if repetitions is not None:
+        updates["judge_repetitions"] = int(repetitions)
+
+    if not updates:
+        return config
+    return DeepEvalConfig.model_validate(config.model_dump() | updates)
+
+
+def build_judge_model(config: DeepEvalConfig) -> Any:
+    provider = config.judge_provider
+    model_name = config.judge_model
+    if model_name.startswith("deepseek:"):
+        provider = "deepseek"
+        model_name = _normalise_deepseek_model_name(model_name)
+
+    if provider == "deepseek":
+        api_key = _first_env("DEEPSEEK_API_KEY")
+        if api_key is None:
+            raise RuntimeError(
+                "DeepEval is configured to use DeepSeek, but DEEPSEEK_API_KEY "
+                "is not set in the environment or project .env file."
+            )
+        from deepeval.models import DeepSeekModel
+
+        return DeepSeekModel(
+            model=_normalise_deepseek_model_name(model_name),
+            api_key=api_key,
+        )
+
+    return model_name
+
+
 def run_metric(
     record: GenerationRecord,
     metric_name: str,
@@ -94,7 +168,7 @@ def run_metric(
 
 def evaluate_record(record: GenerationRecord, config: DeepEvalConfig) -> list[DeepEvalObservation]:
     try:
-        from deepeval.metrics import GEval, SummarizationMetric
+        from deepeval.metrics import FaithfulnessMetric, GEval, SummarizationMetric
         from deepeval.test_case import LLMTestCase, SingleTurnParams
     except ImportError:
         return [
@@ -108,10 +182,30 @@ def evaluate_record(record: GenerationRecord, config: DeepEvalConfig) -> list[De
             )
         ]
 
+    try:
+        judge_model = build_judge_model(config)
+    except Exception as exc:
+        return [
+            make_observation(
+                record,
+                metric_name="deepeval_judge_model",
+                judge_model=config.judge_model,
+                judge_repetition=0,
+                status=MetricStatus.ERROR,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+        ]
+
     source = source_for_judge(record, config)
+    source_chunks = source_chunks_for_judge(record, config)
     generated = plain_text(record.generated_text)
     expected = reference_for_judge(record)
-    test_case = LLMTestCase(input=source, actual_output=generated, expected_output=expected)
+    test_case = LLMTestCase(
+        input=source,
+        actual_output=generated,
+        expected_output=expected,
+        retrieval_context=source_chunks,
+    )
     factories: list[tuple[str, Callable[[], Any]]] = []
 
     if config.run_summarization:
@@ -120,7 +214,19 @@ def evaluate_record(record: GenerationRecord, config: DeepEvalConfig) -> list[De
                 "deepeval_summarization",
                 lambda: SummarizationMetric(
                     threshold=config.threshold,
-                    model=config.judge_model,
+                    model=judge_model,
+                    include_reason=True,
+                    async_mode=False,
+                ),
+            )
+        )
+    if config.run_faithfulness:
+        factories.append(
+            (
+                "deepeval_faithfulness",
+                lambda: FaithfulnessMetric(
+                    threshold=config.threshold,
+                    model=judge_model,
                     include_reason=True,
                     async_mode=False,
                 ),
@@ -141,7 +247,7 @@ def evaluate_record(record: GenerationRecord, config: DeepEvalConfig) -> list[De
                     ),
                     evaluation_params=[SingleTurnParams.INPUT, SingleTurnParams.ACTUAL_OUTPUT],
                     threshold=config.threshold,
-                    model=config.judge_model,
+                    model=judge_model,
                     async_mode=False,
                 ),
             )
@@ -163,7 +269,7 @@ def evaluate_record(record: GenerationRecord, config: DeepEvalConfig) -> list[De
                         SingleTurnParams.EXPECTED_OUTPUT,
                     ],
                     threshold=config.threshold,
-                    model=config.judge_model,
+                    model=judge_model,
                     async_mode=False,
                 ),
             )
@@ -181,7 +287,7 @@ def evaluate_record(record: GenerationRecord, config: DeepEvalConfig) -> list[De
                     ),
                     evaluation_params=[SingleTurnParams.INPUT, SingleTurnParams.ACTUAL_OUTPUT],
                     threshold=config.threshold,
-                    model=config.judge_model,
+                    model=judge_model,
                     async_mode=False,
                 ),
             )
@@ -199,7 +305,7 @@ def evaluate_record(record: GenerationRecord, config: DeepEvalConfig) -> list[De
                     ),
                     evaluation_params=[SingleTurnParams.ACTUAL_OUTPUT],
                     threshold=config.threshold,
-                    model=config.judge_model,
+                    model=judge_model,
                     async_mode=False,
                 ),
             )
@@ -218,7 +324,7 @@ def evaluate_record(record: GenerationRecord, config: DeepEvalConfig) -> list[De
                     ),
                     evaluation_params=[SingleTurnParams.INPUT, SingleTurnParams.ACTUAL_OUTPUT],
                     threshold=config.threshold,
-                    model=config.judge_model,
+                    model=judge_model,
                     async_mode=False,
                 ),
             )
@@ -240,6 +346,8 @@ def evaluate_deepeval(
     *,
     resume: bool = True,
 ) -> list[DeepEvalObservation]:
+    load_env_files()
+    config = apply_deepeval_env_overrides(config)
     if not config.enabled:
         return []
     existing: dict[tuple[str, str, int], DeepEvalObservation] = {}

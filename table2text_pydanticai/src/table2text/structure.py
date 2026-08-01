@@ -36,6 +36,21 @@ OUTCOME_FIELD_NAMES = {
     "pts",
     "result",
     "score",
+    "team_runs",
+    "total",
+}
+PARTICIPANT_LINE_SUFFIXES = {
+    "line",
+    "record",
+    "summary",
+}
+PARTICIPANT_LINE_METRIC_NAMES = {
+    "final_score",
+    "points",
+    "pts",
+    "score",
+    "team_runs",
+    "team_points",
     "total",
 }
 
@@ -112,6 +127,40 @@ def find_participant_container(
                 stack.append((child_path, child, depth + 1))
 
     return fallback
+
+
+def _participant_line_records(payload: Any) -> list[tuple[str, Mapping[str, Any]]]:
+    if not isinstance(payload, Mapping):
+        return []
+
+    records: list[tuple[str, Mapping[str, Any]]] = []
+    for key, child in payload.items():
+        if not isinstance(child, Mapping):
+            continue
+        normalised_key = normalise_key(str(key))
+        key_parts = normalised_key.split("_")
+        if len(key_parts) < 2 or key_parts[-1] not in PARTICIPANT_LINE_SUFFIXES:
+            continue
+        child_keys = {normalise_key(str(child_key)) for child_key in child}
+        has_result = "result" in child_keys
+        has_score = bool(child_keys & PARTICIPANT_LINE_METRIC_NAMES)
+        has_identity = bool(child_keys & IDENTITY_FIELD_NAMES)
+        if has_result and (has_score or has_identity):
+            records.append((str(key), child))
+
+    return records
+
+
+def has_paired_participant_line_records(payload: Any) -> bool:
+    records = _participant_line_records(payload)
+    if len(records) < 2:
+        return False
+    prefixes = {
+        normalise_key(key).rsplit("_", 1)[0]
+        for key, _ in records
+        if "_" in normalise_key(key)
+    }
+    return len(prefixes) >= 2
 
 
 def nested_paths(payload: Any, *, limit: int = 240) -> list[str]:
@@ -298,6 +347,9 @@ def _sparse_flattening_risk(payload: Any) -> bool:
 def _shape_for_payload(payload: Any) -> tuple[InputShape, str | None, list[str]]:
     participant_container = find_participant_container(payload)
     if participant_container is not None and isinstance(payload, Mapping):
+        return InputShape.EVENT_RECORD, "one event", ["event", "participant", "entity"]
+
+    if has_paired_participant_line_records(payload):
         return InputShape.EVENT_RECORD, "one event", ["event", "participant", "entity"]
 
     if isinstance(payload, list):

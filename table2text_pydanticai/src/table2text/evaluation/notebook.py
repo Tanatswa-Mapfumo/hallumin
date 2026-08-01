@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from .cli import write_default_metrics, write_default_variants
+from table2text.config import load_env_files
 from .datasets import (
     load_dataset_configs,
     prepare_datasets,
@@ -14,6 +15,7 @@ from .datasets import (
     save_default_dataset_configs,
 )
 from .diagnostics import write_diagnostics
+from .deepeval_metrics import evaluate_deepeval
 from .generation import generate_all_async, load_variants, read_generations
 from .models import ExperimentConfig
 from .reference_metrics import evaluate_reference_metrics
@@ -34,6 +36,18 @@ def default_paths(project_dir: Path) -> dict[str, Path]:
         "diagnostics": project_dir / "evaluation/results/diagnostics.csv",
         "analysis": project_dir / "evaluation/results/analysis",
     }
+
+
+def load_project_env(project_dir: Path) -> None:
+    project_dir = Path(project_dir)
+    load_env_files(
+        [
+            project_dir.parent / ".env",
+            project_dir / ".env",
+            project_dir.parent / ".env.local",
+            project_dir / ".env.local",
+        ]
+    )
 
 
 def init_notebook_evaluation(project_dir: Path) -> dict[str, Path]:
@@ -100,6 +114,28 @@ def score_reference_metrics_for_notebook(
         experiment.reference_metrics,
         output_path or paths["reference_metrics"],
         include_ineligible=include_ineligible,
+    )
+    return pd.DataFrame([item.model_dump(mode="json") for item in observations])
+
+
+def score_deepeval_for_notebook(
+    project_dir: Path,
+    *,
+    generations_path: Path | None = None,
+    metric_config_path: Path | None = None,
+    output_path: Path | None = None,
+    resume: bool = True,
+) -> pd.DataFrame:
+    load_project_env(project_dir)
+    paths = default_paths(project_dir)
+    experiment = ExperimentConfig.model_validate(
+        json.loads((metric_config_path or paths["metric_config"]).read_text(encoding="utf-8"))
+    )
+    observations = evaluate_deepeval(
+        read_generations(generations_path or paths["generations"]),
+        experiment.deepeval,
+        output_path or paths["deepeval_metrics"],
+        resume=resume,
     )
     return pd.DataFrame([item.model_dump(mode="json") for item in observations])
 

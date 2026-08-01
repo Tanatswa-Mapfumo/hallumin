@@ -1,5 +1,5 @@
 {
-  "experiment_id": "table2text_reference_evaluation_v1",
+  "experiment_id": "sportsett_4934_reference_similarity_comparison",
   "prepared_examples_path": "evaluation/prepared/all_examples.jsonl",
   "generations_path": "evaluation/generations/generations.jsonl",
   "result_directory": "evaluation/results",
@@ -18,9 +18,7 @@
       "rougeLsum",
       "meteor",
       "bertscore",
-      "parent",
-      "hhem",
-      "alignscore"
+      "parent"
     ],
     "bertscore_model": "roberta-base",
     "bertscore_num_layers": null,

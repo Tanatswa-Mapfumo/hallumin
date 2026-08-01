@@ -18,9 +18,7 @@
       "rougeLsum",
       "meteor",
       "bertscore",
-      "parent",
-      "hhem",
-      "alignscore"
+      "parent"
     ],
     "bertscore_model": "roberta-base",
     "bertscore_num_layers": null,
