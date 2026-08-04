@@ -52,6 +52,7 @@ from .schemas import (
     ReportGenre,
     ReportPatch,
     ReportQualityAssessment,
+    RealisationPolicy,
     ReviewDecision,
     SentenceSupport,
     Severity,
@@ -962,6 +963,16 @@ def build_writer_content_requirements(
         "output_form",
         None,
     )
+    realisation_policy = getattr(
+        report_specification,
+        "realisation_policy",
+        RealisationPolicy.STRICT_SOURCE_SURFACE,
+    )
+    realisation_policy_value = (
+        realisation_policy.value
+        if isinstance(realisation_policy, RealisationPolicy)
+        else str(realisation_policy)
+    )
     if communication_task == CommunicationTask.FOCUSED_TABLE_DESCRIPTION:
         lookup = build_evidence_lookup(evidence)
         candidate_fact_ids = _fact_ids_for_evidence_types(
@@ -1004,6 +1015,14 @@ def build_writer_content_requirements(
             "max_sentences": getattr(report_specification, "max_sentences", 1) or 1,
             "max_paragraphs": getattr(report_specification, "max_paragraphs", 1) or 1,
             "require_complete_sentence": True,
+            "realisation_policy": realisation_policy_value,
+            "style_rewrite_permissions": {
+                "may_normalise_identifier_separators": False,
+                "must_preserve_numbers_exactly": True,
+                "must_preserve_percentages_exactly": True,
+                "must_not_add_caveats": True,
+                "must_not_add_headings": True,
+            },
             "short_form_selection_policy": {
                 "prefer_highlighted_role_value_pairs": True,
                 "prefer_primary_subject_candidate": True,
@@ -1016,6 +1035,9 @@ def build_writer_content_requirements(
                 "use_supplied_focused_record_relations": True,
                 "use_supplied_focused_list_relations": True,
                 "scope_lower_higher_to_highlighted_set": True,
+                "preserve_numeric_surface_forms": True,
+                "preserve_identifier_surface_forms": True,
+                "avoid_spelling_out_numbers": True,
             },
             "units": units,
         }
@@ -1070,12 +1092,29 @@ def build_writer_content_requirements(
             "max_sentences": getattr(report_specification, "max_sentences", 2) or 2,
             "max_paragraphs": getattr(report_specification, "max_paragraphs", 1) or 1,
             "require_complete_sentence": True,
+            "realisation_policy": realisation_policy_value,
+            "style_rewrite_permissions": {
+                "may_normalise_identifier_separators": (
+                    realisation_policy_value
+                    == RealisationPolicy.NATURAL_REFERENCE_STYLE.value
+                ),
+                "may_humanise_relation_labels": True,
+                "must_preserve_numbers_exactly": True,
+                "must_preserve_units": True,
+                "must_not_add_caveats": True,
+                "must_not_add_headings": True,
+            },
             "short_form_selection_policy": {
                 "use_all_supplied_records": True,
                 "prefer_natural_phrasing": True,
                 "avoid_key_value_dump_when_relation_is_clear": True,
                 "do_not_add_unsupplied_attributes": True,
                 "do_not_discuss_dataset_profile": True,
+                "preserve_numeric_surface_forms": True,
+                "preserve_identifier_surface_forms": True,
+                "avoid_spelling_out_numbers": True,
+                "preserve_units_compactly": True,
+                "prefer_ordinal_rank_phrasing": True,
             },
             "units": units,
         }
@@ -1091,6 +1130,10 @@ def build_writer_content_requirements(
             "units": [],
         }
 
+    reference_recap_style = (
+        getattr(report_specification, "focus_scope", None)
+        == "reference_recap"
+    )
     lookup = build_evidence_lookup(evidence)
     facts = fact_ledger.writer_ready_facts
     insights = [
@@ -1216,6 +1259,31 @@ def build_writer_content_requirements(
         "enforce_minimum_words": bool(
             enforce_narrative
         ),
+        "realisation_policy": realisation_policy_value,
+        "style_rewrite_permissions": {
+            "may_normalise_identifier_separators": (
+                realisation_policy_value
+                in {
+                    RealisationPolicy.NATURAL_REFERENCE_STYLE.value,
+                    RealisationPolicy.EVENT_RECAP_STYLE.value,
+                }
+            ),
+            "may_compress_caveats": reference_recap_style,
+            "may_use_reference_style_event_transitions": (
+                realisation_policy_value
+                == RealisationPolicy.EVENT_RECAP_STYLE.value
+            ),
+            "must_preserve_numbers_exactly": True,
+            "must_not_add_unsupported_chronology": True,
+            "must_not_add_unsupported_causality": True,
+        },
+        "output_form": (
+            output_form.value
+            if isinstance(output_form, OutputForm)
+            else str(output_form or OutputForm.MULTI_PARAGRAPH_REPORT.value)
+        ),
+        "allow_headings": False if reference_recap_style else True,
+        "reference_recap_style": reference_recap_style,
         "narrative_requirements": {
             "enforce": enforce_narrative,
             "minimum_synthesis_sentences": 2,
@@ -1223,7 +1291,9 @@ def build_writer_content_requirements(
             "minimum_connective_sentences": (
                 1 if main_contrast_available else 0
             ),
-            "minimum_scope_limitations": 1,
+            "minimum_scope_limitations": (
+                0 if reference_recap_style else 1
+            ),
         },
         "units": units,
     }
@@ -1447,10 +1517,16 @@ def fact_support_text(
 
 
 def _normalise_entity_text(value: str) -> str:
+    text = value.replace("_", " ")
+    text = re.sub(
+        r"(?<=[A-Za-z])(?=[A-Z][a-z])",
+        " ",
+        text,
+    )
     return re.sub(
         r"\s+",
         " ",
-        value.replace("`", "").strip().casefold(),
+        text.replace("`", "").strip().casefold(),
     )
 
 
@@ -4432,10 +4508,15 @@ def select_event_priority_facts(
             re.IGNORECASE,
         )
     )
+    priority_limit = settings.writer_priority_fact_limit
     supporting_limit = (
         settings.writer_supporting_fact_limit
         if settings.writer_supporting_fact_limit is not None
         else None
+    )
+    uncapped_event_selection = (
+        priority_limit is None
+        and settings.writer_max_words is None
     )
     actionable_sequence_available = any(
         event_fact_slot(fact, evidence_lookup) == "event_sequence"
@@ -4446,17 +4527,30 @@ def select_event_priority_facts(
     selected: list[VerifiedFact] = []
     selected_ids: set[str] = set()
     slot_counts: dict[str, int] = {}
-    slot_limits: dict[str, int | None] = {
-        "event_result": 2,
-        "event_context": 1,
-        "event_status": 1,
-        "participant_record_context": 1,
-        "score_progression": 1,
-        "event_sequence": None,
-        "main_contrast": 2,
-        "leading_performance": None,
-        "participation": None if explicit_detail_requested else 0,
-    }
+    if uncapped_event_selection:
+        slot_limits: dict[str, int | None] = {
+            "event_result": None,
+            "event_context": None,
+            "event_status": None,
+            "participant_record_context": None,
+            "score_progression": None,
+            "event_sequence": None,
+            "main_contrast": None,
+            "leading_performance": None,
+            "participation": None if explicit_detail_requested else 0,
+        }
+    else:
+        slot_limits = {
+            "event_result": 2,
+            "event_context": 1,
+            "event_status": 1,
+            "participant_record_context": 1,
+            "score_progression": 1,
+            "event_sequence": None,
+            "main_contrast": 2,
+            "leading_performance": None,
+            "participation": None if explicit_detail_requested else 0,
+        }
 
     def can_use_fact(
         fact: VerifiedFact,
@@ -4504,10 +4598,14 @@ def select_event_priority_facts(
         "event_sequence",
         "participation",
     ):
+        if priority_limit is not None and len(selected) >= priority_limit:
+            break
         limit = slot_limits.get(slot)
         if limit == 0:
             continue
         for fact in ranked:
+            if priority_limit is not None and len(selected) >= priority_limit:
+                break
             if event_fact_slot(fact, evidence_lookup) != slot:
                 continue
             if not can_use_fact(fact):
@@ -5869,6 +5967,36 @@ def _humanise_record_key(value: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _compact_record_value(value: Any) -> str:
+    text = str(value or "").strip()
+    text = text.replace("_", " ")
+    text = re.sub(r"\(([^)]+)\)", r"\1", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _record_subject_text(
+    value: Any,
+    *,
+    realisation_policy: RealisationPolicy,
+) -> str:
+    text = str(value or "").strip()
+    if realisation_policy == RealisationPolicy.NATURAL_REFERENCE_STYLE:
+        text = text.replace("_", " ")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _ordinal_text(value: Any) -> str:
+    text = str(value or "").strip()
+    try:
+        number = int(float(text))
+    except ValueError:
+        return text
+    suffix = "th"
+    if number % 100 not in {11, 12, 13}:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
+    return f"{number}{suffix}"
+
+
 def _attribute_sentence(
     records: list[dict[str, Any]],
 ) -> str:
@@ -5931,6 +6059,10 @@ def _attribute_sentence(
             relation_clauses.append(f"has a {key} of {value}")
         elif normalised_key == "pricerange":
             relation_clauses.append(f"has a {key} of {value}")
+        elif normalised_key == "rank":
+            relation_clauses.append(f"ranks {_ordinal_text(value)}")
+        elif normalised_key == "total":
+            relation_clauses.append(f"has a total of {value}")
         elif normalised_key == "familyfriendly":
             if value.casefold() in {"yes", "true", "1"}:
                 relation_clauses.append("is family friendly")
@@ -5973,12 +6105,44 @@ def _attribute_sentence(
     return sentence.strip()
 
 
+def _triple_relation_clause(relation: str, obj: str) -> str:
+    normalised = re.sub(r"[^a-z0-9]+", "", relation.casefold())
+    value = _compact_record_value(obj)
+    if normalised in {"engine", "enginetype"}:
+        if (
+            value
+            and not value.isupper()
+            and not re.search(r"\b[A-Z]{2,}\b", value)
+        ):
+            value = value[:1].lower() + value[1:]
+        if value.casefold().endswith("engine"):
+            return f"has a {value}"
+        article = "an" if value[:1].casefold() in {"a", "e", "i", "o", "u"} else "a"
+        return f"has {article} {value} engine"
+    if normalised in {"cylindercount", "cylinders", "numberofcylinders"}:
+        return f"has {value} cylinders"
+    if normalised in {"length", "height", "width", "diameter"}:
+        return f"has a {relation} of {value}"
+    if normalised == "rank":
+        return f"ranks {_ordinal_text(value)}"
+    if normalised == "total":
+        return f"has a total of {value}"
+    return f"has {_humanise_record_key(relation)} {value}"
+
+
 def _triple_sentence(
     records: list[dict[str, Any]],
+    *,
+    realisation_policy: RealisationPolicy = (
+        RealisationPolicy.STRICT_SOURCE_SURFACE
+    ),
 ) -> str:
     triples = [
         (
-            str(record.get("subject") or "").strip(),
+            _record_subject_text(
+                record.get("subject"),
+                realisation_policy=realisation_policy,
+            ),
             _humanise_record_key(str(record.get("relation") or "")),
             str(record.get("object") or "").strip(),
         )
@@ -5998,9 +6162,12 @@ def _triple_sentence(
     sentences: list[str] = []
     for subject, relations in grouped.items():
         relation_text = ", ".join(
-            f"{relation} {obj}"
+            _triple_relation_clause(relation, obj)
             for relation, obj in relations
         )
+        if len(relations) > 1 and "," in relation_text:
+            head, _, tail = relation_text.rpartition(", ")
+            relation_text = f"{head}, and {tail}"
         sentences.append(f"{subject} {relation_text}")
     return "; ".join(sentences)
 
@@ -6009,6 +6176,16 @@ def _structured_record_fallback_writer(
     pack: WriterEvidencePack,
     evidence_by_id: dict[str, EvidenceItem],
 ) -> WriterOutput | None:
+    realisation_policy = getattr(
+        pack.report_specification,
+        "realisation_policy",
+        RealisationPolicy.STRICT_SOURCE_SURFACE,
+    )
+    if not isinstance(realisation_policy, RealisationPolicy):
+        try:
+            realisation_policy = RealisationPolicy(str(realisation_policy))
+        except ValueError:
+            realisation_policy = RealisationPolicy.STRICT_SOURCE_SURFACE
     available_facts = list(
         {
             fact.fact_id: fact
@@ -6110,7 +6287,10 @@ def _structured_record_fallback_writer(
         for record in metrics.get("records", [])
         if isinstance(record, dict)
     ]
-    sentence = _triple_sentence(records) or _attribute_sentence(records)
+    sentence = _triple_sentence(
+        records,
+        realisation_policy=realisation_policy,
+    ) or _attribute_sentence(records)
     sentence = sentence or structured_fact.fact_summary
     sentence = re.sub(r"\s+", " ", sentence).strip()
     if sentence and sentence[-1] not in ".!?":
@@ -6161,6 +6341,10 @@ def fallback_writer(
             ReportGenre.EVENT_REPORT,
             ReportGenre.SPORTS_GAME_REPORT,
         }
+    )
+    reference_recap_style = (
+        event_report
+        and pack.report_specification.focus_scope == "reference_recap"
     )
     evidence_by_id = build_evidence_lookup(
         pack.evidence_ledger
@@ -6268,10 +6452,14 @@ def fallback_writer(
         else "Evidence-grounded data-science report"
     )
 
-    lines = [
-        f"# {report_title}",
-        "",
-    ]
+    lines = (
+        []
+        if reference_recap_style
+        else [
+            f"# {report_title}",
+            "",
+        ]
+    )
 
     support_map: list[SentenceSupport] = []
     sentence_counter = 1
@@ -6342,12 +6530,13 @@ def fallback_writer(
         if not component_facts:
             continue
 
-        lines.extend(
-            [
-                f"## {headings[component]}",
-                "",
-            ]
-        )
+        if not reference_recap_style:
+            lines.extend(
+                [
+                    f"## {headings[component]}",
+                    "",
+                ]
+            )
 
         for fact in component_facts:
             sentence = (
@@ -6404,7 +6593,8 @@ def fallback_writer(
                             SupportType.PARAPHRASE,
                         )
 
-        lines.append("")
+        if not reference_recap_style:
+            lines.append("")
 
     limitation_facts = list(
         {
@@ -6438,13 +6628,16 @@ def fallback_writer(
     )
 
     if (
-        (
-            event_limitations
-            if event_report
-            else pack.reader_facing_limitations
+        not reference_recap_style
+        and (
+            (
+                event_limitations
+                if event_report
+                else pack.reader_facing_limitations
+            )
+            or limitation_facts
+            or rendered_recommendations
         )
-        or limitation_facts
-        or rendered_recommendations
     ):
         lines.extend(
             [

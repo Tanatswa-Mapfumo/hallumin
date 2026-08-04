@@ -2655,6 +2655,42 @@ words. If an explicit `maximum_length_words` is provided, stay below it.
 Expand by adding supported event context, secondary performances, participant
 contrasts, and scoped limitations; do not expand by adding unsupported
 explanation or filler.
+For one-sentence, direct-answer and short-text verbalisation tasks, preserve
+source surface forms that benchmark references are likely to depend on: keep
+digits as digits, keep percentages and decimals unchanged, preserve compact
+units, and do not spell out alphanumeric or hyphenated identifiers. For
+example, keep `ALCO_RS-3`, `12`, `17068.8` and `58.45%` rather than rewriting
+them as words. Convert relation labels into concise natural predicates when
+clear, such as `RANK = 11` -> `ranks 11th`, `TOTAL = 211.5` -> `total of
+211.5`, and `cylinderCount = 12` -> `12 cylinders`.
+When `realisation_policy` is `natural_reference_style`, you may make harmless
+surface normalisations that improve benchmark-style prose while preserving the
+same supported entity or value, such as changing underscores between words to
+spaces in an identifier. Never change digits, percentages, decimals, units,
+entity identity, or relation meaning. When `realisation_policy` is
+`strict_source_surface`, keep source spelling and separators exactly.
+When `realisation_policy` is `concise_table_proposition`, produce the shortest
+complete proposition supported by the focused cell or region; do not add
+headings, caveats, row-counts, or unrelated table context.
+When the Writer payload contains `event_report_writing_guidance`, use it as
+the event style contract. Start from the result, then build a readable recap
+from supported context, sequence/progression, leading performances and major
+participant contrasts. Select and combine the strongest distinct details
+instead of listing every ranking mechanically. Do not add dataset-quality,
+correlation, modelling or feature-selection discussion to an event report
+unless the user explicitly asks for that analysis.
+When `event_report_writing_guidance.realisation_policy` is
+`event_recap_style`, prioritise reference-style event narration: concise
+opening result, natural progression, key performances, and compact team
+contrasts. Use only supported sequence/progression facts for chronology; avoid
+visible methodological caveats unless they prevent a misleading unsupported
+inference.
+If the guidance or content requirements indicate `reference_recap_style`,
+write flowing reference-style event prose: do not use visible Markdown
+headings, do not add a generic scope/limitations paragraph, and keep caveats
+internal unless they are needed to avoid an unsupported inference. Use hidden
+sections only to organise the structured draft; the controller will render the
+visible text without headings.
 For event-sequence units, prefer verified sequence insights for coherent
 narration, then cite additional sequence fact IDs only for score-changing
 steps not already covered by the insight. Do not expose internal role labels

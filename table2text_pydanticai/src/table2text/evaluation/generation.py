@@ -122,6 +122,11 @@ def output_form_for_mode(output_mode: Any) -> Any:
 
 
 def focus_scope_for_task(task_family: TaskFamily) -> str | None:
+    if task_family in {
+        TaskFamily.EVENT_REPORT,
+        TaskFamily.CROSS_LINGUAL_EVENT_REPORT,
+    }:
+        return "reference_recap"
     if task_family == TaskFamily.HIGHLIGHTED_TABLE_DESCRIPTION:
         return "highlighted_cells"
     return None

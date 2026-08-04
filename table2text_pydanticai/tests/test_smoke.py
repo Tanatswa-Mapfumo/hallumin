@@ -34,6 +34,7 @@ from table2text.capabilities import available_capabilities
 from table2text.workflow import (
     build_compact_writer_payload,
     resolve_report_genre,
+    should_use_deterministic_event_plan,
 )
 from table2text.data import load_data, profile_data
 from table2text.schemas import (
@@ -66,6 +67,8 @@ from table2text.schemas import (
     InsightVerificationResult,
     InvestigationTask,
     InputRepresentationStatus,
+    InputSemanticMap,
+    InputStructureProfile,
     InputShape,
     InterpretationLevel,
     QualityStatus,
@@ -88,6 +91,7 @@ from table2text.schemas import (
     ValidationStrategy,
     VerifiedFact,
     VerifiedInsight,
+    WriterEvidencePack,
     WriterAgentDraft,
     WriterOutput,
     WriterSectionDraft,
@@ -3076,6 +3080,329 @@ def test_verified_insight_selection_is_uncapped_by_default():
 
     assert len(priority) == 7
     assert supporting == []
+
+
+def test_event_writer_payload_preserves_structured_values_without_word_ceiling():
+    evidence = EvidenceLedger(
+        fingerprint="event-payload",
+        items=[
+            EvidenceItem(
+                evidence_id="EVD_SEQUENCE",
+                route=AnalysisRoute.DESCRIPTIVE,
+                task_ids=["TASK_EVENT"],
+                capability=EvidenceCapability.RANKING,
+                evidence_type="event_sequence",
+                finding="Supported ordered event sequence.",
+                metrics={},
+                source_tables=["event"],
+                source_columns=["sequence"],
+                method="Sequence extraction.",
+                practical_interpretation="Use the ordered sequence.",
+                strength_label="event_sequence",
+                claim_permissions=[ClaimPermission.DESCRIPTIVE],
+                factual_confidence=1.0,
+                methodological_strength=1.0,
+                user_relevance=0.9,
+                salience=0.9,
+                recommended_use=RecommendedUse.MAIN_FINDING,
+            )
+        ],
+    )
+    fact = VerifiedFact(
+        fact_id="FACT_SEQUENCE",
+        source_candidate_id="CAN_SEQUENCE",
+        fact_summary="The event has an ordered sequence.",
+        evidence_ids=["EVD_SEQUENCE"],
+        source_capabilities=[EvidenceCapability.RANKING],
+        structured_values={
+            "EVD_SEQUENCE": {
+                "steps": [
+                    {"step": index}
+                    for index in range(20)
+                ]
+            }
+        },
+        entities=["event"],
+        claim_permissions=[ClaimPermission.DESCRIPTIVE],
+        factual_confidence=1.0,
+        methodological_strength=1.0,
+        user_relevance=0.9,
+        salience=0.9,
+        recommended_use=RecommendedUse.MAIN_FINDING,
+    )
+    pack = WriterEvidencePack(
+        user_request="Write an event report.",
+        report_specification=ReportSpecification(
+            report_purpose="Write an event report.",
+            genre=ReportGenre.EVENT_REPORT,
+            target_length_words=650,
+            maximum_length_words=None,
+            prioritisation_rule="Use supported event evidence.",
+        ),
+        dataset_understanding=DataUnderstanding(
+            profile_fingerprint="event-payload",
+            dataset_summary="event",
+            tables=[],
+        ),
+        priority_facts=[fact],
+        supporting_facts=[],
+        limitation_facts=[],
+        evidence_ledger=evidence,
+    )
+
+    payload = build_compact_writer_payload(pack)
+
+    steps = payload["priority_facts"][0]["structured_values"]["EVD_SEQUENCE"]["steps"]
+    assert len(steps) == 20
+    assert "omitted_record_count" not in steps[-1]
+    assert payload["structured_value_compaction"]["item_limit"] is None
+    assert "event_report_writing_guidance" in payload
+
+
+def test_event_writer_payload_compacts_structured_values_with_word_ceiling():
+    evidence = EvidenceLedger(
+        fingerprint="event-payload-capped",
+        items=[
+            EvidenceItem(
+                evidence_id="EVD_SEQUENCE",
+                route=AnalysisRoute.DESCRIPTIVE,
+                task_ids=["TASK_EVENT"],
+                capability=EvidenceCapability.RANKING,
+                evidence_type="event_sequence",
+                finding="Supported ordered event sequence.",
+                metrics={},
+                source_tables=["event"],
+                source_columns=["sequence"],
+                method="Sequence extraction.",
+                practical_interpretation="Use the ordered sequence.",
+                strength_label="event_sequence",
+                claim_permissions=[ClaimPermission.DESCRIPTIVE],
+                factual_confidence=1.0,
+                methodological_strength=1.0,
+                user_relevance=0.9,
+                salience=0.9,
+                recommended_use=RecommendedUse.MAIN_FINDING,
+            )
+        ],
+    )
+    fact = VerifiedFact(
+        fact_id="FACT_SEQUENCE",
+        source_candidate_id="CAN_SEQUENCE",
+        fact_summary="The event has an ordered sequence.",
+        evidence_ids=["EVD_SEQUENCE"],
+        source_capabilities=[EvidenceCapability.RANKING],
+        structured_values={
+            "EVD_SEQUENCE": {
+                "steps": [
+                    {"step": index}
+                    for index in range(20)
+                ]
+            }
+        },
+        entities=["event"],
+        claim_permissions=[ClaimPermission.DESCRIPTIVE],
+        factual_confidence=1.0,
+        methodological_strength=1.0,
+        user_relevance=0.9,
+        salience=0.9,
+        recommended_use=RecommendedUse.MAIN_FINDING,
+    )
+    pack = WriterEvidencePack(
+        user_request="Write an event report.",
+        report_specification=ReportSpecification(
+            report_purpose="Write an event report.",
+            genre=ReportGenre.EVENT_REPORT,
+            target_length_words=650,
+            maximum_length_words=300,
+            prioritisation_rule="Use supported event evidence.",
+        ),
+        dataset_understanding=DataUnderstanding(
+            profile_fingerprint="event-payload-capped",
+            dataset_summary="event",
+            tables=[],
+        ),
+        priority_facts=[fact],
+        supporting_facts=[],
+        limitation_facts=[],
+        evidence_ledger=evidence,
+    )
+
+    payload = build_compact_writer_payload(pack)
+
+    steps = payload["priority_facts"][0]["structured_values"]["EVD_SEQUENCE"]["steps"]
+    assert payload["structured_value_compaction"]["item_limit"] == 12
+    assert steps[-1]["omitted_record_count"] == 8
+
+
+def test_event_writer_pack_priority_selection_is_uncapped_by_default():
+    def event_item(
+        index: int,
+        evidence_type: str,
+        capability: EvidenceCapability,
+    ) -> EvidenceItem:
+        return EvidenceItem(
+            evidence_id=f"EVD_{index:04d}",
+            route=AnalysisRoute.DESCRIPTIVE,
+            task_ids=["TASK_EVENT"],
+            capability=capability,
+            evidence_type=evidence_type,
+            finding=f"Supported event fact {index}.",
+            metrics={"index": index},
+            source_tables=["event"],
+            source_columns=[evidence_type],
+            method="Event evidence extraction.",
+            practical_interpretation="Use the supported event fact.",
+            strength_label=evidence_type,
+            claim_permissions=[
+                ClaimPermission.DESCRIPTIVE,
+                ClaimPermission.COMPARATIVE,
+            ],
+            factual_confidence=1.0,
+            methodological_strength=1.0,
+            user_relevance=0.9,
+            salience=0.9,
+            recommended_use=RecommendedUse.MAIN_FINDING,
+        )
+
+    evidence = EvidenceLedger(
+        fingerprint="event-uncapped",
+        items=[
+            event_item(
+                1,
+                "event_outcome",
+                EvidenceCapability.EVENT_OUTCOME,
+            ),
+            *[
+                event_item(
+                    index,
+                    "participant_comparison",
+                    EvidenceCapability.GROUP_COMPARISON,
+                )
+                for index in range(2, 6)
+            ],
+            *[
+                event_item(
+                    index,
+                    "entity_ranking",
+                    EvidenceCapability.RANKING,
+                )
+                for index in range(6, 10)
+            ],
+        ],
+    )
+    facts = [
+        VerifiedFact(
+            fact_id=f"FACT_{index:04d}",
+            source_candidate_id=f"CAN_{index:04d}",
+            fact_summary=item.finding,
+            evidence_ids=[item.evidence_id],
+            source_capabilities=[item.capability],
+            structured_values={item.evidence_id: item.metrics},
+            entities=["event"],
+            claim_permissions=item.claim_permissions,
+            factual_confidence=1.0,
+            methodological_strength=1.0,
+            user_relevance=0.9,
+            salience=0.9,
+            recommended_use=RecommendedUse.MAIN_FINDING,
+        )
+        for index, item in enumerate(evidence.items, start=1)
+    ]
+    plan = ExecutionPlan(
+        objective="Write an event report.",
+        tasks=[],
+        route_order=[AnalysisRoute.DESCRIPTIVE],
+        report_specification=ReportSpecification(
+            report_purpose="Write an event report.",
+            genre=ReportGenre.EVENT_REPORT,
+            target_length_words=650,
+            maximum_length_words=None,
+            prioritisation_rule="Use supported event material.",
+        ),
+        audit_mode=AuditMode.INTERNAL,
+        revision_limit=1,
+        rationale="test",
+    )
+
+    pack = build_writer_evidence_pack(
+        request="Write an event report.",
+        understanding=DataUnderstanding(
+            profile_fingerprint="event-uncapped",
+            dataset_summary="event",
+            tables=[],
+        ),
+        plan=plan,
+        evidence=evidence,
+        fact_ledger=FactLedger(writer_ready_facts=facts),
+        settings=Settings(),
+    )
+
+    priority_evidence_types = [
+        evidence.items[int(fact.evidence_ids[0].split("_")[1]) - 1].evidence_type
+        for fact in pack.priority_facts
+    ]
+    assert priority_evidence_types.count("participant_comparison") == 4
+    assert priority_evidence_types.count("entity_ranking") == 4
+
+
+def test_high_confidence_event_report_uses_deterministic_plan():
+    input_structure = InputStructureProfile(
+        shape=InputShape.EVENT_RECORD,
+        representation_status=InputRepresentationStatus.VALID,
+        row_semantics="one event",
+        entity_levels=["event", "participant", "entity"],
+        confidence=0.95,
+    )
+    semantic_map = InputSemanticMap.model_validate(
+        {
+            "input_shape": "event_record",
+            "record_description": "A generic event record.",
+            "recommended_report_genre": "event_report",
+            "confidence": 0.95,
+            "bindings": [
+                {
+                    "binding_id": "b01",
+                    "table_name": "event",
+                    "label": "Participant",
+                    "role": "participant_identifier",
+                    "level": "participant",
+                    "path_pattern": "participants.*.name",
+                    "description": "Participant name.",
+                    "confidence": 0.95,
+                    "evidence_basis": "structure",
+                }
+            ],
+        }
+    )
+
+    assert should_use_deterministic_event_plan(
+        controller_genre=ReportGenre.EVENT_REPORT,
+        input_structure=input_structure,
+        semantic_map=semantic_map,
+        capabilities=[
+            EvidenceCapability.EVENT_OUTCOME,
+            EvidenceCapability.RANKING,
+        ],
+    )
+    assert not should_use_deterministic_event_plan(
+        controller_genre=ReportGenre.DATA_SCIENCE_REPORT,
+        input_structure=input_structure,
+        semantic_map=semantic_map,
+        capabilities=[
+            EvidenceCapability.EVENT_OUTCOME,
+            EvidenceCapability.RANKING,
+        ],
+    )
+    assert not should_use_deterministic_event_plan(
+        controller_genre=ReportGenre.EVENT_REPORT,
+        input_structure=input_structure.model_copy(
+            update={"confidence": 0.4}
+        ),
+        semantic_map=semantic_map,
+        capabilities=[
+            EvidenceCapability.EVENT_OUTCOME,
+        ],
+    )
 
 
 def test_fallback_plan_freezes_questions_and_genre_defaults():

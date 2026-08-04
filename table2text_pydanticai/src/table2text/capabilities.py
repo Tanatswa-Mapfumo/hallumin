@@ -185,6 +185,54 @@ QUERY_OPERATIONS: dict[str, EvidenceOperation] = {
 }
 
 
+def _parse_pipe_triple(value: Any) -> tuple[str, str, str] | None:
+    if not isinstance(value, str) or "|" not in value:
+        return None
+    parts = [part.strip() for part in value.split("|")]
+    if len(parts) != 3 or not all(parts):
+        return None
+    return parts[0], parts[1], parts[2]
+
+
+def _value_contains_serialized_triple(value: Any) -> bool:
+    if _parse_pipe_triple(value) is not None:
+        return True
+    if isinstance(value, Mapping):
+        triples = value.get("triples")
+        if isinstance(triples, list) and any(
+            _value_contains_serialized_triple(item)
+            or (
+                isinstance(item, (list, tuple))
+                and len(item) == 3
+                and all(str(part).strip() for part in item)
+            )
+            for item in triples
+        ):
+            return True
+        return any(_value_contains_serialized_triple(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_value_contains_serialized_triple(item) for item in value)
+    return False
+
+
+def _bundle_contains_serialized_triples(bundle: Any) -> bool:
+    structured_inputs = getattr(bundle, "structured_inputs", {}) or {}
+    if any(_value_contains_serialized_triple(value) for value in structured_inputs.values()):
+        return True
+
+    for frame in getattr(bundle, "tables", {}).values():
+        columns = set(getattr(frame, "columns", []))
+        candidate_columns = columns & {"source_payload", "source_text", "triples"}
+        for column in candidate_columns:
+            try:
+                values = frame[column].tolist()
+            except Exception:
+                continue
+            if any(_value_contains_serialized_triple(value) for value in values):
+                return True
+    return False
+
+
 PARTICIPATION_REQUEST_PATTERN = re.compile(
     r"\b(duration|time played|playing time|minutes played|seconds played|"
     r"participation|exposure|attendance|appearances?)\b",
@@ -3789,7 +3837,7 @@ def available_capabilities(
             )
         )
         for frame in tables.values()
-    ):
+    ) or _bundle_contains_serialized_triples(bundle):
         capabilities.append(EvidenceCapability.STRUCTURED_RECORD_VERBALISATION)
 
     if any(

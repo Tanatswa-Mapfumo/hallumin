@@ -92,6 +92,7 @@ from .schemas import (
     ReportComponent,
     ReportGenre,
     ReportSelectionSource,
+    RealisationPolicy,
     InputShape,
     InputRepresentationStatus,
     OutputForm,
@@ -372,6 +373,7 @@ def task_contract_fields(
             else None,
             "max_paragraphs": 1,
             "require_complete_sentence": True,
+            "realisation_policy": RealisationPolicy.CONCISE_TABLE_PROPOSITION,
             "communication_goal": (
                 "Express the concise table-local relation conveyed by the "
                 "selected cell or focused table region, using conservative "
@@ -436,6 +438,7 @@ def task_contract_fields(
             else 2,
             "max_paragraphs": 1,
             "require_complete_sentence": True,
+            "realisation_policy": RealisationPolicy.NATURAL_REFERENCE_STYLE,
             "communication_goal": (
                 f"Express all and only the supplied {task_label} as concise, "
                 "fluent natural language without adding unsupported details."
@@ -468,11 +471,93 @@ def task_contract_fields(
             ),
         }
 
+    if (
+        communication_task == CommunicationTask.EVENT_REPORT
+        and focus_scope == "reference_recap"
+    ):
+        return {
+            "communication_task": communication_task,
+            "output_form": output_form,
+            "focus_scope": focus_scope,
+            "allow_headings": False,
+            "max_sentences": None,
+            "max_paragraphs": None,
+            "require_complete_sentence": True,
+            "realisation_policy": RealisationPolicy.EVENT_RECAP_STYLE,
+            "communication_goal": (
+                "Write a reference-style event recap from verified source "
+                "evidence: lead with the result, then integrate supplied "
+                "context, score progression, leading performances, major "
+                "participant contrasts and follow-up context when verified."
+            ),
+            "preferred_sections": [],
+            "required_components": [],
+            "required_content_slots": [
+                "event_result",
+                "event_context",
+                "participant_record_context",
+                "event_status",
+                "score_progression",
+                "event_sequence",
+                "leading_performance",
+                "main_contrast",
+            ],
+            "optional_content_slots": [
+                "secondary_performance",
+            ],
+            "prohibited_claim_types": [
+                "markdown_headings",
+                "dataset_overview",
+                "data_quality",
+                "missingness",
+                "correlation",
+                "modelling",
+                "unsupported_chronology",
+                "unsupported_milestone",
+                "unsupported_historical_significance",
+                "unsupported_causality",
+            ],
+            "include_negative_findings": False,
+            "include_methodological_details": False,
+            "prioritisation_rule": (
+                "Optimise for a fluent event recap: include the most salient "
+                "verified result, context, progression, performances and "
+                "contrasts. Keep factual caveats internal unless needed to "
+                "avoid a misleading claim. Do not add a generic limitations "
+                "section for reference-style event recaps."
+            ),
+        }
+
     return {
         "communication_task": communication_task,
         "output_form": output_form,
         "focus_scope": focus_scope,
+        "realisation_policy": RealisationPolicy.STRICT_SOURCE_SURFACE,
     }
+
+
+SHORT_FORM_COMMUNICATION_TASKS = {
+    CommunicationTask.FOCUSED_TABLE_DESCRIPTION,
+    CommunicationTask.ATTRIBUTE_VERBALISATION,
+    CommunicationTask.TRIPLE_VERBALISATION,
+}
+
+
+def is_short_form_realisation_task(
+    communication_task: CommunicationTask | None,
+    output_form: OutputForm | None,
+) -> bool:
+    return bool(
+        communication_task in SHORT_FORM_COMMUNICATION_TASKS
+        or output_form
+        in {
+            OutputForm.ONE_SENTENCE,
+            OutputForm.SHORT_TEXT,
+            OutputForm.DIRECT_ANSWER,
+        }
+        and communication_task
+        in SHORT_FORM_COMMUNICATION_TASKS
+    )
 
 
 def add_focused_table_capability_task(
@@ -754,6 +839,31 @@ def add_event_capability_tasks(
     )
 
 
+def should_use_deterministic_event_plan(
+    *,
+    controller_genre: ReportGenre,
+    input_structure: Any,
+    semantic_map: InputSemanticMap | None,
+    capabilities: list[EvidenceCapability],
+) -> bool:
+    if controller_genre not in EVENT_GENRES:
+        return False
+    if input_structure is None:
+        return False
+    if input_structure.shape != InputShape.EVENT_RECORD:
+        return False
+    if input_structure.representation_status not in {
+        InputRepresentationStatus.VALID,
+        InputRepresentationStatus.VALID_WITH_WARNINGS,
+    }:
+        return False
+    if getattr(input_structure, "confidence", 0.0) < 0.7:
+        return False
+    if semantic_map is None or not semantic_map.bindings:
+        return False
+    return bool(EVENT_CAPABILITIES & set(capabilities))
+
+
 def exception_cause_chain(
     error: BaseException,
 ) -> list[str]:
@@ -786,9 +896,18 @@ def exception_cause_chain(
 def _compact_writer_structured_value(
     value: Any,
     *,
-    item_limit: int,
+    item_limit: int | None,
 ) -> Any:
     if isinstance(value, list):
+        if item_limit is None:
+            return [
+                _compact_writer_structured_value(
+                    item,
+                    item_limit=item_limit,
+                )
+                for item in value
+            ]
+
         omitted_count = max(0, len(value) - item_limit)
         compacted = [
             _compact_writer_structured_value(
@@ -824,7 +943,7 @@ def _compact_writer_structured_value(
 def _compact_writer_fact(
     fact: VerifiedFact,
     *,
-    item_limit: int,
+    item_limit: int | None,
 ) -> dict[str, Any]:
     payload = fact.model_dump(mode="json")
     payload["structured_values"] = _compact_writer_structured_value(
@@ -832,7 +951,7 @@ def _compact_writer_fact(
         item_limit=item_limit,
     )
     entities = payload.get("entities")
-    if isinstance(entities, list):
+    if isinstance(entities, list) and item_limit is not None:
         entity_limit = max(8, item_limit * 3)
         omitted_count = max(0, len(entities) - entity_limit)
         payload["entities"] = entities[:entity_limit]
@@ -842,6 +961,160 @@ def _compact_writer_fact(
                 "from the writer prompt"
             )
     return payload
+
+
+def _compact_short_form_structured_values(
+    values: Any,
+) -> Any:
+    if isinstance(values, dict):
+        keep_keys = {
+            "description_proposition",
+            "records",
+            "attributes",
+            "highlighted_values",
+            "header_context",
+            "page_title",
+            "section_title",
+            "focused_record_relation",
+            "focused_list_relation",
+            "highlighted_role_value_pairs",
+        }
+        if all(isinstance(item, dict) for item in values.values()):
+            return {
+                evidence_id: {
+                    key: nested_value
+                    for key, nested_value in item.items()
+                    if key in keep_keys
+                    and nested_value not in (None, [], {}, "")
+                }
+                for evidence_id, item in values.items()
+                if isinstance(item, dict)
+            }
+        return {
+            key: _compact_short_form_structured_values(nested_value)
+            for key, nested_value in values.items()
+            if key in keep_keys
+            or key.startswith("EVD_")
+        }
+    if isinstance(values, list):
+        return [
+            _compact_short_form_structured_values(item)
+            for item in values
+        ]
+    return values
+
+
+def _short_form_writer_fact(
+    fact: VerifiedFact,
+) -> dict[str, Any]:
+    payload = fact.model_dump(mode="json")
+    return {
+        "fact_id": payload.get("fact_id"),
+        "fact_summary": payload.get("fact_summary"),
+        "evidence_ids": payload.get("evidence_ids", []),
+        "source_capabilities": payload.get("source_capabilities", []),
+        "structured_values": _compact_short_form_structured_values(
+            payload.get("structured_values", {})
+        ),
+        "entities": payload.get("entities", []),
+        "claim_permissions": payload.get("claim_permissions", []),
+    }
+
+
+def _writer_structured_item_limit(
+    pack: WriterEvidencePack,
+) -> int | None:
+    maximum_words = pack.report_specification.maximum_length_words
+    if maximum_words is None:
+        return None
+
+    event_report = pack.report_specification.genre in EVENT_GENRES
+    if event_report:
+        return max(12, min(60, maximum_words // 25))
+
+    return max(3, min(10, maximum_words // 100))
+
+
+def _event_report_writing_guidance(
+    content_requirements: dict[str, Any] | None,
+) -> dict[str, Any]:
+    units = (
+        content_requirements or {}
+    ).get("units", [])
+    supported_slots = [
+        unit.get("unit_id")
+        for unit in units
+        if isinstance(unit, dict)
+        and unit.get("candidate_fact_ids")
+    ]
+    realisation_policy = (
+        content_requirements or {}
+    ).get("realisation_policy", RealisationPolicy.STRICT_SOURCE_SURFACE.value)
+
+    return {
+        "realisation_policy": realisation_policy,
+        "style": (
+            (
+                "Write a reference-style event recap from verified evidence "
+                "as flowing prose without visible headings."
+            )
+            if (content_requirements or {}).get("reference_recap_style")
+            else (
+                "Write a coherent event recap from verified evidence, not a "
+                "flat-table profile or a mechanical ranking dump."
+            )
+        ),
+        "content_priority_order": [
+            "event_result",
+            "event_context",
+            "participant_record_context",
+            "event_status",
+            "score_progression",
+            "event_sequence",
+            "leading_performance",
+            "main_contrast",
+            "secondary_performance",
+            "scope_limitations",
+        ],
+        "supported_content_slots": supported_slots,
+        "opening_policy": (
+            "Lead with the supported result or outcome when it exists. Add "
+            "date, venue/location, status and participant record context in "
+            "the opening only when those facts are verified."
+        ),
+        "narration_policy": (
+            "Use verified sequence and score-progression facts to describe "
+            "what happened in natural order. Use connective wording only "
+            "for directly supported contrasts. Do not invent causes, "
+            "momentum, runs, streaks, dominance, historical significance or "
+            "chronology absent from verified facts."
+        ),
+        "selection_policy": (
+            "There is no fixed number of findings. Cover required supported "
+            "slots first, then add distinct high-salience verified facts and "
+            "insights that improve the recap. Omit low-value mechanical "
+            "rankings unless they clarify a stronger event point or the user "
+            "requested exhaustive detail."
+        ),
+        "surface_policy": (
+            "For reference-style recaps, do not use Markdown headings or a "
+            "generic limitations paragraph. Keep caveats internal unless a "
+            "visible caveat is necessary to prevent an unsupported inference."
+            if (content_requirements or {}).get("reference_recap_style")
+            else (
+                "Use the requested report structure while keeping event "
+                "scope limitations concise and event-specific."
+            )
+        ),
+        "avoid": [
+            "wrapper row or column counts",
+            "constant-column analysis",
+            "missingness discussion",
+            "correlation or regression language",
+            "statistical-power or predictive-modelling discussion",
+            "unsupported explanation of why the result occurred",
+        ],
+    }
 
 
 def build_compact_writer_payload(
@@ -873,14 +1146,80 @@ def build_compact_writer_payload(
         )
         for fact_id, fact in facts_by_id.items()
     }
-    word_budget = (
-        pack.report_specification.maximum_length_words
-        or pack.report_specification.target_length_words
-        or 650
+    structured_item_limit = _writer_structured_item_limit(pack)
+    event_report = pack.report_specification.genre in EVENT_GENRES
+    short_form = (
+        pack.report_specification.communication_task
+        in SHORT_FORM_COMMUNICATION_TASKS
     )
-    structured_item_limit = max(3, min(10, word_budget // 100))
 
-    return {
+    if short_form:
+        requirements = content_requirements or {}
+        realisation_policy = requirements.get(
+            "realisation_policy",
+            pack.report_specification.realisation_policy.value,
+        )
+        may_normalise_identifiers = bool(
+            requirements.get(
+                "style_rewrite_permissions",
+                {},
+            ).get("may_normalise_identifier_separators")
+        )
+        return {
+            "user_request": pack.user_request,
+            "report_specification": {
+                "genre": pack.report_specification.genre.value,
+                "communication_task": (
+                    pack.report_specification.communication_task.value
+                ),
+                "output_form": pack.report_specification.output_form.value,
+                "focus_scope": pack.report_specification.focus_scope,
+                "realisation_policy": realisation_policy,
+                "allow_headings": pack.report_specification.allow_headings,
+                "max_sentences": pack.report_specification.max_sentences,
+                "max_paragraphs": pack.report_specification.max_paragraphs,
+                "require_complete_sentence": (
+                    pack.report_specification.require_complete_sentence
+                ),
+                "communication_goal": (
+                    pack.report_specification.communication_goal
+                ),
+                "prohibited_claim_types": (
+                    pack.report_specification.prohibited_claim_types
+                ),
+                "prioritisation_rule": (
+                    pack.report_specification.prioritisation_rule
+                ),
+            },
+            "content_requirements": requirements,
+            "priority_facts": [
+                _short_form_writer_fact(fact)
+                for fact in pack.priority_facts
+            ],
+            "supporting_facts": [
+                _short_form_writer_fact(fact)
+                for fact in pack.supporting_facts
+            ],
+            "priority_verified_insights": pack.priority_verified_insights,
+            "supporting_verified_insights": pack.supporting_verified_insights,
+            "internal_prohibited_interpretations": (
+                pack.internal_prohibited_interpretations
+            ),
+            "surface_form_policy": (
+                "Preserve digits, percentages, decimals and units exactly. "
+                "You may normalize harmless identifier separators such as "
+                "underscores to spaces when this improves natural reference "
+                "style and the entity remains recognisable."
+                if may_normalise_identifiers
+                else (
+                    "Preserve source identifiers, digits, percentages, "
+                    "decimals, units and compact alphanumeric forms exactly "
+                    "unless only minor grammar is needed."
+                )
+            ),
+        }
+
+    payload = {
         "user_request": pack.user_request,
         "report_specification": (
             pack.report_specification
@@ -943,11 +1282,32 @@ def build_compact_writer_payload(
         "content_requirements": (
             content_requirements or {}
         ),
+        "structured_value_compaction": (
+            {
+                "item_limit": structured_item_limit,
+                "policy": (
+                    "No list item limit is applied because no maximum word "
+                    "ceiling is configured."
+                    if structured_item_limit is None
+                    else (
+                        "Structured list values are compacted to fit the "
+                        "configured maximum word ceiling."
+                    )
+                ),
+            }
+        ),
         "internal_prohibited_interpretations": (
             pack
             .internal_prohibited_interpretations
         ),
     }
+    if event_report:
+        payload["event_report_writing_guidance"] = (
+            _event_report_writing_guidance(
+                content_requirements,
+            )
+        )
+    return payload
 
 
 def build_compact_insight_payload(
@@ -1496,6 +1856,39 @@ class Table2TextWorkflow:
             if annotation.severity.value
             in {"high", "critical"}
         ]
+        short_form_output = (
+            plan.report_specification.communication_task
+            in SHORT_FORM_COMMUNICATION_TASKS
+        )
+
+        if (
+            short_form_output
+            and deterministic.decision == AuditDecision.PASS
+            and not deterministic_serious_annotation_ids
+        ):
+            proposal = fallback_audit_proposal(deterministic)
+            store.trace(
+                stage_name,
+                "skipped",
+                {
+                    "reason": (
+                        "Short-form output passed deterministic audit; "
+                        "LLM repair audit was skipped to avoid a large "
+                        "one-sentence audit prompt."
+                    ),
+                    "communication_task": (
+                        plan.report_specification.communication_task.value
+                    ),
+                    "deterministic_annotation_count": len(
+                        deterministic.annotations
+                    ),
+                },
+            )
+            return (
+                merge_audit_proposal(deterministic, proposal),
+                proposal,
+                profile_patched_output,
+            )
 
         prompt = (
             "Audit this report independently and propose targeted repairs "
@@ -1700,6 +2093,10 @@ class Table2TextWorkflow:
                 else CommunicationTask.DATA_SCIENCE_REPORT
             )
         )
+        short_form_realisation_task = is_short_form_realisation_task(
+            initial_manifest_task,
+            output_form or OutputForm.MULTI_PARAGRAPH_REPORT,
+        )
         manifest = RunManifest(
             run_id=run_id,
             created_at=datetime.now(timezone.utc).isoformat(),
@@ -1742,38 +2139,53 @@ class Table2TextWorkflow:
             for table in profile.tables
         }
 
-        understanding = await self.run_agent_or_fallback(
-            stage="data_understanding",
-            agent=self.data_understanding_agent,
-            prompt=(
-                "Create a data understanding and analytical-risk report.\n\n"
-                "Input structure:\n"
-                + compact_json(input_structure)
-                + "\n\nSanitized structural field catalog:\n"
-                + compact_json(structural_catalog)
-                + "\n\nSanitized data profile:\n"
-                + compact_json(profile)
-            ),
-            dependencies=AgentDependencies(
-                run_id=run_id,
-                payload={
-                    "fingerprint": profile.fingerprint,
-                    "table_names": table_names,
-                    "columns": columns,
-                    "input_structure": (
-                        input_structure.model_dump(mode="json")
-                        if input_structure is not None
-                        else None
+        if short_form_realisation_task:
+            store.trace(
+                "data_understanding",
+                "skipped",
+                {
+                    "reason": (
+                        "Short-form verbalisation uses deterministic input "
+                        "structure and capability extraction instead of the "
+                        "general analytical Data Understanding agent."
                     ),
-                    "structural_catalog": [
-                        field.model_dump(mode="json") for field in structural_catalog
-                    ],
-                    "semantic_map_required": bool(structural_catalog),
+                    "communication_task": initial_manifest_task.value,
                 },
-            ),
-            fallback=lambda: fallback_understanding(profile),
-            store=store,
-        )
+            )
+            understanding = fallback_understanding(profile)
+        else:
+            understanding = await self.run_agent_or_fallback(
+                stage="data_understanding",
+                agent=self.data_understanding_agent,
+                prompt=(
+                    "Create a data understanding and analytical-risk report.\n\n"
+                    "Input structure:\n"
+                    + compact_json(input_structure)
+                    + "\n\nSanitized structural field catalog:\n"
+                    + compact_json(structural_catalog)
+                    + "\n\nSanitized data profile:\n"
+                    + compact_json(profile)
+                ),
+                dependencies=AgentDependencies(
+                    run_id=run_id,
+                    payload={
+                        "fingerprint": profile.fingerprint,
+                        "table_names": table_names,
+                        "columns": columns,
+                        "input_structure": (
+                            input_structure.model_dump(mode="json")
+                            if input_structure is not None
+                            else None
+                        ),
+                        "structural_catalog": [
+                            field.model_dump(mode="json") for field in structural_catalog
+                        ],
+                        "semantic_map_required": bool(structural_catalog),
+                    },
+                ),
+                fallback=lambda: fallback_understanding(profile),
+                store=store,
+            )
         understanding = DataUnderstanding.model_validate(understanding)
         store.save_json("02_understanding.json", understanding)
         semantic_map = understanding.semantic_map
@@ -1814,79 +2226,140 @@ class Table2TextWorkflow:
             structural_catalog=structural_catalog,
         )
 
-        plan = await self.run_agent_or_fallback(
-            stage="orchestration_and_planning",
-            agent=self.orchestrator_agent,
-            prompt=(
-                "User objective:\n"
-                + request
-                + "\n\nData profile:\n"
-                + compact_json(profile)
-                + "\n\nData understanding:\n"
-                + compact_json(planner_context["understanding"])
-                + "\n\nInput structure:\n"
-                + compact_json(planner_context["input_structure"])
-                + "\n\nSanitized structural field catalog:\n"
-                + compact_json(planner_context["structural_catalog"])
-                + "\n\nID-only semantic binding catalogue:\n"
-                + compact_json(planner_context["semantic_binding_catalog"])
-                + "\nUse only `binding_id` values from that catalogue in all "
-                "evidence-query binding fields. Raw paths are deliberately "
-                "unavailable for semantic query planning.\n"
-                + "\n\nAvailable evidence capabilities:\n"
-                + compact_json(capabilities)
-                + "\n\nController-selected report genre:\n"
-                + controller_genre.value
-                + "\n\nController-selected task/output contract:\n"
-                + compact_json(controller_task_contract)
-                + "\n\nConfigured report genre override:\n"
-                + (report_genre.value if report_genre else "none")
-                + "\n\nAudit mode:\n"
-                + audit_mode.value
-            ),
-            dependencies=AgentDependencies(
-                run_id=run_id,
-                payload={
-                    "table_names": table_names,
-                    "columns": columns,
-                    "user_request": request,
-                    "allow_experimental_targets": (
-                        self.settings.allow_experimental_targets
-                    ),
-                    "available_capabilities": [
-                        capability.value
-                        for capability in capabilities
-                    ],
-                    "event_genre_allowed": (
-                        controller_genre in EVENT_GENRES
+        deterministic_event_plan = should_use_deterministic_event_plan(
+            controller_genre=controller_genre,
+            input_structure=input_structure,
+            semantic_map=semantic_map,
+            capabilities=capabilities,
+        )
+        if short_form_realisation_task:
+            store.trace(
+                "orchestration_and_planning",
+                "skipped",
+                {
+                    "reason": (
+                        "Short-form verbalisation uses the controller "
+                        "contract and deterministic capability task instead "
+                        "of the general LLM Orchestrator."
                     ),
                     "selected_report_genre": controller_genre.value,
-                    "selected_task_contract": controller_task_contract,
-                    "semantic_map": (
-                        semantic_map.model_dump(mode="json")
-                        if semantic_map is not None
-                        else None
-                    ),
-                    "structural_catalog": [
-                        field.model_dump(mode="json")
-                        for field in structural_catalog
+                    "communication_task": initial_manifest_task.value,
+                    "available_capabilities": [
+                        capability.value for capability in capabilities
                     ],
-                    "enable_insight_synthesis": (
-                        self.settings.enable_insight_synthesis
-                    ),
                 },
-            ),
-            fallback=lambda: fallback_execution_plan(
+            )
+            plan = fallback_execution_plan(
                 request,
                 profile,
                 audit_mode,
                 self.settings,
                 input_structure=input_structure,
                 available_capabilities=capabilities,
-                report_genre_override=report_genre,
-            ),
-            store=store,
-        )
+                report_genre_override=controller_genre,
+            )
+        elif deterministic_event_plan:
+            store.trace(
+                "orchestration_and_planning",
+                "skipped",
+                {
+                    "reason": (
+                        "High-confidence event structure uses the generic "
+                        "deterministic capability plan instead of the LLM "
+                        "Orchestrator retry path."
+                    ),
+                    "selected_report_genre": controller_genre.value,
+                    "input_shape": input_structure.shape.value,
+                    "available_event_capabilities": [
+                        capability.value
+                        for capability in capabilities
+                        if capability in EVENT_CAPABILITIES
+                    ],
+                },
+            )
+            plan = fallback_execution_plan(
+                request,
+                profile,
+                audit_mode,
+                self.settings,
+                input_structure=input_structure,
+                available_capabilities=capabilities,
+                report_genre_override=controller_genre,
+            )
+        else:
+            plan = await self.run_agent_or_fallback(
+                stage="orchestration_and_planning",
+                agent=self.orchestrator_agent,
+                prompt=(
+                    "User objective:\n"
+                    + request
+                    + "\n\nData profile:\n"
+                    + compact_json(profile)
+                    + "\n\nData understanding:\n"
+                    + compact_json(planner_context["understanding"])
+                    + "\n\nInput structure:\n"
+                    + compact_json(planner_context["input_structure"])
+                    + "\n\nSanitized structural field catalog:\n"
+                    + compact_json(planner_context["structural_catalog"])
+                    + "\n\nID-only semantic binding catalogue:\n"
+                    + compact_json(planner_context["semantic_binding_catalog"])
+                    + "\nUse only `binding_id` values from that catalogue in all "
+                    "evidence-query binding fields. Raw paths are deliberately "
+                    "unavailable for semantic query planning.\n"
+                    + "\n\nAvailable evidence capabilities:\n"
+                    + compact_json(capabilities)
+                    + "\n\nController-selected report genre:\n"
+                    + controller_genre.value
+                    + "\n\nController-selected task/output contract:\n"
+                    + compact_json(controller_task_contract)
+                    + "\n\nConfigured report genre override:\n"
+                    + (report_genre.value if report_genre else "none")
+                    + "\n\nAudit mode:\n"
+                    + audit_mode.value
+                ),
+                dependencies=AgentDependencies(
+                    run_id=run_id,
+                    payload={
+                        "table_names": table_names,
+                        "columns": columns,
+                        "user_request": request,
+                        "allow_experimental_targets": (
+                            self.settings.allow_experimental_targets
+                        ),
+                        "available_capabilities": [
+                            capability.value
+                            for capability in capabilities
+                        ],
+                        "event_genre_allowed": (
+                            controller_genre in EVENT_GENRES
+                        ),
+                        "selected_report_genre": controller_genre.value,
+                        "selected_task_contract": controller_task_contract,
+                        "semantic_map": (
+                            semantic_map.model_dump(mode="json")
+                            if semantic_map is not None
+                            else None
+                        ),
+                        "structural_catalog": [
+                            field.model_dump(mode="json")
+                            for field in structural_catalog
+                        ],
+                        "enable_insight_synthesis": (
+                            self.settings.enable_insight_synthesis
+                        ),
+                    },
+                ),
+                fallback=lambda: fallback_execution_plan(
+                    request,
+                    profile,
+                    audit_mode,
+                    self.settings,
+                    input_structure=input_structure,
+                    available_capabilities=capabilities,
+                    report_genre_override=controller_genre,
+                ),
+                store=store,
+            )
 
         plan = ExecutionPlan.model_validate(plan)
         (
@@ -2072,37 +2545,50 @@ class Table2TextWorkflow:
             fact_candidate_scaffold,
         )
 
-        fact_candidate_enrichment = await self.run_agent_or_fallback(
-            stage="evidence_synthesis",
-            agent=self.evidence_agent,
-            prompt=(
-                "Review this deterministic fact-candidate scaffold and "
-                "return only fact candidates that materially improve, "
-                "correct, combine, or prioritise the scaffold while staying "
-                "strictly grounded in the evidence. You do not need to cover "
-                "every evidence item; deterministic scaffold coverage is "
-                "already preserved.\n\nEvidence ledger:\n"
-                + compact_json(evidence_ledger)
-                + "\n\nDeterministic scaffold:\n"
-                + compact_json(fact_candidate_scaffold)
-                + "\n\nEnrichment policy:\n"
-                "Return a concise set of higher-quality candidates only. "
-                "Single-evidence candidates may improve ordinary scaffold "
-                "candidates, but concrete event-sequence scaffold facts are "
-                "preserved. Multi-evidence candidates may add bounded "
-                "synthesis. Do not drop evidence coverage; the controller "
-                "will merge your valid candidates with the deterministic "
-                "scaffold."
-            ),
-            dependencies=AgentDependencies(
-                run_id=run_id,
-                payload={
-                    "evidence_ledger": evidence_ledger.model_dump(mode="json")
+        if short_form_realisation_task:
+            store.trace(
+                "evidence_synthesis",
+                "skipped",
+                {
+                    "reason": (
+                        "Short-form verbalisation uses deterministic atomic "
+                        "fact candidates from direct evidence extraction."
+                    )
                 },
-            ),
-            fallback=empty_fact_candidate_enrichment,
-            store=store,
-        )
+            )
+            fact_candidate_enrichment = empty_fact_candidate_enrichment()
+        else:
+            fact_candidate_enrichment = await self.run_agent_or_fallback(
+                stage="evidence_synthesis",
+                agent=self.evidence_agent,
+                prompt=(
+                    "Review this deterministic fact-candidate scaffold and "
+                    "return only fact candidates that materially improve, "
+                    "correct, combine, or prioritise the scaffold while staying "
+                    "strictly grounded in the evidence. You do not need to cover "
+                    "every evidence item; deterministic scaffold coverage is "
+                    "already preserved.\n\nEvidence ledger:\n"
+                    + compact_json(evidence_ledger)
+                    + "\n\nDeterministic scaffold:\n"
+                    + compact_json(fact_candidate_scaffold)
+                    + "\n\nEnrichment policy:\n"
+                    "Return a concise set of higher-quality candidates only. "
+                    "Single-evidence candidates may improve ordinary scaffold "
+                    "candidates, but concrete event-sequence scaffold facts are "
+                    "preserved. Multi-evidence candidates may add bounded "
+                    "synthesis. Do not drop evidence coverage; the controller "
+                    "will merge your valid candidates with the deterministic "
+                    "scaffold."
+                ),
+                dependencies=AgentDependencies(
+                    run_id=run_id,
+                    payload={
+                        "evidence_ledger": evidence_ledger.model_dump(mode="json")
+                    },
+                ),
+                fallback=empty_fact_candidate_enrichment,
+                store=store,
+            )
         fact_candidate_enrichment = FactCandidateSet.model_validate(
             fact_candidate_enrichment
         )
@@ -2118,27 +2604,41 @@ class Table2TextWorkflow:
         )
         store.save_json("05_fact_candidates.json", fact_candidates)
 
-        verification = await self.run_agent_or_fallback(
-            stage="fact_verification",
-            agent=self.verifier_agent,
-            prompt=(
-                "Verify every fact candidate against the evidence.\n\n"
-                "Candidates:\n"
-                + compact_json(fact_candidates)
-                + "\n\nEvidence:\n"
-                + compact_json(evidence_ledger)
-            ),
-            dependencies=AgentDependencies(
-                run_id=run_id,
-                payload={
-                    "fact_candidates": fact_candidates.model_dump(mode="json")
+        if short_form_realisation_task:
+            store.trace(
+                "fact_verification",
+                "skipped",
+                {
+                    "reason": (
+                        "Short-form facts come from deterministic direct "
+                        "extraction and are verified by deterministic "
+                        "fallback review."
+                    )
                 },
-            ),
-            fallback=lambda: fallback_verification(
-                fact_candidates
-            ),
-            store=store,
-        )
+            )
+            verification = fallback_verification(fact_candidates)
+        else:
+            verification = await self.run_agent_or_fallback(
+                stage="fact_verification",
+                agent=self.verifier_agent,
+                prompt=(
+                    "Verify every fact candidate against the evidence.\n\n"
+                    "Candidates:\n"
+                    + compact_json(fact_candidates)
+                    + "\n\nEvidence:\n"
+                    + compact_json(evidence_ledger)
+                ),
+                dependencies=AgentDependencies(
+                    run_id=run_id,
+                    payload={
+                        "fact_candidates": fact_candidates.model_dump(mode="json")
+                    },
+                ),
+                fallback=lambda: fallback_verification(
+                    fact_candidates
+                ),
+                store=store,
+            )
         verification = VerificationResult.model_validate(verification)
         raw_verification = verification
         verification = repair_spurious_missing_evidence_rejections(
@@ -2237,8 +2737,20 @@ class Table2TextWorkflow:
         )
         if (
             plan.report_specification.communication_task
-            == CommunicationTask.FOCUSED_TABLE_DESCRIPTION
+            in {
+                CommunicationTask.FOCUSED_TABLE_DESCRIPTION,
+                CommunicationTask.ATTRIBUTE_VERBALISATION,
+                CommunicationTask.TRIPLE_VERBALISATION,
+            }
         ):
+            allowed_capability = (
+                EvidenceCapability.FOCUSED_TABLE_REGION
+                if (
+                    plan.report_specification.communication_task
+                    == CommunicationTask.FOCUSED_TABLE_DESCRIPTION
+                )
+                else EvidenceCapability.STRUCTURED_RECORD_VERBALISATION
+            )
             evidence_by_id = {
                 item.evidence_id: item
                 for item in evidence_ledger.items
@@ -2250,11 +2762,10 @@ class Table2TextWorkflow:
                             fact
                             for fact
                             in genre_scoped_fact_ledger.writer_ready_facts
-                            if EvidenceCapability.FOCUSED_TABLE_REGION
-                            in fact.source_capabilities
+                            if allowed_capability in fact.source_capabilities
                             or any(
                                 evidence_by_id[evidence_id].capability
-                                == EvidenceCapability.FOCUSED_TABLE_REGION
+                                == allowed_capability
                                 for evidence_id in fact.evidence_ids
                                 if evidence_id in evidence_by_id
                             )
@@ -2266,7 +2777,26 @@ class Table2TextWorkflow:
         insight_candidates = InsightCandidateSet()
         insight_verification = InsightVerificationResult()
 
-        if not self.settings.enable_insight_synthesis:
+        if short_form_realisation_task:
+            insight_ledger = empty_insight_ledger(
+                synthesis_enabled=self.settings.enable_insight_synthesis,
+                fallback_reason=(
+                    "Short-form verbalisation skips bounded insight "
+                    "synthesis; direct record evidence is sufficient for "
+                    "the requested output form."
+                ),
+            )
+            store.trace(
+                "evidence.insight_synthesis",
+                "skipped",
+                {"reason": insight_ledger.fallback_reason},
+            )
+            store.trace(
+                "verifier.insight_verification",
+                "skipped",
+                {"reason": insight_ledger.fallback_reason},
+            )
+        elif not self.settings.enable_insight_synthesis:
             insight_ledger = empty_insight_ledger(
                 synthesis_enabled=False,
                 fallback_reason=(
@@ -2780,6 +3310,16 @@ class Table2TextWorkflow:
             "The `content_requirements` field is a controller-enforced "
             "coverage checklist. Use the required supported items and meet "
             "the minimum useful word count when it is enforced.\n\n"
+            "When `event_report_writing_guidance` is present, follow it as "
+            "the task style contract: write a coherent event recap, lead with "
+            "the supported result, integrate supported sequence/progression "
+            "and performances, and avoid flat-table profiling or mechanical "
+            "ranking dumps.\n\n"
+            "When `realisation_policy` or `style_rewrite_permissions` are "
+            "present, use them only to improve phrasing, ordering, compression "
+            "and harmless surface formatting. They do not authorise new facts, "
+            "new numbers, new entities, unsupported chronology, or unsupported "
+            "explanations.\n\n"
             "Return structured sections and sentences. Do not return "
             "a Markdown field or construct a separate support map; the "
             "controller will create both deterministically.\n\n"
@@ -2946,12 +3486,12 @@ class Table2TextWorkflow:
 
         writer_output_for_audit = raw_writer_output
         quality_revised_writer_output: WriterOutput | None = None
-        focused_short_form_output = (
+        short_form_output = (
             plan.report_specification.communication_task
-            == CommunicationTask.FOCUSED_TABLE_DESCRIPTION
+            in SHORT_FORM_COMMUNICATION_TASKS
         )
         needs_quality_revision = (
-            not focused_short_form_output
+            not short_form_output
             and (
                 bool(missing_components)
                 or initial_quality_audit.quality_assessment.status

@@ -68,6 +68,13 @@ class ReportPerspective(str, Enum):
     SUBJECT_CENTRED = "subject_centred"
 
 
+class RealisationPolicy(str, Enum):
+    STRICT_SOURCE_SURFACE = "strict_source_surface"
+    NATURAL_REFERENCE_STYLE = "natural_reference_style"
+    EVENT_RECAP_STYLE = "event_recap_style"
+    CONCISE_TABLE_PROPOSITION = "concise_table_proposition"
+
+
 class ReportSelectionSource(str, Enum):
     EXPLICIT_USER_REQUEST = "explicit_user_request"
     EXPERIMENT_CONFIGURATION = "experiment_configuration"
@@ -477,6 +484,9 @@ class ReportSpecification(StrictModel):
     require_complete_sentence: bool = True
     audience: str = "general analytical reader"
     perspective: ReportPerspective = ReportPerspective.NEUTRAL
+    realisation_policy: RealisationPolicy = (
+        RealisationPolicy.STRICT_SOURCE_SURFACE
+    )
     communication_goal: str = (
         "Summarise the strongest supported findings."
     )

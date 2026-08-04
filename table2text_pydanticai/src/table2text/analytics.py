@@ -1762,8 +1762,36 @@ def _focused_description_proposition(
     row_subjects: list[str],
     page_title: str,
     section_title: str,
+    page_title_subject_candidates: list[dict[str, Any]] | None = None,
+    nearby_context: list[str] | None = None,
 ) -> str:
     value_text = ", ".join(highlighted_values)
+    lower_headers = " ".join(header_context).casefold()
+    lower_nearby = " ".join(nearby_context or []).casefold()
+    generic_page_title = bool(
+        re.search(
+            r"\b(page|table|list|results?|summary|overview|record)\b",
+            page_title.casefold(),
+        )
+    )
+    subject_candidates = page_title_subject_candidates or []
+    if (
+        value_text
+        and page_title
+        and not generic_page_title
+        and subject_candidates
+        and "percentage" in lower_headers
+        and "vote" in lower_nearby
+    ):
+        related_headers = " ".join(
+            " ".join(str(header) for header in candidate.get("related_headers", []))
+            for candidate in subject_candidates
+            if isinstance(candidate, dict)
+        ).casefold()
+        if "president" in related_headers:
+            return f"{page_title} received {value_text} of the vote."
+        return f"{page_title} received {value_text}."
+
     sentence = f"The selected table value is {value_text}"
 
     if header_context:
@@ -1898,6 +1926,10 @@ def _focused_table_context(
         row_subjects=row_subjects,
         page_title=page_title,
         section_title=section_title,
+        page_title_subject_candidates=logical_context[
+            "page_title_subject_candidates"
+        ],
+        nearby_context=nearby_context,
     )
     if focused_record_relation:
         description_proposition = focused_record_relation[
@@ -2299,6 +2331,64 @@ def _clean_record_text(value: Any) -> str:
     return re.sub(r"\s+", " ", text)
 
 
+def _parse_pipe_triple(value: Any) -> dict[str, str] | None:
+    if not isinstance(value, str) or "|" not in value:
+        return None
+    parts = [part.strip() for part in value.split("|")]
+    if len(parts) != 3 or not all(parts):
+        return None
+    return {
+        "record_kind": "triple",
+        "subject": parts[0],
+        "relation": parts[1],
+        "object": parts[2],
+    }
+
+
+def _serialized_triples_from_value(value: Any) -> list[dict[str, str]]:
+    records: list[dict[str, str]] = []
+    parsed = _parse_pipe_triple(value)
+    if parsed is not None:
+        return [parsed]
+
+    if isinstance(value, str):
+        for line in value.splitlines():
+            parsed_line = _parse_pipe_triple(line.strip())
+            if parsed_line is not None:
+                records.append(parsed_line)
+        return records
+
+    if isinstance(value, dict):
+        triples = value.get("triples")
+        if isinstance(triples, list):
+            for item in triples:
+                if isinstance(item, (list, tuple)) and len(item) == 3:
+                    subject, relation, obj = (
+                        _clean_record_text(item[0]),
+                        _clean_record_text(item[1]),
+                        _clean_record_text(item[2]),
+                    )
+                    if subject and relation and obj:
+                        records.append(
+                            {
+                                "record_kind": "triple",
+                                "subject": subject,
+                                "relation": relation,
+                                "object": obj,
+                            }
+                        )
+                    continue
+                records.extend(_serialized_triples_from_value(item))
+        for child in value.values():
+            records.extend(_serialized_triples_from_value(child))
+        return records
+
+    if isinstance(value, list):
+        for item in value:
+            records.extend(_serialized_triples_from_value(item))
+    return records
+
+
 def _structured_record_rows(frame: pd.DataFrame) -> list[dict[str, str]]:
     records: list[dict[str, str]] = []
     columns = set(frame.columns)
@@ -2331,6 +2421,22 @@ def _structured_record_rows(frame: pd.DataFrame) -> list[dict[str, str]]:
                     "attribute_value": attribute_value,
                 }
             )
+
+        for column in ("triples", "source_payload", "source_text"):
+            if column in columns:
+                records.extend(
+                    _serialized_triples_from_value(row.get(column))
+                )
+
+    deduplicated: list[dict[str, str]] = []
+    seen: set[tuple[tuple[str, str], ...]] = set()
+    for record in records:
+        key = tuple(sorted(record.items()))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduplicated.append(record)
+    records = deduplicated
 
     return records
 

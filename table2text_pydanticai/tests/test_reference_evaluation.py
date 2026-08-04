@@ -11,7 +11,7 @@ from table2text.agents import materialise_insight_ledger
 from table2text.data import load_data
 from table2text.evaluation.datasets import merge_examples, normalise_row
 from table2text.evaluation.diagnostics import number_diagnostics
-from table2text.evaluation.generation import materialise_input
+from table2text.evaluation.generation import focus_scope_for_task, materialise_input
 from table2text.evaluation.human_evaluation import make_blinded_pairs
 from table2text.evaluation.models import (
     BenchmarkExample,
@@ -46,7 +46,13 @@ from table2text.evaluation.notebook import (
 )
 from table2text.evaluation import reference_metrics as reference_metrics_module
 from table2text.evaluation.external_factuality import ExternalFactualityResult
-from table2text.evaluation.reference_metrics import evaluate_reference_metrics, plain_text
+from table2text.evaluation.reference_metrics import (
+    evaluate_reference_metrics,
+    factuality_context,
+    normalized_event_source_context,
+    plain_text,
+)
+from table2text.workflow import task_contract_fields
 from table2text.evaluation.statistics import paired_bootstrap
 
 
@@ -62,6 +68,36 @@ def e2e_config() -> DatasetConfig:
         sample_size=None,
         reference_fields=["references", "target"],
         id_fields=["gem_parent_id", "gem_id"],
+    )
+
+
+def webnlg_config() -> DatasetConfig:
+    return DatasetConfig(
+        dataset_id="web_nlg",
+        source=DatasetSource.HUGGINGFACE,
+        hub_id="fixture",
+        normalizer="webnlg",
+        task_family=TaskFamily.TRIPLE_VERBALISATION,
+        output_mode=OutputMode.SHORT_TEXT,
+        language="en",
+        sample_size=None,
+        reference_fields=["target"],
+        id_fields=["gem_id"],
+    )
+
+
+def dart_config() -> DatasetConfig:
+    return DatasetConfig(
+        dataset_id="dart",
+        source=DatasetSource.HUGGINGFACE,
+        hub_id="fixture",
+        normalizer="dart",
+        task_family=TaskFamily.TRIPLE_VERBALISATION,
+        output_mode=OutputMode.SHORT_TEXT,
+        language="en",
+        sample_size=None,
+        reference_fields=["target"],
+        id_fields=["gem_id"],
     )
 
 
@@ -111,6 +147,92 @@ def test_single_agent_baseline_prompt_excludes_references():
     assert "fixture-1" not in prompt_text
     assert "Task type: event report" in prompt_text
     assert "Expected form: multi paragraph report" in prompt_text
+
+
+def test_event_benchmark_uses_reference_recap_focus_scope():
+    assert focus_scope_for_task(TaskFamily.EVENT_REPORT) == "reference_recap"
+    assert (
+        focus_scope_for_task(TaskFamily.CROSS_LINGUAL_EVENT_REPORT)
+        == "reference_recap"
+    )
+
+
+def test_reference_recap_contract_removes_visible_report_scaffolding():
+    contract = task_contract_fields(
+        genre=ReportGenre.EVENT_REPORT,
+        communication_task=CommunicationTask.EVENT_REPORT,
+        output_form=WorkflowOutputForm.MULTI_PARAGRAPH_REPORT,
+        focus_scope="reference_recap",
+    )
+
+    assert contract["allow_headings"] is False
+    assert contract["preferred_sections"] == []
+    assert "scope_limitations" not in contract["required_content_slots"]
+    assert "markdown_headings" in contract["prohibited_claim_types"]
+
+
+def test_event_source_context_normalizes_structured_source_without_reference():
+    source = {
+        "game": {
+            "stadium": "Wells Fargo Center",
+            "dayname": "Sunday",
+        },
+        "teams": {
+            "home": {
+                "name": "76ers",
+                "place": "Philadelphia",
+                "line_score": {
+                    "Q1": {"PTS": "26"},
+                    "game": {"PTS": "103", "TREB": "44"},
+                },
+                "box_score": [
+                    {"name": "J.J. Redick", "PTS": "24", "FGM": "9"},
+                ],
+            },
+            "vis": {
+                "name": "Grizzlies",
+                "place": "Memphis",
+                "line_score": {
+                    "Q1": {"PTS": "25"},
+                    "game": {"PTS": "95", "TREB": "35"},
+                },
+                "box_score": [
+                    {"name": "Mike Conley", "PTS": "21", "AST": "5"},
+                ],
+            },
+        },
+    }
+    record = GenerationRecord(
+        generation_id="g1",
+        dataset_id="event_fixture",
+        example_id="1",
+        variant_id="full_system",
+        repetition=0,
+        seed=42,
+        task_family=TaskFamily.EVENT_REPORT,
+        output_mode=OutputMode.MULTI_PARAGRAPH_REPORT,
+        language="en",
+        source_text=json.dumps(source),
+        references=["A held-out human reference that must not be copied."],
+        parent_table=None,
+        request="Write an event report.",
+        generated_text="Philadelphia defeated Memphis 103-95.",
+        backend=GenerationBackend.TABLE2TEXT,
+    )
+
+    context = normalized_event_source_context(record)
+
+    assert context is not None
+    assert "Event result: Philadelphia scored 103 and Memphis scored 95" in context
+    assert "Wells Fargo Center" in context
+    assert "Record for J.J. Redick" in context
+    assert "held-out human reference" not in context
+
+    config = ReferenceMetricConfig(
+        enabled_metrics=["hhem"],
+        external_factuality_context="source_text",
+    )
+    assert factuality_context(record, config) == context
 
 
 def test_attribute_verbalisation_materialises_structured_record(
@@ -191,6 +313,84 @@ def test_attribute_verbalisation_workflow_avoids_dataset_profile(
         EvidenceCapability.STRUCTURED_RECORD_VERBALISATION
         in result.execution_plan.selected_capabilities
     )
+
+
+def test_webnlg_serialized_triples_use_structured_verbalisation(
+    tmp_path: Path,
+):
+    example = normalise_row(
+        {
+            "gem_id": "webnlg-test-1",
+            "input": [
+                ["ALCO_RS-3", "engine", "Four-stroke_engine"],
+                ["ALCO_RS-3", "cylinderCount", "12"],
+                ["ALCO_RS-3", "length", "17068.8 (millimetres)"],
+            ],
+            "target": (
+                "The ALCO RS-3 has a four-stroke engine, 12 cylinders, "
+                "and a length of 17068.8 millimetres."
+            ),
+        },
+        webnlg_config(),
+        0,
+    )
+    input_path = materialise_input(example, tmp_path / "inputs")
+
+    workflow = Table2TextWorkflow(
+        Settings(use_llm=False, output_dir=tmp_path / "runs")
+    )
+    result = workflow.run_sync(
+        inputs=[input_path],
+        request=example.request,
+        audit_mode=AuditMode.INTERNAL,
+        report_genre=ReportGenre.DATASET_OVERVIEW,
+        communication_task=CommunicationTask.TRIPLE_VERBALISATION,
+        output_form=WorkflowOutputForm.SHORT_TEXT,
+    )
+    report = plain_text(result.final_writer_output.markdown)
+
+    assert "ALCO RS-3" in report
+    assert "12 cylinders" in report
+    assert "17068.8" in report
+    assert "millimetres" in report
+    assert "seventeen" not in report.casefold()
+    assert (
+        EvidenceCapability.STRUCTURED_RECORD_VERBALISATION
+        in result.execution_plan.selected_capabilities
+    )
+
+
+def test_dart_rank_triple_uses_ordinal_phrasing(tmp_path: Path):
+    example = normalise_row(
+        {
+            "gem_id": "dart-test-1",
+            "tripleset": [
+                ["Place A", "RANK", "11"],
+                ["Place A", "TOTAL", "211.5"],
+            ],
+            "target": "Place A ranks 11th and has a total of 211.5.",
+        },
+        dart_config(),
+        0,
+    )
+    input_path = materialise_input(example, tmp_path / "inputs")
+
+    workflow = Table2TextWorkflow(
+        Settings(use_llm=False, output_dir=tmp_path / "runs")
+    )
+    result = workflow.run_sync(
+        inputs=[input_path],
+        request=example.request,
+        audit_mode=AuditMode.INTERNAL,
+        report_genre=ReportGenre.DATASET_OVERVIEW,
+        communication_task=CommunicationTask.TRIPLE_VERBALISATION,
+        output_form=WorkflowOutputForm.SHORT_TEXT,
+    )
+    report = plain_text(result.final_writer_output.markdown)
+
+    assert "ranks 11th" in report
+    assert "total of 211.5" in report
+    assert "eleventh" not in report.casefold()
 
 
 def test_multiple_reference_rows_are_merged():

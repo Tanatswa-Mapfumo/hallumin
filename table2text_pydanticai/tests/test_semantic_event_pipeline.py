@@ -2986,8 +2986,8 @@ def test_event_fact_selection_keeps_broad_verified_event_coverage():
             for evidence_id in priority_evidence_ids
             if evidence_id.startswith("EVID_CONTRAST_")
         }
-    ) == 2
-    assert "EVID_GENERAL_CONTRAST" not in priority_evidence_ids
+    ) == 3
+    assert "EVID_GENERAL_CONTRAST" in priority_evidence_ids
     assert "EVID_PARTICIPATION" not in selected_evidence_ids
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import time
 import os
@@ -8,19 +9,28 @@ import tempfile
 from contextlib import contextmanager
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 import numpy as np
 
 from .datasets import write_jsonl
 from .alignscore_client import AlignScoreClient
 from .external_factuality import ExternalFactualityResult, HHEMEvaluator
-from .models import GenerationRecord, MetricObservation, MetricStatus, ReferenceMetricConfig
+from .models import (
+    GenerationRecord,
+    MetricObservation,
+    MetricStatus,
+    ReferenceMetricConfig,
+    TaskFamily,
+)
 
 
 MARKDOWN_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+", re.MULTILINE)
 MARKDOWN_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
-MARKDOWN_DECORATION = re.compile(r"[*_`~]")
+MARKDOWN_DECORATION = re.compile(r"[*`~]")
+MARKDOWN_UNDERSCORE_EMPHASIS = re.compile(
+    r"(?<![A-Za-z0-9])_([^_\n]+)_(?![A-Za-z0-9])"
+)
 WHITESPACE = re.compile(r"\s+")
 DEFAULT_ALIGNSCORE_WORKER = Path(__file__).resolve().parents[3] / "scripts/alignscore_worker.py"
 
@@ -40,6 +50,7 @@ def default_alignscore_python_executable() -> Path | None:
 def plain_text(value: str) -> str:
     value = MARKDOWN_LINK.sub(r"\1", value)
     value = MARKDOWN_HEADING.sub("", value)
+    value = MARKDOWN_UNDERSCORE_EMPHASIS.sub(r"\1", value)
     value = MARKDOWN_DECORATION.sub("", value)
     return WHITESPACE.sub(" ", value).strip()
 
@@ -191,6 +202,196 @@ def local_huggingface_snapshot(model_name_or_path: str) -> str:
     )
 
 
+def _primitive(value: Any) -> bool:
+    return value is None or isinstance(value, (str, int, float, bool))
+
+
+def _clean_label(value: str) -> str:
+    value = re.sub(r"[_./]+", " ", value)
+    value = re.sub(r"\s+", " ", value)
+    return value.strip()
+
+
+def _primitive_items(mapping: Mapping[str, Any]) -> list[tuple[str, Any]]:
+    return [
+        (_clean_label(str(key)), value)
+        for key, value in mapping.items()
+        if _primitive(value)
+        and str(value).strip()
+        and str(value).strip().lower() not in {"none", "null"}
+    ]
+
+
+def _format_items(
+    items: list[tuple[str, Any]],
+    *,
+    skip: set[str] | None = None,
+    maximum: int = 16,
+) -> str:
+    skip = {item.casefold() for item in (skip or set())}
+    parts = [
+        f"{key} {value}"
+        for key, value in items
+        if key.casefold() not in skip
+    ]
+    return ", ".join(parts[:maximum])
+
+
+def _format_number(value: float) -> str:
+    return str(int(value)) if value.is_integer() else str(value)
+
+
+def _team_score(payload: Mapping[str, Any]) -> Any | None:
+    line_score = payload.get("line_score")
+    if not isinstance(line_score, Mapping):
+        return None
+    game = line_score.get("game")
+    if not isinstance(game, Mapping):
+        return None
+    return game.get("PTS") or game.get("points") or game.get("score")
+
+
+def _event_participants(payload: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any]]]:
+    for key in ("teams", "participants", "sides", "competitors"):
+        value = payload.get(key)
+        if isinstance(value, Mapping):
+            participants = [
+                (str(role), record)
+                for role, record in value.items()
+                if isinstance(record, Mapping)
+            ]
+            if participants:
+                return participants
+    return []
+
+
+def _named_records(value: Any) -> list[Mapping[str, Any]]:
+    records: list[Mapping[str, Any]] = []
+    if isinstance(value, Mapping):
+        if "name" in value and any(
+            isinstance(item, (int, float, str))
+            and str(item).strip()
+            for key, item in value.items()
+            if key != "name"
+        ):
+            records.append(value)
+        for item in value.values():
+            records.extend(_named_records(item))
+    elif isinstance(value, list):
+        for item in value:
+            records.extend(_named_records(item))
+    return records
+
+
+def _event_source_context_from_json(payload: Any) -> str | None:
+    if not isinstance(payload, Mapping):
+        return None
+
+    lines: list[str] = []
+    game = payload.get("game")
+    if isinstance(game, Mapping):
+        context = _format_items(
+            _primitive_items(game),
+            maximum=20,
+        )
+        if context:
+            lines.append(f"Event context: {context}.")
+
+    participants = _event_participants(payload)
+    participant_scores: list[tuple[str, str, float]] = []
+    for role, participant in participants:
+        name = (
+            participant.get("place")
+            or participant.get("name")
+            or participant.get("team")
+            or role
+        )
+        score = _team_score(participant)
+        if score is not None:
+            try:
+                participant_scores.append((role, str(name), float(score)))
+            except (TypeError, ValueError):
+                pass
+        totals = []
+        line_score = participant.get("line_score")
+        if isinstance(line_score, Mapping):
+            game_totals = line_score.get("game")
+            if isinstance(game_totals, Mapping):
+                totals = _primitive_items(game_totals)
+        if totals:
+            lines.append(
+                f"{role} participant {name} game totals: "
+                f"{_format_items(totals, maximum=18)}."
+            )
+        for segment_name, segment in (
+            line_score.items()
+            if isinstance(line_score, Mapping)
+            else []
+        ):
+            if not isinstance(segment, Mapping) or segment_name == "game":
+                continue
+            points = (
+                segment.get("PTS")
+                or segment.get("points")
+                or segment.get("score")
+            )
+            if points is not None:
+                lines.append(
+                    f"{role} participant {name} {segment_name} points {points}."
+                )
+
+    if len(participant_scores) >= 2:
+        ordered = sorted(
+            participant_scores,
+            key=lambda item: item[2],
+            reverse=True,
+        )
+        winner = ordered[0]
+        loser = ordered[-1]
+        margin = winner[2] - loser[2]
+        if margin.is_integer():
+            margin_text = str(int(margin))
+        else:
+            margin_text = str(margin)
+        lines.insert(
+            0,
+            (
+                f"Event result: {winner[1]} scored {_format_number(winner[2])} "
+                f"and {loser[1]} scored {_format_number(loser[2])}; "
+                f"the margin was {margin_text}."
+            ),
+        )
+
+    for record in _named_records(payload):
+        name = record.get("name")
+        if not name:
+            continue
+        values = _format_items(
+            _primitive_items(record),
+            skip={"name", "first name", "last name"},
+            maximum=22,
+        )
+        if values:
+            lines.append(f"Record for {name}: {values}.")
+
+    if not lines:
+        return None
+    return "\n".join(dict.fromkeys(lines))
+
+
+def normalized_event_source_context(record: GenerationRecord) -> str | None:
+    if record.task_family not in {
+        TaskFamily.EVENT_REPORT,
+        TaskFamily.CROSS_LINGUAL_EVENT_REPORT,
+    }:
+        return None
+    try:
+        payload = json.loads(record.source_text)
+    except json.JSONDecodeError:
+        return None
+    return _event_source_context_from_json(payload)
+
+
 def factuality_context(record: GenerationRecord, config: ReferenceMetricConfig) -> str:
     if config.external_factuality_context == "references" and record.references:
         source = "\n".join(
@@ -199,7 +400,11 @@ def factuality_context(record: GenerationRecord, config: ReferenceMetricConfig) 
             if reference.strip()
         )
     else:
-        source = record.source_text.strip()
+        source = (
+            normalized_event_source_context(record)
+            if config.external_factuality_context == "source_text"
+            else None
+        ) or record.source_text.strip()
     limit = config.external_context_max_characters
     if len(source) <= limit:
         return source
