@@ -1703,7 +1703,7 @@ METRIC_ALIASES = {
     "pitching walks": {"p_bb"},
     "earned runs allowed": {"p_er"},
     "runs allowed": {"p_r"},
-    "rebounds": {"reb", "rebounds"},
+    "rebounds": {"reb", "rebounds", "total_rebounds", "treb"},
     "assists": {"ast", "assists"},
     "turnovers": {"tov", "turnovers"},
     "steals": {"stl", "steals"},
@@ -1896,6 +1896,8 @@ class EventParticipant:
     entities: list[EventEntity] = field(default_factory=list)
     record_context: dict[str, Any] = field(default_factory=dict)
     record_context_paths: dict[str, str] = field(default_factory=dict)
+    adjacent_event_context: dict[str, dict[str, Any]] = field(default_factory=dict)
+    adjacent_event_context_paths: dict[str, dict[str, str]] = field(default_factory=dict)
     segment_scores: dict[str, tuple[float, str]] = field(default_factory=dict)
 
 
@@ -2413,6 +2415,65 @@ def _participant_record_context(
     return context, paths
 
 
+ADJACENT_EVENT_CONTEXT_KEYS = {
+    "next_event",
+    "next_game",
+    "next_match",
+    "previous_event",
+    "previous_game",
+    "previous_match",
+}
+ADJACENT_EVENT_CONTEXT_VALUE_KEYS = {
+    "city",
+    "date",
+    "day",
+    "dayname",
+    "is_home",
+    "month",
+    "opponent",
+    "opponent_name",
+    "opponent_place",
+    "stadium",
+    "venue",
+    "year",
+}
+
+
+def _participant_adjacent_event_context(
+    value: Mapping[str, Any],
+    prefix: str,
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, str]]]:
+    context: dict[str, dict[str, Any]] = {}
+    paths: dict[str, dict[str, str]] = {}
+    for key, child in value.items():
+        normalised = normalise_key(str(key))
+        if normalised not in ADJACENT_EVENT_CONTEXT_KEYS:
+            continue
+        if not isinstance(child, Mapping):
+            continue
+        values: dict[str, Any] = {}
+        value_paths: dict[str, str] = {}
+        for child_key, child_value in child.items():
+            if isinstance(child_value, (Mapping, list)) or child_value is None:
+                continue
+            child_normalised = normalise_key(str(child_key))
+            if child_normalised not in ADJACENT_EVENT_CONTEXT_VALUE_KEYS:
+                continue
+            text = str(child_value).strip()
+            if not text:
+                continue
+            label = str(child_key).replace("_", " ")
+            values[label] = child_value
+            value_paths[label] = (
+                f"{prefix}.{key}.{child_key}" if prefix else f"{key}.{child_key}"
+            )
+        if values:
+            label = str(key).replace("_", " ")
+            context[label] = values
+            paths[label] = value_paths
+    return context, paths
+
+
 def _segment_sort_key(segment: str) -> tuple[int, int, str] | None:
     normalised = normalise_key(segment)
     if normalised in EVENT_AGGREGATE_LEVEL_TERMS:
@@ -2555,6 +2616,12 @@ def extract_event_participants(payload: Any) -> list[EventParticipant]:
             raw_participant,
             source_path,
         )
+        adjacent_context, adjacent_context_paths = (
+            _participant_adjacent_event_context(
+                raw_participant,
+                source_path,
+            )
+        )
         segment_scores = _participant_segment_scores(
             raw_participant,
             source_path,
@@ -2570,6 +2637,8 @@ def extract_event_participants(payload: Any) -> list[EventParticipant]:
             metric_paths=metric_paths,
             record_context=record_context,
             record_context_paths=record_context_paths,
+            adjacent_event_context=adjacent_context,
+            adjacent_event_context_paths=adjacent_context_paths,
             segment_scores=segment_scores,
         )
 
@@ -3610,6 +3679,58 @@ def _participant_record_context_finding(
     )
 
 
+def _participant_adjacent_event_context_finding(
+    participants: list[EventParticipant],
+) -> str:
+    clauses: list[str] = []
+    for participant in participants:
+        for relation, values in participant.adjacent_event_context.items():
+            normalised_relation = relation.replace("_", " ")
+            opponent = (
+                values.get("opponent name")
+                or values.get("opponent")
+                or values.get("opponent place")
+            )
+            date_parts = [
+                values[key]
+                for key in ["dayname", "day", "month", "year"]
+                if key in values
+            ]
+            venue = values.get("stadium") or values.get("venue")
+            city = values.get("city")
+            location = ", ".join(
+                str(item)
+                for item in [venue, city]
+                if item not in {None, ""}
+            )
+            home_value = str(values.get("is home", "")).strip().lower()
+            home_text = (
+                "at home"
+                if home_value == "true"
+                else "away"
+                if home_value == "false"
+                else ""
+            )
+            parts = [
+                f"{participant.name} {normalised_relation}",
+                home_text,
+                f"against {opponent}" if opponent else "",
+                "on " + " ".join(str(item) for item in date_parts)
+                if date_parts
+                else "",
+                f"at {location}" if location else "",
+            ]
+            clause = " ".join(part for part in parts if part).strip()
+            if clause:
+                clauses.append(clause)
+
+    return (
+        "Adjacent event context records "
+        + "; ".join(clauses)
+        + "."
+    )
+
+
 def _participant_record_context_evidence(
     participants: list[EventParticipant],
 ) -> list[CapabilityEvidence]:
@@ -3663,6 +3784,282 @@ def _participant_record_context_evidence(
             ],
         )
     ]
+
+
+def _participant_adjacent_event_context_evidence(
+    participants: list[EventParticipant],
+) -> list[CapabilityEvidence]:
+    participants_with_context = [
+        participant
+        for participant in participants
+        if participant.adjacent_event_context
+    ]
+    if len(participants_with_context) < 1:
+        return []
+
+    values = [
+        {
+            "participant": participant.name,
+            "values": participant.adjacent_event_context,
+            "source_paths": [
+                path
+                for paths in participant.adjacent_event_context_paths.values()
+                for path in paths.values()
+            ],
+        }
+        for participant in participants_with_context
+    ]
+    return [
+        CapabilityEvidence(
+            capability=EvidenceCapability.EVENT_OUTCOME,
+            evidence_type="participant_record_context",
+            finding=_participant_adjacent_event_context_finding(
+                participants_with_context
+            ),
+            metrics={"values": values, "context_kind": "adjacent_event"},
+            source_paths=list(
+                dict.fromkeys(
+                    path
+                    for participant in participants_with_context
+                    for paths in participant.adjacent_event_context_paths.values()
+                    for path in paths.values()
+                )
+            ),
+            entity_scope=[
+                participant.name
+                for participant in participants_with_context
+            ],
+            practical_interpretation=(
+                "This supplies adjacent scheduled-event context without using "
+                "it as evidence about the current event result."
+            ),
+            strength_label="adjacent_event_context",
+            claim_permissions=[ClaimPermission.DESCRIPTIVE],
+            factual_confidence=1.0,
+            methodological_strength=1.0,
+            user_relevance=0.78,
+            salience=0.78,
+            recommended_use=RecommendedUse.SUPPORTING_DETAIL,
+            semantic_level=SemanticLevel.PARTICIPANT,
+            prohibited_interpretations=[
+                "Do not infer future outcomes or participant motivation from "
+                "adjacent scheduled-event context."
+            ],
+        )
+    ]
+
+
+ENTITY_DETAIL_METRIC_NAMES = {
+    "assists",
+    "blocks",
+    "doubles",
+    "earned runs allowed",
+    "field goals attempted",
+    "field goals made",
+    "free throws attempted",
+    "free throws made",
+    "hits",
+    "home runs",
+    "pitching strikeouts",
+    "points",
+    "rebounds",
+    "runs",
+    "runs allowed",
+    "runs batted in",
+    "steals",
+    "strikeouts",
+    "three-pointers attempted",
+    "three-pointers made",
+    "triples",
+    "walks",
+}
+SINGULAR_ENTITY_METRIC_NAMES = {
+    "assists": "assist",
+    "blocks": "block",
+    "doubles": "double",
+    "earned runs allowed": "earned run allowed",
+    "field goals attempted": "field goal attempted",
+    "field goals made": "field goal made",
+    "free throws attempted": "free throw attempted",
+    "free throws made": "free throw made",
+    "hits": "hit",
+    "home runs": "home run",
+    "pitching strikeouts": "pitching strikeout",
+    "points": "point",
+    "rebounds": "rebound",
+    "runs": "run",
+    "runs allowed": "run allowed",
+    "runs batted in": "run batted in",
+    "steals": "steal",
+    "strikeouts": "strikeout",
+    "three-pointers attempted": "three-pointer attempted",
+    "three-pointers made": "three-pointer made",
+    "triples": "triple",
+    "walks": "walk",
+}
+
+
+def _format_entity_metric_phrase(
+    metric: str,
+    value: float,
+) -> str:
+    label = (
+        SINGULAR_ENTITY_METRIC_NAMES.get(metric, metric)
+        if abs(value) == 1
+        else metric
+    )
+    return f"{value:g} {label}"
+
+
+def _entity_detail_metrics(
+    entity: EventEntity,
+    primary_metric: str,
+) -> list[str]:
+    preferred = [
+        primary_metric,
+        "rebounds",
+        "assists",
+        "steals",
+        "blocks",
+        "hits",
+        "runs batted in",
+        "home runs",
+        "runs",
+        "pitching strikeouts",
+        "strikeouts",
+        "doubles",
+        "triples",
+        "walks",
+        "field goals made",
+        "field goals attempted",
+        "three-pointers made",
+        "three-pointers attempted",
+        "free throws made",
+        "free throws attempted",
+    ]
+    selected: list[str] = []
+    for metric in dict.fromkeys(preferred):
+        if metric not in entity.metrics:
+            continue
+        if metric not in ENTITY_DETAIL_METRIC_NAMES:
+            continue
+        value = entity.metrics[metric]
+        if value <= 0 and metric != primary_metric:
+            continue
+        selected.append(metric)
+        if len(selected) >= 6:
+            break
+    return selected
+
+
+def _entity_performance_evidence(
+    *,
+    entities: list[EventEntity],
+    participants: list[EventParticipant],
+    entity_metrics: list[str],
+) -> list[CapabilityEvidence]:
+    primary_metric = entity_metrics[0] if entity_metrics else None
+    if not entities or not primary_metric:
+        return []
+
+    selected: dict[str, EventEntity] = {}
+    primary_ranked = sorted(
+        [
+            entity
+            for entity in entities
+            if primary_metric in entity.metrics
+        ],
+        key=lambda entity: entity.metrics.get(primary_metric, float("-inf")),
+        reverse=True,
+    )
+    for entity in primary_ranked[:6]:
+        selected.setdefault(entity.name, entity)
+
+    for participant in participants:
+        participant_ranked = [
+            entity
+            for entity in primary_ranked
+            if entity.participant_name == participant.name
+        ]
+        for entity in participant_ranked[:3]:
+            selected.setdefault(entity.name, entity)
+
+    for metric in entity_metrics[:6]:
+        ranked = sorted(
+            [
+                entity
+                for entity in entities
+                if metric in entity.metrics and entity.metrics[metric] > 0
+            ],
+            key=lambda entity: entity.metrics[metric],
+            reverse=True,
+        )
+        if ranked:
+            selected.setdefault(ranked[0].name, ranked[0])
+
+    evidence: list[CapabilityEvidence] = []
+    for index, entity in enumerate(selected.values(), start=1):
+        visible_metrics = _entity_detail_metrics(entity, primary_metric)
+        if not visible_metrics:
+            continue
+        metric_text = ", ".join(
+            _format_entity_metric_phrase(
+                metric,
+                entity.metrics[metric],
+            )
+            for metric in visible_metrics
+        )
+        evidence.append(
+            CapabilityEvidence(
+                capability=EvidenceCapability.ENTITY_PERFORMANCE,
+                evidence_type="entity_performance",
+                finding=(
+                    f"{entity.name} recorded {metric_text} for "
+                    f"{entity.participant_name}."
+                ),
+                metrics={
+                    "entity": entity.name,
+                    "participant": entity.participant_name,
+                    "primary_metric": primary_metric,
+                    "selection_rank": index,
+                    **{
+                        metric: entity.metrics[metric]
+                        for metric in visible_metrics
+                    },
+                },
+                source_paths=[
+                    path
+                    for path in [
+                        *entity.identity_paths,
+                        *[
+                            entity.metric_paths[metric]
+                            for metric in visible_metrics
+                        ],
+                    ]
+                    if path
+                ],
+                entity_scope=[entity.name, entity.participant_name],
+                practical_interpretation=(
+                    "This records a salient entity performance within the "
+                    "supplied event without adding a domain-specific milestone."
+                ),
+                strength_label="entity_performance",
+                claim_permissions=[ClaimPermission.DESCRIPTIVE],
+                factual_confidence=1.0,
+                methodological_strength=1.0,
+                user_relevance=0.95,
+                salience=0.95 if index <= 3 else 0.88,
+                recommended_use=(
+                    RecommendedUse.MAIN_FINDING
+                    if index <= 3
+                    else RecommendedUse.SUPPORTING_DETAIL
+                ),
+                prohibited_interpretations=[
+                    "Do not infer that this performance caused the event result."
+                ],
+            )
+        )
+    return evidence
 
 
 def _preferred_score_segment_family(
@@ -3967,6 +4364,7 @@ def event_capability_evidence(payload: Any) -> list[CapabilityEvidence]:
     evidence.extend(
         [
             *_participant_record_context_evidence(participants),
+            *_participant_adjacent_event_context_evidence(participants),
             *_score_progression_evidence(participants),
         ]
     )
@@ -4119,75 +4517,13 @@ def event_capability_evidence(payload: Any) -> list[CapabilityEvidence]:
             )
         )
 
-    primary_entity_metric = entity_metrics[0] if entity_metrics else None
-    if all_entities and primary_entity_metric:
-        top_entity = max(
-            [
-                entity
-                for entity in all_entities
-                if primary_entity_metric in entity.metrics
-            ],
-            key=lambda entity: entity.metrics.get(primary_entity_metric, float("-inf")),
+    evidence.extend(
+        _entity_performance_evidence(
+            entities=all_entities,
+            participants=participants,
+            entity_metrics=entity_metrics,
         )
-        visible_metrics = [
-            metric
-            for metric in dict.fromkeys(
-                [
-                    primary_entity_metric,
-                    *entity_metrics,
-                ]
-            )
-            if metric in top_entity.metrics
-            and (
-                top_entity.metrics[metric] > 0
-                or metric == primary_entity_metric
-            )
-        ][:4]
-        if visible_metrics:
-            metric_text = ", ".join(
-                f"{top_entity.metrics[metric]:g} {metric}"
-                for metric in visible_metrics
-            )
-            evidence.append(
-                CapabilityEvidence(
-                    capability=EvidenceCapability.ENTITY_PERFORMANCE,
-                    evidence_type="entity_performance",
-                    finding=(
-                        f"{top_entity.name} recorded {metric_text} for "
-                        f"{top_entity.participant_name}."
-                    ),
-                    metrics={
-                        "entity": top_entity.name,
-                        "participant": top_entity.participant_name,
-                        **{
-                            metric: top_entity.metrics[metric]
-                            for metric in visible_metrics
-                        },
-                    },
-                    source_paths=[
-                        *top_entity.identity_paths,
-                        *[
-                            top_entity.metric_paths[metric]
-                            for metric in visible_metrics
-                        ],
-                    ],
-                    entity_scope=[top_entity.name, top_entity.participant_name],
-                    practical_interpretation=(
-                        "This identifies a leading recorded entity performance "
-                        "without adding a domain-specific milestone."
-                    ),
-                    strength_label="entity_performance",
-                    claim_permissions=[ClaimPermission.DESCRIPTIVE],
-                    factual_confidence=1.0,
-                    methodological_strength=1.0,
-                    user_relevance=0.95,
-                    salience=0.95,
-                    recommended_use=RecommendedUse.MAIN_FINDING,
-                    prohibited_interpretations=[
-                        "Do not infer that this performance caused the event result."
-                    ],
-                )
-            )
+    )
 
     metric_participants = [participant for participant in participants if participant.metrics]
     if len(metric_participants) >= 2:

@@ -12,11 +12,13 @@ from table2text.data import load_data
 from table2text.evaluation.datasets import merge_examples, normalise_row
 from table2text.evaluation.diagnostics import number_diagnostics
 from table2text.evaluation.generation import focus_scope_for_task, materialise_input
+from table2text.evaluation.deepeval_metrics import input_for_judge
 from table2text.evaluation.human_evaluation import make_blinded_pairs
 from table2text.evaluation.models import (
     BenchmarkExample,
     DatasetConfig,
     DatasetSource,
+    DeepEvalConfig,
     GenerationBackend,
     GenerationRecord,
     OutputMode,
@@ -309,6 +311,10 @@ def test_attribute_verbalisation_workflow_avoids_dataset_profile(
     assert "Dataset overview" not in report
     assert "1 rows" not in report
     assert "meaning_representation" not in report
+    assert result.final_writer_output.writer_mode == (
+        "deterministic_short_form_writer"
+    )
+    assert result.primary_evaluation_eligible
     assert (
         EvidenceCapability.STRUCTURED_RECORD_VERBALISATION
         in result.execution_plan.selected_capabilities
@@ -354,6 +360,10 @@ def test_webnlg_serialized_triples_use_structured_verbalisation(
     assert "17068.8" in report
     assert "millimetres" in report
     assert "seventeen" not in report.casefold()
+    assert result.final_writer_output.writer_mode == (
+        "deterministic_short_form_writer"
+    )
+    assert result.primary_evaluation_eligible
     assert (
         EvidenceCapability.STRUCTURED_RECORD_VERBALISATION
         in result.execution_plan.selected_capabilities
@@ -391,6 +401,10 @@ def test_dart_rank_triple_uses_ordinal_phrasing(tmp_path: Path):
     assert "ranks 11th" in report
     assert "total of 211.5" in report
     assert "eleventh" not in report.casefold()
+    assert result.final_writer_output.writer_mode == (
+        "deterministic_short_form_writer"
+    )
+    assert result.primary_evaluation_eligible
 
 
 def test_multiple_reference_rows_are_merged():
@@ -684,6 +698,10 @@ def test_highlighted_table_logical_row_context_uses_spans(tmp_path: Path):
         ["Percentage"],
         "58.45%",
     )
+    assert result.final_writer_output.writer_mode == (
+        "deterministic_short_form_writer"
+    )
+    assert result.primary_evaluation_eligible
     assert has_pair(
         metrics["logical_row_context"],
         ["Candidate", "Vice president"],
@@ -1568,6 +1586,32 @@ def generation(*, variant: str, text: str) -> GenerationRecord:
 
 def test_plain_text_removes_markdown_heading():
     assert plain_text("# Report\n\n**A result.**") == "Report A result."
+
+
+def test_deepeval_input_includes_focused_table_task_guidance():
+    record = generation(
+        variant="full",
+        text="Ma Ying-jeou received 58.45% of the vote.",
+    ).model_copy(
+        update={
+            "dataset_id": "totto",
+            "task_family": TaskFamily.HIGHLIGHTED_TABLE_DESCRIPTION,
+            "output_mode": OutputMode.ONE_SENTENCE,
+            "source_text": (
+                "page_title: Ma Ying-jeou\n"
+                "section_title: Inauguration\n"
+                "row: Ma Ying-jeou | Vincent Siew | 7,659,014 | 58.45%"
+            ),
+            "request": "Describe the highlighted table region.",
+        }
+    )
+
+    judge_input = input_for_judge(record, DeepEvalConfig())
+
+    assert "focused-table task" in judge_input
+    assert "table-local proposition" in judge_input
+    assert "row co-entity" in judge_input
+    assert "Ma Ying-jeou" in judge_input
 
 
 def test_reference_metrics_score_identical_text(tmp_path: Path):

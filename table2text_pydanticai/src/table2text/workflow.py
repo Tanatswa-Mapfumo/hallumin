@@ -63,6 +63,7 @@ from .audit import (
 )
 from .config import Settings
 from .data import load_data, profile_data
+from .narrative import build_event_narrative_plan
 from .structure import build_structural_catalog
 from .schemas import (
     AuditDecision,
@@ -86,6 +87,7 @@ from .schemas import (
     InsightType,
     InsightVerificationResult,
     InvestigationTask,
+    NarrativePlan,
     PipelineResult,
     ProfileSupportRecord,
     QualityStatus,
@@ -467,7 +469,12 @@ def task_contract_fields(
                 "Use every supplied attribute or triple that contributes to "
                 "the requested short verbalisation. Prefer natural phrasing "
                 "over mechanical key/value listing, but do not introduce "
-                "facts absent from the structured record."
+                "facts absent from the structured record. For triple "
+                "verbalisation, preserve the source relation order where "
+                "natural and use compact predicate-preserving wording; do "
+                "not add interpretive paraphrases or formatting changes that "
+                "are not required by grammar. Preserve source digits, "
+                "decimals and units exactly."
             ),
         }
 
@@ -1121,6 +1128,7 @@ def build_compact_writer_payload(
     pack: WriterEvidencePack,
     allow_hypotheses_in_report: bool = False,
     content_requirements: dict[str, Any] | None = None,
+    narrative_plan: NarrativePlan | None = None,
 ) -> dict[str, Any]:
     facts_by_id = {
         fact.fact_id: fact
@@ -1307,6 +1315,12 @@ def build_compact_writer_payload(
                 content_requirements,
             )
         )
+        plan = narrative_plan or build_event_narrative_plan(
+            pack,
+            content_requirements,
+        )
+        if plan.applies:
+            payload["narrative_plan"] = plan
     return payload
 
 
@@ -3303,6 +3317,14 @@ class Table2TextWorkflow:
             "08_writer_content_requirements.json",
             writer_content_requirements,
         )
+        narrative_plan = build_event_narrative_plan(
+            writer_pack,
+            writer_content_requirements,
+        )
+        store.save_json(
+            "08_narrative_plan.json",
+            narrative_plan,
+        )
 
         writer_prompt = (
             "Write the final report for the selected report contract from the "
@@ -3315,6 +3337,11 @@ class Table2TextWorkflow:
             "the supported result, integrate supported sequence/progression "
             "and performances, and avoid flat-table profiling or mechanical "
             "ranking dumps.\n\n"
+            "When `narrative_plan` is present, use it to decide ordering, "
+            "paragraph grouping and salience. Cover higher-priority narrative "
+            "slots first, use low-priority fact IDs only when they add "
+            "distinct value, and keep the prose flowing instead of listing "
+            "every available ranking.\n\n"
             "When `realisation_policy` or `style_rewrite_permissions` are "
             "present, use them only to improve phrasing, ordering, compression "
             "and harmless surface formatting. They do not authorise new facts, "
@@ -3328,6 +3355,7 @@ class Table2TextWorkflow:
                     writer_pack,
                     self.settings.allow_hypotheses_in_report,
                     writer_content_requirements,
+                    narrative_plan,
                 )
             )
         )
@@ -3363,6 +3391,9 @@ class Table2TextWorkflow:
                         ),
                         "writer_content_requirements": (
                             writer_content_requirements
+                        ),
+                        "narrative_plan": narrative_plan.model_dump(
+                            mode="json"
                         ),
                     },
                 ),

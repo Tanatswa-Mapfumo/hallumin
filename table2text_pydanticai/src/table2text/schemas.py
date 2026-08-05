@@ -75,6 +75,17 @@ class RealisationPolicy(str, Enum):
     CONCISE_TABLE_PROPOSITION = "concise_table_proposition"
 
 
+class NarrativeSlot(str, Enum):
+    OPENING_RESULT = "opening_result"
+    EVENT_CONTEXT = "event_context"
+    SCORE_PROGRESSION = "score_progression"
+    EVENT_SEQUENCE = "event_sequence"
+    LEADING_PERFORMANCES = "leading_performances"
+    PARTICIPANT_CONTRASTS = "participant_contrasts"
+    SECONDARY_DETAILS = "secondary_details"
+    CLOSING_SCOPE = "closing_scope"
+
+
 class ReportSelectionSource(str, Enum):
     EXPLICIT_USER_REQUEST = "explicit_user_request"
     EXPERIMENT_CONFIGURATION = "experiment_configuration"
@@ -514,6 +525,33 @@ class ReportSpecification(StrictModel):
     include_methodological_details: bool = True
 
     prioritisation_rule: str
+
+
+class NarrativeSlotPlan(StrictModel):
+    slot: NarrativeSlot
+    purpose: str
+    fact_ids: list[str] = Field(default_factory=list)
+    insight_ids: list[str] = Field(default_factory=list)
+    priority: int = Field(ge=1, le=10)
+    minimum_items: int = Field(default=0, ge=0)
+    maximum_items: int | None = Field(default=None, ge=1)
+    paragraph_hint: int = Field(ge=1)
+    connective_hint: str | None = None
+    include_when_supported: bool = True
+    visible_caveat_allowed: bool = True
+
+
+class NarrativePlan(StrictModel):
+    applies: bool = False
+    style: Literal["reference_recap", "structured_event_report"] = (
+        "structured_event_report"
+    )
+    allow_headings: bool = True
+    target_paragraphs: int = Field(default=4, ge=1)
+    slots: list[NarrativeSlotPlan] = Field(default_factory=list)
+    low_priority_fact_ids: list[str] = Field(default_factory=list)
+    prohibited_narrative_moves: list[str] = Field(default_factory=list)
+    closing_policy: str = ""
 
 
 class InvestigationTask(StrictModel):
@@ -1022,6 +1060,7 @@ class WriterOutput(StrictModel):
     writer_mode: Literal[
         "llm_writer",
         "deterministic_fallback",
+        "deterministic_short_form_writer",
         "auditor_repaired",
     ] = "llm_writer"
 

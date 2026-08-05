@@ -51,6 +51,75 @@ def source_for_judge(record: GenerationRecord, config: DeepEvalConfig) -> str:
     return source[: config.max_source_characters] + "\n\n[Source truncated by evaluation configuration.]"
 
 
+def _enum_value(value: Any) -> str:
+    return str(getattr(value, "value", value) or "")
+
+
+def task_guidance_for_judge(record: GenerationRecord) -> str:
+    task_family = _enum_value(record.task_family)
+    output_mode = _enum_value(record.output_mode)
+    guidance = [
+        "Judge the actual output against the requested data-to-text task, "
+        "not against a generic summarisation task.",
+    ]
+
+    if task_family == "highlighted_table_description":
+        guidance.extend(
+            [
+                "This is a focused-table task: identify the concise "
+                "table-local proposition expressed by the highlighted cell "
+                "or focused table region.",
+                "Use page title, section title, row labels, column headers, "
+                "highlighted values and source-text context to decide the "
+                "correct subject and relation.",
+                "Penalise outputs that merely describe cell coordinates or "
+                "assign the highlighted value to a row co-entity when the "
+                "local table context identifies a different primary subject.",
+            ]
+        )
+    elif task_family in {
+        "attribute_verbalisation",
+        "triple_verbalisation",
+    }:
+        guidance.extend(
+            [
+                "This is a short structured-record verbalisation task: the "
+                "answer should express all and only the supplied attributes "
+                "or triples.",
+                "Prefer concise predicate-preserving wording. Do not reward "
+                "unrelated background, extra attributes, changed numbers, "
+                "changed units or changed entity identity.",
+            ]
+        )
+
+    if output_mode in {
+        "one_sentence",
+        "short_text",
+        "direct_answer",
+    }:
+        guidance.append(
+            "The expected output is short; brevity is appropriate when the "
+            "essential supported proposition is complete."
+        )
+
+    return "\n".join(f"- {item}" for item in guidance)
+
+
+def input_for_judge(record: GenerationRecord, config: DeepEvalConfig) -> str:
+    source = source_for_judge(record, config)
+    return (
+        f"Dataset ID: {record.dataset_id}\n"
+        f"Example ID: {record.example_id}\n"
+        f"Task family: {_enum_value(record.task_family)}\n"
+        f"Output mode: {_enum_value(record.output_mode)}\n"
+        f"Request: {record.request}\n\n"
+        "Task-specific evaluation guidance:\n"
+        f"{task_guidance_for_judge(record)}\n\n"
+        "Structured source:\n"
+        f"{source}"
+    )
+
+
 def reference_for_judge(record: GenerationRecord) -> str | None:
     if not record.references:
         return None
@@ -196,7 +265,7 @@ def evaluate_record(record: GenerationRecord, config: DeepEvalConfig) -> list[De
             )
         ]
 
-    source = source_for_judge(record, config)
+    source = input_for_judge(record, config)
     source_chunks = source_chunks_for_judge(record, config)
     generated = plain_text(record.generated_text)
     expected = reference_for_judge(record)

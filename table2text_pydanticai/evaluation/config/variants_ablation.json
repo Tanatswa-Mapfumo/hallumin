@@ -1,0 +1,85 @@
+{
+  "variants": [
+    {
+      "variant_id": "raw_deepseek_v4_flash",
+      "enabled": true,
+      "backend": "callable",
+      "description": "Raw single-LLM DeepSeek Flash baseline from source data only.",
+      "settings_overrides": {
+        "raw_baseline_model": "deepseek-v4-flash",
+        "raw_baseline_max_source_characters": 100000,
+        "raw_baseline_max_output_tokens": 3000,
+        "raw_baseline_temperature": 0.2
+      },
+      "callable_path": "table2text.evaluation_backends.single_agent_baseline",
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    },
+    {
+      "variant_id": "full_system",
+      "enabled": true,
+      "backend": "table2text",
+      "description": "Current full multi-agent system.",
+      "settings_overrides": {},
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    },
+    {
+      "variant_id": "no_insight_synthesis",
+      "enabled": true,
+      "backend": "table2text",
+      "description": "Full system with the insight synthesis and insight-verification stages disabled.",
+      "settings_overrides": {
+        "enable_insight_synthesis": false
+      },
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    },
+    {
+      "variant_id": "no_writer_quality_revision",
+      "enabled": true,
+      "backend": "table2text",
+      "description": "Full system with the pre-audit writer quality revision pass disabled.",
+      "settings_overrides": {
+        "writer_quality_revision_rounds": 0
+      },
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    },
+    {
+      "variant_id": "no_audit_repair_rounds",
+      "enabled": true,
+      "backend": "table2text",
+      "description": "Full system with post-audit repair rounds disabled; deterministic audit still runs.",
+      "settings_overrides": {
+        "max_revision_rounds": 0
+      },
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    }
+  ]
+}

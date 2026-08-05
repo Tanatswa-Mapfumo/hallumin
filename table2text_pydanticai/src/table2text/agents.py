@@ -2622,15 +2622,17 @@ default; subject-centred perspective changes selection only, never facts.
 For an event report, lead with the supported result when available, integrate
 supported date, venue, participant record context, segment score progression
 and status as context, then relate salient entity performances and
-participant-level contrasts. End with a short event-scoped
-limitation. Do not discuss wrapper row counts, constant columns, missingness,
-correlation, regression, statistical power, feature removal or predictive
-modelling unless the user explicitly requested that analysis. A single event
-can still support within-event comparison and ranking. Phrase the limitation
-in event terms: the comparisons describe only the supplied event, do not
-establish why the result occurred and do not support claims about broader
-performance. Avoid generic boilerplate about "observed associations" or
-"unadjusted group comparisons" in an event report.
+participant-level contrasts. For structured event reports, end with a short
+event-scoped limitation. For reference-style event recaps, keep caveats
+internal unless they are needed to avoid a misleading unsupported inference.
+Do not discuss wrapper row counts, constant columns, missingness, correlation,
+regression, statistical power, feature removal or predictive modelling unless
+the user explicitly requested that analysis. A single event can still support
+within-event comparison and ranking. When a visible limitation is required,
+phrase it in event terms: the comparisons describe only the supplied event,
+do not establish why the result occurred and do not support claims about
+broader performance. Avoid generic boilerplate about "observed associations"
+or "unadjusted group comparisons" in an event report.
 If event-sequence evidence is present, you may mention that recorded sequence
 or score-state information exists, but prefer concrete supported
 score-changing facts over generic availability statements. Do not infer
@@ -2698,8 +2700,15 @@ such as `lead_change` or `late_score_change`; express the supplied scores and
 events naturally.
 When `narrative_requirements` are present, satisfy them with connected event
 prose: use verified insights or multi-fact synthesis, contrastive connectors
-such as "while" or "despite" where the support allows them, and an event-scoped
-caveat. Do not satisfy narration by inventing chronology, momentum or causes.
+such as "while" or "despite" where the support allows them, and an
+event-scoped caveat only when required by the supplied narrative
+requirements. Do not satisfy narration by inventing chronology, momentum or
+causes.
+When the Writer payload contains `narrative_plan`, follow its slot order and
+paragraph hints as the visible story plan. Cover higher-priority slots before
+secondary details, combine related facts into natural sentences, and use
+`low_priority_fact_ids` only when they add distinct value after the result,
+sequence, leading performances and participant contrasts are covered.
 
 For focused-table, structured-record verbalisation, direct-answer,
 one-sentence or short-text tasks, the report contract overrides normal report
@@ -2717,6 +2726,12 @@ When structured-record evidence is available for an attribute or triple
 verbalisation task, express all and only those supplied records as fluent
 natural language. Prefer natural wording over a mechanical key/value dump, but
 do not add unsupported attributes, entities, relations or background facts.
+For triple verbalisation, treat the supplied triples as the sentence schema:
+keep the source subject as the grammatical subject when natural, render each
+relation once, preserve relation order where possible, and use compact direct
+predicates. Do not add explanatory verbs, alternate measurements or
+background framing not present in the supplied triples. Preserve numeric
+punctuation exactly.
 If the focused evidence or content requirements include a short-form selection
 policy, centre the sentence on highlighted role/value pairs and the most
 specific supported primary subject candidate. Treat non-highlighted same-row

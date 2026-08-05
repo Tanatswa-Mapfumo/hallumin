@@ -42,6 +42,7 @@ from table2text.capabilities import (
 )
 from table2text.config import Settings
 from table2text.data import DataBundle, load_data
+from table2text.narrative import build_event_narrative_plan
 from table2text.schemas import (
     AnalyticalFunction,
     AnalysisRoute,
@@ -69,7 +70,9 @@ from table2text.schemas import (
     InsightType,
     InterpretationLevel,
     InvestigationTask,
+    NarrativeSlot,
     QualityStatus,
+    RealisationPolicy,
     RecommendedUse,
     ReportGenre,
     ReportSelectionSource,
@@ -83,6 +86,7 @@ from table2text.schemas import (
     SupportType,
     VerificationResult,
     VerifiedFact,
+    WriterEvidencePack,
     WriterOutput,
     WriterAgentDraft,
 )
@@ -1411,6 +1415,103 @@ def test_event_capability_evidence_adds_record_context_and_score_progression():
     assert after_q2["leader"] == "Phoenix Suns"
 
 
+def test_event_capability_evidence_adds_rich_entity_performances_and_adjacent_context():
+    payload = {
+        "teams": {
+            "home": {
+                "name": "North",
+                "wins": "8",
+                "losses": "2",
+                "next_game": {
+                    "opponent_name": "East",
+                    "dayname": "Friday",
+                    "day": "9",
+                    "month": "May",
+                    "year": "2026",
+                    "stadium": "Civic Arena",
+                    "city": "Metro",
+                    "is_home": "true",
+                },
+                "line_score": {"game": {"PTS": "90"}},
+                "box_score": [
+                    {
+                        "name": "North Guard",
+                        "PTS": "28",
+                        "TREB": "6",
+                        "AST": "7",
+                        "STL": "2",
+                        "BLK": "1",
+                        "FGA": "19",
+                    },
+                    {
+                        "name": "North Forward",
+                        "PTS": "18",
+                        "TREB": "12",
+                        "AST": "3",
+                    },
+                ],
+            },
+            "vis": {
+                "name": "South",
+                "wins": "5",
+                "losses": "5",
+                "next_game": {
+                    "opponent_name": "West",
+                    "dayname": "Saturday",
+                    "day": "10",
+                    "month": "May",
+                    "year": "2026",
+                    "stadium": "Harbor Court",
+                    "city": "Coast",
+                    "is_home": "false",
+                },
+                "line_score": {"game": {"PTS": "84"}},
+                "box_score": [
+                    {
+                        "name": "South Wing",
+                        "PTS": "24",
+                        "TREB": "8",
+                        "AST": "5",
+                    },
+                    {
+                        "name": "South Center",
+                        "PTS": "15",
+                        "TREB": "14",
+                        "BLK": "4",
+                    },
+                ],
+            },
+        }
+    }
+
+    evidence = event_capability_evidence(payload)
+    performance_findings = [
+        item.finding
+        for item in evidence
+        if item.evidence_type == "entity_performance"
+    ]
+    adjacent_context = next(
+        item
+        for item in evidence
+        if item.evidence_type == "participant_record_context"
+        and item.metrics.get("context_kind") == "adjacent_event"
+    )
+
+    assert any(
+        "North Guard recorded 28 points, 6 rebounds, 7 assists, "
+        "2 steals, 1 block"
+        in finding
+        for finding in performance_findings
+    )
+    assert any("South Wing recorded 24 points" in finding for finding in performance_findings)
+    assert any(
+        "South Center recorded 15 points, 14 rebounds, 4 blocks" in finding
+        for finding in performance_findings
+    )
+    assert "North next game at home against East" in adjacent_context.finding
+    assert "South next game away against West" in adjacent_context.finding
+
+
 def test_mixed_side_line_outcome_query_is_split_by_measure_family():
     def binding(
         binding_id: str,
@@ -2584,6 +2685,175 @@ def verified_fact(
         salience=1.0,
         recommended_use=RecommendedUse.MAIN_FINDING,
     )
+
+
+def test_event_narrative_plan_orders_reference_recap_slots():
+    result = evidence_item(
+        evidence_id="EVD_RESULT",
+        capability=EvidenceCapability.EVENT_OUTCOME,
+        evidence_type="event_outcome",
+        semantic_level=SemanticLevel.EVENT,
+    )
+    sequence = evidence_item(
+        evidence_id="EVD_SEQUENCE",
+        capability=EvidenceCapability.EVENT_OUTCOME,
+        evidence_type="event_sequence",
+        semantic_level=SemanticLevel.EVENT,
+    )
+    ranking = evidence_item(
+        evidence_id="EVD_RANKING",
+        capability=EvidenceCapability.RANKING,
+        evidence_type="entity_ranking",
+        semantic_level=SemanticLevel.ENTITY,
+    )
+    contrast = evidence_item(
+        evidence_id="EVD_CONTRAST",
+        capability=EvidenceCapability.GROUP_COMPARISON,
+        evidence_type="participant_comparison",
+        semantic_level=SemanticLevel.EVENT,
+    )
+    spec = event_report_specification().model_copy(
+        update={
+            "focus_scope": "reference_recap",
+            "realisation_policy": RealisationPolicy.EVENT_RECAP_STYLE,
+            "required_content_slots": [
+                "event_result",
+                "event_sequence",
+                "leading_performance",
+                "main_contrast",
+            ],
+        }
+    )
+    facts = [
+        verified_fact(fact_id="FACT_RESULT", evidence=result),
+        verified_fact(fact_id="FACT_SEQUENCE", evidence=sequence),
+        verified_fact(fact_id="FACT_RANKING", evidence=ranking),
+        verified_fact(fact_id="FACT_CONTRAST", evidence=contrast),
+    ]
+    pack = WriterEvidencePack(
+        user_request="Write a recap.",
+        report_specification=spec,
+        dataset_understanding=DataUnderstanding(
+            profile_fingerprint="fixture",
+            dataset_summary="Synthetic event.",
+            tables=[],
+        ),
+        input_structure=event_structure(),
+        available_capabilities=[
+            EvidenceCapability.EVENT_OUTCOME,
+            EvidenceCapability.RANKING,
+            EvidenceCapability.GROUP_COMPARISON,
+        ],
+        priority_facts=facts,
+        supporting_facts=[],
+        limitation_facts=[],
+        evidence_ledger=EvidenceLedger(
+            fingerprint="fixture",
+            items=[result, sequence, ranking, contrast],
+        ),
+    )
+
+    plan = build_event_narrative_plan(
+        pack,
+        {
+            "realisation_policy": RealisationPolicy.EVENT_RECAP_STYLE.value,
+            "reference_recap_style": True,
+            "narrative_requirements": {
+                "minimum_scope_limitations": 0,
+            },
+        },
+    )
+
+    assert plan.applies
+    assert plan.style == "reference_recap"
+    assert not plan.allow_headings
+    assert [
+        slot.slot
+        for slot in plan.slots[:4]
+    ] == [
+        NarrativeSlot.OPENING_RESULT,
+        NarrativeSlot.EVENT_SEQUENCE,
+        NarrativeSlot.LEADING_PERFORMANCES,
+        NarrativeSlot.PARTICIPANT_CONTRASTS,
+    ]
+    assert NarrativeSlot.CLOSING_SCOPE not in {
+        slot.slot
+        for slot in plan.slots
+    }
+
+
+def test_reference_recap_quality_gate_does_not_require_visible_limitation():
+    result = evidence_item(
+        evidence_id="EVD_RESULT",
+        capability=EvidenceCapability.EVENT_OUTCOME,
+        evidence_type="event_outcome",
+        semantic_level=SemanticLevel.EVENT,
+    )
+    ranking = evidence_item(
+        evidence_id="EVD_RANKING",
+        capability=EvidenceCapability.RANKING,
+        evidence_type="entity_ranking",
+        semantic_level=SemanticLevel.ENTITY,
+    )
+    contrast = evidence_item(
+        evidence_id="EVD_CONTRAST",
+        capability=EvidenceCapability.GROUP_COMPARISON,
+        evidence_type="participant_comparison",
+        semantic_level=SemanticLevel.EVENT,
+    )
+    output = WriterOutput(
+        title="Event recap",
+        markdown=(
+            "Alpha defeated Beta 90-80 while Nia led all players with 20 "
+            "points. Alpha recorded more field goals than Beta."
+        ),
+        sentence_support=[
+            SentenceSupport(
+                sentence_id="SENT_0001",
+                sentence_text=(
+                    "Alpha defeated Beta 90-80 while Nia led all players "
+                    "with 20 points."
+                ),
+                evidence_ids=[
+                    "EVD_RESULT",
+                    "EVD_RANKING",
+                ],
+                support_type=SupportType.MULTI_FACT_SYNTHESIS,
+            ),
+            SentenceSupport(
+                sentence_id="SENT_0002",
+                sentence_text="Alpha recorded more field goals than Beta.",
+                evidence_ids=[
+                    "EVD_CONTRAST",
+                    "EVD_RESULT",
+                ],
+                support_type=SupportType.MULTI_FACT_SYNTHESIS,
+            ),
+        ],
+    )
+    spec = event_report_specification().model_copy(
+        update={
+            "focus_scope": "reference_recap",
+            "realisation_policy": RealisationPolicy.EVENT_RECAP_STYLE,
+            "required_content_slots": [
+                "event_result",
+                "leading_performance",
+                "main_contrast",
+            ],
+        }
+    )
+
+    assessment = assess_genre_quality(
+        output,
+        spec,
+        EvidenceLedger(
+            fingerprint="fixture",
+            items=[result, ranking, contrast],
+        ),
+    )
+
+    assert assessment.status == QualityStatus.PASS
+    assert "scope_limitations" not in assessment.supported_slots
 
 
 def test_structural_catalog_uses_wildcards_and_excludes_held_out_reference(

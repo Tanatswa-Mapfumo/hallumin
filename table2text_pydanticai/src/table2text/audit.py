@@ -844,6 +844,19 @@ EVENT_LOW_PRIORITY_ENTITY_METRIC_PATTERN = re.compile(
     r"pitch(?:es)?|putouts?|season|strikes?|turnovers?)\b",
     re.IGNORECASE,
 )
+EVENT_RECAP_CORE_ENTITY_METRIC_PATTERN = re.compile(
+    r"\b(?:assists?|blocks?|doubles?|goals?|hits?|home runs?|points?|"
+    r"rebounds?|runs(?: batted in)?|saves?|scor(?:e|ed|ing)|steals?|"
+    r"strikeouts?|triples?)\b",
+    re.IGNORECASE,
+)
+EVENT_RECAP_LOW_PRIORITY_METRIC_PATTERN = re.compile(
+    r"\b(?:attempt(?:ed|s)?|capacity|field[- ]?goal percentage|"
+    r"free[- ]?throw percentage|game number|minutes?|personal fouls?|"
+    r"shoot(?:ing)? percentage|three[- ]?point percentage|"
+    r"turnovers?)\b",
+    re.IGNORECASE,
+)
 
 
 def _fact_ids_for_evidence_types(
@@ -4392,9 +4405,57 @@ def event_fact_has_low_priority_entity_metric(
             *item.source_paths,
         ]
         text = " ".join(str(part) for part in text_parts if part)
+        if (
+            item.evidence_type == "entity_performance"
+            and EVENT_RECAP_CORE_ENTITY_METRIC_PATTERN.search(text)
+        ):
+            continue
         if EVENT_LOW_PRIORITY_ENTITY_METRIC_PATTERN.search(text):
             return True
     return False
+
+
+def event_fact_is_low_priority_for_recap(
+    fact: VerifiedFact,
+    evidence_lookup: dict[str, EvidenceItem],
+) -> bool:
+    slot = event_fact_slot(fact, evidence_lookup)
+    items = evidence_for_fact(fact, evidence_lookup)
+    text = " ".join(
+        str(part)
+        for item in items
+        for part in [
+            item.finding,
+            item.strength_label,
+            item.metrics.get("metric"),
+            item.metrics.get("semantic_label"),
+            item.metrics.get("question"),
+            item.metrics.get("measure"),
+            fact.fact_summary,
+        ]
+        if part
+    )
+    if slot == "leading_performance":
+        if event_fact_has_low_priority_entity_metric(fact, evidence_lookup):
+            return True
+        if (
+            any(item.evidence_type == "entity_performance" for item in items)
+            and EVENT_RECAP_CORE_ENTITY_METRIC_PATTERN.search(text)
+        ):
+            return False
+        if (
+            any(item.evidence_type == "entity_ranking" for item in items)
+            and not EVENT_RECAP_CORE_ENTITY_METRIC_PATTERN.search(text)
+        ):
+            return True
+    if slot == "main_contrast":
+        if EVENT_RECAP_LOW_PRIORITY_METRIC_PATTERN.search(text):
+            return True
+        if re.search(r"\bpoints?\b", text, re.IGNORECASE):
+            return True
+    if slot == "participant_record_context":
+        return False
+    return bool(EVENT_RECAP_LOW_PRIORITY_METRIC_PATTERN.search(text))
 
 
 def event_fact_slot(
@@ -4453,8 +4514,28 @@ def select_event_priority_facts(
     evidence: EvidenceLedger,
     settings: Settings,
     request: str,
+    report_specification: Any | None = None,
 ) -> tuple[list[VerifiedFact], list[VerifiedFact]]:
     evidence_lookup = build_evidence_lookup(evidence)
+    realisation_policy = getattr(
+        report_specification,
+        "realisation_policy",
+        None,
+    )
+    realisation_policy_value = (
+        realisation_policy.value
+        if isinstance(realisation_policy, RealisationPolicy)
+        else str(realisation_policy)
+    )
+    reference_recap_style = bool(
+        report_specification is not None
+        and (
+            getattr(report_specification, "focus_scope", None)
+            == "reference_recap"
+            or realisation_policy_value
+            == RealisationPolicy.EVENT_RECAP_STYLE.value
+        )
+    )
 
     def event_priority_score(
         fact: VerifiedFact,
@@ -4551,6 +4632,19 @@ def select_event_priority_facts(
             "leading_performance": None,
             "participation": None if explicit_detail_requested else 0,
         }
+    if reference_recap_style and not explicit_detail_requested:
+        slot_limits.update(
+            {
+                "event_result": 2,
+                "event_context": 1,
+                "event_status": 1,
+                "participant_record_context": 3,
+                "score_progression": 1,
+                "main_contrast": 3,
+                "leading_performance": 10,
+                "participation": 0,
+            }
+        )
 
     def can_use_fact(
         fact: VerifiedFact,
@@ -4562,6 +4656,15 @@ def select_event_priority_facts(
         if (
             fact.recommended_use == RecommendedUse.OMIT_UNLESS_REQUESTED
             and not explicit_detail_requested
+        ):
+            return False
+        if (
+            reference_recap_style
+            and not explicit_detail_requested
+            and event_fact_is_low_priority_for_recap(
+                fact,
+                evidence_lookup,
+            )
         ):
             return False
         slot = event_fact_slot(fact, evidence_lookup)
@@ -4734,6 +4837,7 @@ def build_writer_evidence_pack(
             evidence=evidence,
             settings=settings,
             request=request,
+            report_specification=plan.report_specification,
         )
     else:
         priority = select_balanced_priority_facts(
@@ -5823,12 +5927,13 @@ def _focused_table_fallback_writer(
                 if fact.fact_id not in set(fact_ids)
             ],
             writer_notes=[
-                "Deterministic writer fallback used a verified focused-table insight.",
-                "This output is preserved for debugging "
-                "and is not eligible for primary evaluation.",
+                "Deterministic short-form writer used a verified "
+                "focused-table insight.",
+                "This requested short-form verbalisation is eligible for "
+                "primary evaluation because it is directly support-mapped.",
             ],
-            writer_mode="deterministic_fallback",
-            eligible_for_primary_evaluation=False,
+            writer_mode="deterministic_short_form_writer",
+            eligible_for_primary_evaluation=True,
         )
 
     focused_fact = next(
@@ -5952,12 +6057,13 @@ def _focused_table_fallback_writer(
             if fact.fact_id != focused_fact.fact_id
         ],
         writer_notes=[
-            "Deterministic writer fallback was used.",
-            "This output is preserved for debugging "
-            "and is not eligible for primary evaluation.",
+            "Deterministic short-form writer used verified focused-table "
+            "evidence.",
+            "This requested short-form verbalisation is eligible for "
+            "primary evaluation because it is directly support-mapped.",
         ],
-        writer_mode="deterministic_fallback",
-        eligible_for_primary_evaluation=False,
+        writer_mode="deterministic_short_form_writer",
+        eligible_for_primary_evaluation=True,
     )
 
 
@@ -6247,12 +6353,13 @@ def _structured_record_fallback_writer(
                 if fact.fact_id not in set(fact_ids)
             ],
             writer_notes=[
-                "Deterministic writer fallback used a verified structured-record insight.",
-                "This output is preserved for debugging "
-                "and is not eligible for primary evaluation.",
+                "Deterministic short-form writer used a verified "
+                "structured-record insight.",
+                "This requested short-form verbalisation is eligible for "
+                "primary evaluation because it is directly support-mapped.",
             ],
-            writer_mode="deterministic_fallback",
-            eligible_for_primary_evaluation=False,
+            writer_mode="deterministic_short_form_writer",
+            eligible_for_primary_evaluation=True,
         )
 
     structured_fact = next(
@@ -6315,12 +6422,13 @@ def _structured_record_fallback_writer(
             if fact.fact_id != structured_fact.fact_id
         ],
         writer_notes=[
-            "Deterministic writer fallback was used.",
-            "This output is preserved for debugging "
-            "and is not eligible for primary evaluation.",
+            "Deterministic short-form writer used verified structured-record "
+            "evidence.",
+            "This requested short-form verbalisation is eligible for primary "
+            "evaluation because it is directly support-mapped.",
         ],
-        writer_mode="deterministic_fallback",
-        eligible_for_primary_evaluation=False,
+        writer_mode="deterministic_short_form_writer",
+        eligible_for_primary_evaluation=True,
     )
 
 
@@ -6915,6 +7023,25 @@ def assess_genre_quality(
         ReportGenre.EVENT_REPORT,
         ReportGenre.SPORTS_GAME_REPORT,
     }
+    realisation_policy = getattr(
+        report_specification,
+        "realisation_policy",
+        None,
+    )
+    realisation_policy_value = (
+        realisation_policy.value
+        if isinstance(realisation_policy, RealisationPolicy)
+        else str(realisation_policy)
+    )
+    reference_recap_style = bool(
+        event_report
+        and (
+            getattr(report_specification, "focus_scope", None)
+            == "reference_recap"
+            or realisation_policy_value
+            == RealisationPolicy.EVENT_RECAP_STYLE.value
+        )
+    )
     evidence_lookup = {
         item.evidence_id: item
         for item in evidence.items
@@ -7035,7 +7162,12 @@ def assess_genre_quality(
         "main_contrast",
     }.issubset(supported_slot_set)
 
-    if event_material_available:
+    visible_scope_limitation_required = (
+        event_material_available
+        and not reference_recap_style
+    )
+
+    if visible_scope_limitation_required:
         supported_slots.append("scope_limitations")
         if event_scope_limitation_present(writer_output):
             covered_slots.append("scope_limitations")
@@ -7116,7 +7248,10 @@ def assess_genre_quality(
                 "Use bounded connective wording such as while, compared with "
                 "or despite when the verified facts support a contrast."
             )
-        if narrative_stats["scope_limitation_sentences"] < 1:
+        if (
+            visible_scope_limitation_required
+            and narrative_stats["scope_limitation_sentences"] < 1
+        ):
             findings.append(
                 "The event report omits an event-scoped limitation."
             )
