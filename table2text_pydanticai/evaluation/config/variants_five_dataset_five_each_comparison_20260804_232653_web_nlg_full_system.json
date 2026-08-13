@@ -1,0 +1,18 @@
+{
+  "variants": [
+    {
+      "variant_id": "full_system",
+      "enabled": true,
+      "backend": "table2text",
+      "description": "Current full multi-agent system.",
+      "settings_overrides": {},
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    }
+  ]
+}

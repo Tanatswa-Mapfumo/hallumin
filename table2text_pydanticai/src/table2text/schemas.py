@@ -543,9 +543,11 @@ class NarrativeSlotPlan(StrictModel):
 
 class NarrativePlan(StrictModel):
     applies: bool = False
-    style: Literal["reference_recap", "structured_event_report"] = (
-        "structured_event_report"
-    )
+    style: Literal[
+        "event_recap",
+        "reference_recap",
+        "structured_event_report",
+    ] = "structured_event_report"
     allow_headings: bool = True
     target_paragraphs: int = Field(default=4, ge=1)
     slots: list[NarrativeSlotPlan] = Field(default_factory=list)

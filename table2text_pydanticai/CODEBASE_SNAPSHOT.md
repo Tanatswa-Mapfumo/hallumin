@@ -1,889 +1,1135 @@
-# Codebase Snapshot
+# Table2Text PydanticAI Codebase Snapshot
 
-- Project: `table2text_pydanticai`
-- Updated: `2026-08-02T19:25:01Z`
-- Branch: `main`
-- Commit at snapshot time: `40b4a4b`
-- Purpose: a PydanticAI multi-agent table-to-text system for producing grounded natural-language reports from tabular, semi-structured, and event-style inputs.
+Updated: 2026-08-08  
+Branch: `main`  
+Current commit at snapshot time: `166d752`  
+Snapshot purpose: dissertation-facing technical overview and file-by-file commentary.
 
-This file is a maintained architectural snapshot, not a full source dump. It describes the current system shape, evaluation tooling, recent event-report upgrades, and known issues.
+This document describes the current `table2text_pydanticai` project as an implemented research system, not just as a collection of scripts. It is intended to help write the dissertation by explaining what each major file contributes, why it exists, and how the pieces fit together.
 
-## Current Working State
+The codebase is currently in active experimental development. Several source and test files have local modifications, and many generated evaluation artifacts are untracked. That is expected for the project stage: the core system, evaluation harness, human annotation materials, and experiment outputs are being iterated together.
 
-The worktree has active uncommitted changes in source, tests, evaluation config, and generated notebook/evaluation files. The main changed areas are:
+## One-Sentence System Description
+
+`table2text_pydanticai` is an evidence-led, multi-agent data-to-text system that loads structured data, profiles and interprets its shape, plans supported analysis, computes evidence deterministically, verifies facts and bounded insights, and writes a grounded report with factual and genre-quality audit gates.
+
+## Research Motivation
+
+The project investigates whether a multi-agent architecture with deterministic evidence generation and explicit factual gates can reduce unsupported claims in table-to-text generation compared with raw single-LLM baselines.
+
+The system does not claim to eliminate hallucination. The central research claim is narrower and testable:
+
+- LLMs should not calculate statistics directly.
+- LLMs should not invent analytical permissions.
+- Reports should be constrained by verified evidence, facts, and bounded insights.
+- Evaluation should compare generated reports with human references and with source-grounded factuality checks.
+- Human review should be used to examine qualities that automatic metrics cannot reliably capture.
+
+## Current Architectural Shape
+
+The implemented workflow can be described as:
 
 ```text
-table2text_pydanticai/.env.example
-table2text_pydanticai/evaluation/config/metrics_sportsett_basketball_1.json
-table2text_pydanticai/src/table2text/agents.py
-table2text_pydanticai/src/table2text/audit.py
-table2text_pydanticai/src/table2text/evaluation/generation.py
-table2text_pydanticai/src/table2text/evaluation/reference_metrics.py
-table2text_pydanticai/src/table2text/workflow.py
-table2text_pydanticai/tests/test_reference_evaluation.py
-table2text_pydanticai/tests/test_semantic_event_pipeline.py
-table2text_pydanticai/tests/test_smoke.py
+Raw input files
+    -> deterministic loading and benchmark field policy
+    -> input structure profiling
+    -> data profiling
+    -> data understanding agent or fallback
+    -> report contract and genre resolution
+    -> orchestrator plan or deterministic event plan
+    -> capability-aware analytical execution
+    -> evidence ledger
+    -> fact candidate generation
+    -> fact verification
+    -> fact ledger
+    -> bounded insight synthesis and verification
+    -> writer evidence pack
+    -> narrative planning for event reports
+    -> LLM writer or deterministic fallback writer
+    -> writer support map validation
+    -> factual audit
+    -> genre and task-quality audit
+    -> repair/revision when allowed
+    -> final report and run artifacts
 ```
 
-New local evaluation configs include:
+The most important design separation is:
 
 ```text
-table2text_pydanticai/evaluation/config/variants_raw_deepseek_v4_flash.json
-table2text_pydanticai/evaluation/config/variants_sportsett_basketball_4934.json
+Data and analytics code:
+    computes values and prepares evidence.
+
+Agents:
+    interpret, plan, verify, synthesize, and write.
+
+Schemas:
+    define the contracts between stages.
+
+Auditors:
+    decide whether prose is supported and whether it fulfils the task.
+
+Evaluation subsystem:
+    compares the system against baselines, references, source-grounded metrics,
+    and human judgement packets.
 ```
 
-## Package Layout
+## Main Contributions Implemented
+
+1. Evidence-led report generation  
+   The Writer receives a `WriterEvidencePack`, not free access to the raw world. It is asked to express supported facts and insights, with support IDs attached to sentences.
+
+2. Strict typed artifacts  
+   Pydantic models define data profiles, report specifications, investigation plans, evidence items, facts, insights, writer drafts, audit reports, run manifests, benchmark examples, metric observations, and human evaluation packets.
+
+3. Genre-aware and structure-aware behavior  
+   The system distinguishes data-science reports, dataset overviews, event reports, reference recaps, attribute verbalisation, focused table descriptions, and structured record verbalisation.
+
+4. Generic event capabilities  
+   Event reporting is not implemented as a basketball-only path. The system now has generic mechanisms for event outcomes, participant rankings, score progression, entity performance, team contrasts, and event sequence highlights.
+
+5. Support-map validation and factual audit  
+   Writer sentences must map to facts and insights. Numeric and entity support are checked. Unsupported causal, predictive, chronological, and genre-inappropriate claims are flagged.
+
+6. Reference and source-grounded evaluation  
+   The evaluation subsystem supports reference metrics such as BLEU, chrF, ROUGE, METEOR, BERTScore and PARENT, plus local/source-grounded factuality metrics such as HHEM and AlignScore where configured.
+
+7. Raw baseline comparison  
+   The system can run raw single-agent DeepSeek baselines against the same benchmark examples for comparison.
+
+8. Human annotation materials  
+   The project includes optimized human evaluation packets, blinded outputs, and paper-style factual error categories for volunteer annotation.
+
+## Directory Overview
 
 ```text
 table2text_pydanticai/
-  pyproject.toml
-  README.md
-  CODEBASE_SNAPSHOT.md
-  .env.example
-  inputs/
-  runs_notebook/
-  evaluation/
-    config/
-    prepared/
-    generations/
-    results/
-    human/
-  src/table2text/
-    __init__.py
-    __main__.py
-    agents.py
-    analytics.py
-    audit.py
-    capabilities.py
-    cli.py
-    config.py
-    data.py
-    evaluation_backends.py
-    schemas.py
-    structure.py
-    workflow.py
-    evaluation/
-      __init__.py
-      alignscore_client.py
-      cli.py
-      datasets.py
-      deepeval_metrics.py
-      diagnostics.py
-      external_factuality.py
-      generation.py
-      human_evaluation.py
-      models.py
-      notebook.py
-      reference_metrics.py
-      statistics.py
-  tests/
-    test_reference_evaluation.py
-    test_semantic_event_pipeline.py
-    test_smoke.py
+    README.md
+    pyproject.toml
+    .env.example
+    CODEBASE_SNAPSHOT.md
+    inputs/
+    src/table2text/
+    src/table2text/evaluation/
+    scripts/
+    tests/
+    evaluation/config/
+    evaluation/prepared/
+    evaluation/generations/
+    evaluation/results/
+    evaluation/human/
+    runs/
+    runs_notebook/
 ```
 
-## Dependencies
+The most important source code lives under `src/table2text`. The evaluation framework lives under `src/table2text/evaluation`. Experiment outputs live under `evaluation/results`, `evaluation/generations`, and `runs_notebook`.
 
-Core runtime dependencies:
+## Root-Level Files
 
-```text
-pydantic
-pydantic-ai-slim[openai]
-pandas
-numpy
-scikit-learn
-openpyxl
-pyarrow
+| File | Role | Dissertation comment |
+| --- | --- | --- |
+| `README.md` | Project introduction and installation notes. | This gives the high-level claim: a PydanticAI multi-agent Table2Text system designed to reduce hallucinations by separating deterministic analytics from LLM interpretation and writing. It is useful as a concise project abstract. |
+| `pyproject.toml` | Python package metadata, dependencies, optional evaluation extras, CLI entry points, pytest and Ruff configuration. | This file shows the engineering packaging story. The core system depends on Pydantic, PydanticAI, pandas, numpy, scikit-learn, pyarrow and OpenPyXL. Evaluation tools are optional extras so the main workflow remains lighter than the full research evaluation stack. |
+| `.env.example` | Environment template for model routing, token budgets, writer length controls, insight settings, DeepSeek, Ollama, DeepEval and raw baseline configuration. | This is central to reproducibility. It documents how the same code can be run locally with Ollama models or remotely with DeepSeek models, and how evaluation settings can be adjusted without editing code. |
+| `.env` | Local private environment file. | This normally contains real API keys, active model choices and local experiment overrides. It should not be committed or included in dissertation appendices. When writing the methodology, cite `.env.example` instead of `.env`. |
+| `.DS_Store` | macOS Finder metadata. | This has no research or runtime meaning and should be ignored. It is mentioned here only because it is physically present at the project root. |
+| `apply_report_coverage_fix.py` | One-off helper script from an earlier coverage-recovery patch. | This is historical project scaffolding rather than a core runtime entry point. It reflects a previous maintenance step where report coverage recovery was applied or inspected. |
+| `evaluation_manifest.json` | Evaluation manifest file. | This stores evaluation-level metadata for generated experiments. It is part of the reproducibility trail and helps connect runs, configs and result documents. |
+| `CODEBASE_SNAPSHOT.md` | This snapshot document. | This file is the dissertation-facing architectural commentary. It should be updated whenever the project structure or research story changes substantially. |
+
+## Core Package Files
+
+### `src/table2text/__init__.py`
+
+Public package exports.
+
+This file exposes the main user-facing API, especially `Settings` and `Table2TextWorkflow`. In notebooks, most runs begin by importing these objects:
+
+```python
+from table2text import Settings, Table2TextWorkflow
 ```
 
-Evaluation extras include:
+Dissertation comment: this file represents the intended surface of the package. The project is not just a collection of scripts; it has a stable importable API.
 
-```text
-datasets
-huggingface-hub
-sacrebleu
-rouge-score
-nltk
-bert-score
-transformers
-torch
-sentencepiece
-scipy
-tabulate
-deepeval
-spacy
-```
+### `src/table2text/__main__.py`
 
-The package exposes:
+Module entry point for `python -m table2text`.
 
-```text
-table2text
-table2text-evaluate
-```
+This file delegates to the CLI. It is small but important because it makes the package executable in a standard Python way.
 
-## Configuration
+### `src/table2text/config.py`
 
-Runtime configuration is centered on `Settings` in `src/table2text/config.py`.
-
-Common `.env.example` controls include:
-
-```text
-T2T_USE_LLM
-T2T_OUTPUT_DIR
-T2T_MAX_REVISION_ROUNDS
-T2T_MAX_AGENT_REQUESTS
-T2T_MAX_TOTAL_TOKENS
-T2T_RANDOM_SEED
-T2T_MAX_ANALYSIS_ROWS
-T2T_STRUCTURED_OUTPUT_MODE
-
-T2T_FULL_DATA_CORRELATION_LIMIT
-T2T_MIN_ABS_CORRELATION
-T2T_MAX_CORRELATION_FINDINGS
-T2T_MAX_GROUP_FINDINGS
-
-T2T_WRITER_TARGET_WORDS
-T2T_WRITER_MAX_WORDS
-T2T_REPAIR_CANDIDATES_PER_SENTENCE
-
-T2T_ENABLE_INSIGHT_SYNTHESIS
-T2T_MIN_INSIGHT_CONFIDENCE
-T2T_MIN_INSIGHT_SALIENCE
-T2T_MIN_FACTS_PER_BOUNDED_INSIGHT
-T2T_ALLOW_HYPOTHESES_IN_REPORT
-
-T2T_WRITER_QUALITY_REVISION_ROUNDS
-T2T_MINIMUM_REPORT_WORD_RATIO
-T2T_MINIMUM_REPORT_WORD_FLOOR
-T2T_MAXIMUM_REPEATED_CAVEAT_MENTIONS
-
-T2T_MODEL_DATA_UNDERSTANDING
-T2T_MODEL_ORCHESTRATOR
-T2T_MODEL_EVIDENCE
-T2T_MODEL_VERIFIER
-T2T_MODEL_WRITER
-T2T_MODEL_AUDITOR
-```
-
-Model strings support local and remote style prefixes, for example:
-
-```text
-ollama:gemma3:12b
-deepseek:deepseek-chat
-deepseek:deepseek-v4-pro
-deepseek:deepseek-v4-flash
-```
-
-Secrets are not stored in this snapshot.
-
-## High-Level Pipeline
-
-The current system is best understood as:
-
-```text
-raw input
-  -> load and normalize input
-  -> interpret input shape and field roles
-  -> separate source fields from reference/evaluation fields
-  -> infer or apply report contract
-  -> resolve available evidence capabilities
-  -> freeze execution plan
-  -> compute deterministic evidence
-  -> synthesize and verify fact candidates
-  -> recover coverage-critical facts when needed
-  -> synthesize and verify bounded insights
-  -> assemble writer evidence pack and content requirements
-  -> LLM writer or deterministic fallback writer
-  -> support-map validation and materialisation
-  -> factual audit and possible repair
-  -> genre/task quality checks
-  -> final report and pipeline artifacts
-```
-
-The pipeline is intentionally evidence-led: the Writer can phrase, order, compress, and narrate, but claims should be traceable to verified facts, verified insights, or structured evidence.
-
-## Core Source Modules
-
-### `config.py`
-
-Defines `Settings`, model configuration, analytical thresholds, writer settings, insight settings, and safety/fallback controls.
-
-Important current direction:
-
-- `writer_max_words` can be unset to avoid a hard cap.
-- writer target words can guide length without forcing an exact length.
-- model choices can be varied per stage, so cheaper/local models can remain on low-risk stages while DeepSeek is used for harder generation or judging.
-
-### `schemas.py`
-
-Defines the main typed contracts used across the pipeline.
-
-Key enums and schema groups:
-
-```text
-ReportGenre
-CommunicationTask
-OutputForm
-InputShape
-SemanticRole
-AnalyticalFunction
-SemanticLevel
-EvidenceCapability
-InsightType
-InsightContribution
-InsightVerificationStatus
-AuditMode
-AuditDecision
-ReleaseStatus
-```
-
-Important report genres and tasks:
-
-```text
-data_science_report
-dataset_overview
-event_report
-focused_table_description
-table_entailment
-table_question_answering
-attribute_verbalisation
-triple_verbalisation
-custom
-```
-
-Important input shapes:
-
-```text
-flat_table
-nested_record
-entity_collection
-event_record
-time_series
-input_reference_pairs
-ambiguous
-```
-
-Important evidence capabilities:
-
-```text
-dataset_profile
-focused_table_region
-structured_record_verbalisation
-missingness
-duplicates
-distribution_summary
-association
-group_comparison
-ranking
-extrema
-temporal_change
-event_outcome
-entity_performance
-anomaly_detection
-```
-
-### `data.py`
-
-Loads and normalizes local inputs.
-
-Current responsibilities:
-
-- CSV loading.
-- JSON loading.
-- flattening and preserving structured records.
-- dataset/table naming.
-- basic table-profile construction.
-- handling benchmark-style wrapped inputs.
-
-### `structure.py`
-
-Contains deterministic structure interpretation support.
-
-Current responsibilities:
-
-- classify input shape.
-- detect nested records and event records.
-- detect heterogeneous rows.
-- detect sparse flattening risks.
-- identify probable input, reference, and metadata fields.
-- support benchmark cases where target/reference text must be held out.
-
-### `capabilities.py`
-
-Defines capability registry and availability resolution.
-
-The registry answers: "What can be safely computed from this input?"
-
-The Orchestrator answers: "Which supported operations answer the request?"
-
-Capabilities are generic rather than domain-specific. For example, basketball and baseball are treated as event/entity structures rather than separate hard-coded sports pipelines.
-
-### `analytics.py`
-
-Implements deterministic analysis and evidence production.
-
-Main capability families:
-
-- dataset profile.
-- missingness.
-- duplicate detection.
-- distribution summaries.
-- correlations.
-- group comparisons.
-- rankings.
-- extrema.
-- event outcome evidence.
-- entity performance evidence.
-- team/participant contrasts.
-- event sequence highlights when ordered sequence evidence exists.
-
-### `agents.py`
-
-Defines the LLM-facing agents and prompt contracts.
-
-Current agent roles:
-
-```text
-Data Understanding
-Orchestrator / Planner
-Evidence Analyst
-Verifier
-Insight Synthesizer
-Writer
-Auditor
-```
-
-Recent Writer behavior:
-
-- event reports should use event facts as the center of the report.
-- reference-recap benchmark outputs should be prose-first and avoid visible Markdown headings.
-- the Writer may narrate and combine supported facts, but must not invent unsupported chronology, causality, milestones, or external context.
-- scope caveats should be internal or minimal for reference-style benchmark outputs unless the contract requires visible limitations.
-
-### `audit.py`
-
-Large validation and safety module.
-
-Major responsibilities:
-
-- convert facts and insights into writer-ready evidence packs.
-- build writer content requirements.
-- select priority facts.
-- validate Writer output against support maps.
-- materialise `WriterOutput`.
-- provide deterministic fallback writer.
-- perform factual audit.
-- repair unsupported claims.
-- detect unsupported entities/numbers.
-- enforce prohibited claim types.
-- enforce report-contract and genre-quality requirements.
-
-Important recent behavior:
-
-- event priority selection can be uncapped when `writer_max_words` is unset.
-- reference-recap style suppresses deterministic headings and generic limitations in fallback output.
-- event content slots distinguish factual errors from genre-quality omissions.
-
-### `workflow.py`
-
-Coordinates the full pipeline.
+Settings and environment loading.
 
 Important responsibilities:
 
-- create run directories.
-- call every stage.
-- persist artifacts.
-- handle LLM fallback behavior.
-- apply report contract and structure profile.
-- choose deterministic event plan when structure/capability evidence is high-confidence.
-- run verification, insights, writer, audit, and repair loops.
-- return `PipelineResult`.
+- finds candidate `.env` files;
+- parses key/value environment lines;
+- exposes helper readers such as `env_bool`, `env_int`, `env_float`;
+- defines the `Settings` dataclass;
+- routes models for each agent;
+- controls token budgets, analysis limits, writer limits, insight synthesis, fallback thresholds and report coverage settings.
 
-Important helper:
+Dissertation comment: this file is the reproducibility switchboard. It allows experiments to vary model allocation, output lengths, insight behavior and audit settings without changing the algorithmic code. This supports fair ablation and model-routing experiments.
+
+### `src/table2text/schemas.py`
+
+Strict Pydantic schema definitions for the whole workflow.
+
+Major schema groups:
+
+- report and task enums: `ReportGenre`, `CommunicationTask`, `OutputForm`, `ReportPerspective`;
+- input semantics: `InputShape`, `SemanticRole`, `AnalyticalFunction`, `SemanticLevel`;
+- capability vocabulary: `EvidenceCapability`, `CapabilityDefinition`;
+- insight vocabulary: `InsightType`, `InsightContribution`, `InsightVerificationStatus`;
+- audit and release enums: `AuditMode`, `AuditDecision`, `ReleaseStatus`, `Severity`;
+- data structures: `DataProfile`, `TableProfile`, `ColumnProfile`;
+- planning structures: `ReportSpecification`, `InvestigationTask`, `EvidenceQuery`, `ExecutionPlan`;
+- evidence and fact structures: `EvidenceItem`, `EvidenceLedger`, `FactCandidate`, `VerifiedFact`, `FactLedger`;
+- insight structures: `InsightCandidate`, `VerifiedInsight`, `InsightLedger`;
+- writer structures: `WriterEvidencePack`, `WriterSentenceDraft`, `WriterAgentDraft`, `WriterOutput`;
+- audit structures: `AuditAnnotation`, `RepairCandidate`, `AuditReport`;
+- run structures: `RunManifest`, `PipelineResult`.
+
+Dissertation comment: this is the contract layer. The strict models make each pipeline stage explicit and auditable. The schemas also embody the research design: claims are not just strings; they have permissions, provenance, support IDs, confidence values, and release decisions.
+
+### `src/table2text/data.py`
+
+Data loading, normalization and profiling.
+
+Important responsibilities:
+
+- expands input file paths;
+- fingerprints input files for reproducible run IDs;
+- loads CSV, Excel, JSON and JSONL-like structures;
+- recognises benchmark-style structured records such as meaning representations, triples and highlighted table cells;
+- converts nested JSON into usable tabular forms when appropriate;
+- profiles columns for missingness, uniqueness, semantic type, numeric diagnostics and suspicious zeros;
+- detects datetime-like columns and parse rates;
+- creates `DataBundle` and `DataProfile` objects.
+
+Dissertation comment: this file is where raw data becomes analyzable evidence substrate. It is deliberately deterministic because row counts, missingness, numeric summaries and structural conversions should not depend on LLM judgement.
+
+### `src/table2text/structure.py`
+
+Input-shape inspection and field filtering.
+
+Important responsibilities:
+
+- detects whether data is a flat table, nested record, event record, entity collection, input/reference pair or ambiguous structure;
+- builds a structural catalog of paths and repeated fields;
+- detects nested paths and heterogeneous rows;
+- identifies probable input fields, reference fields and metadata fields;
+- applies benchmark field policies so held-out references do not leak into operational prompts;
+- combines structure profiles across multiple inputs.
+
+Dissertation comment: this file directly addresses the problem discovered with basketball and benchmark examples. The system must understand what the input represents before it can decide whether to write a statistical report, an event recap, or a focused table verbalisation.
+
+### `src/table2text/capabilities.py`
+
+Generic capability registry and event/semantic evidence extraction.
+
+Important responsibilities:
+
+- declares and resolves available evidence capabilities;
+- normalises semantic maps produced by agents or deterministic fallbacks;
+- validates planned evidence queries against available structures;
+- builds event evidence queries from semantic bindings;
+- extracts event participants, event context, score progression, sequence highlights and entity performance;
+- supports renamed event structures without hard-coded basketball or baseball-specific assumptions;
+- executes semantic query evidence for structured records, triples, event records and participant collections.
+
+Dissertation comment: this file is one of the core research upgrades. It moves the system away from domain-specific templates and toward reusable capabilities such as event outcome, ranking, entity performance, participant contrasts and sequence highlights. The goal is generality without allowing the Writer to invent meanings.
+
+### `src/table2text/analytics.py`
+
+Deterministic analytical execution.
+
+Important responsibilities:
+
+- executes planned analytical routes;
+- creates evidence for dataset profile, missingness, duplicates and distribution summaries;
+- computes correlations and group comparisons;
+- handles predictive, forecasting and causal-feasibility analyses when explicitly supported;
+- performs focused table analysis for ToTTo-like highlighted cells;
+- verbalises structured records and triples for WebNLG, DART and E2E-style tasks;
+- delegates event-specific extraction to generic capability evidence where appropriate;
+- prioritises evidence for report-worthiness.
+
+Dissertation comment: this file is the calculation engine. It is intentionally deterministic because the project argues that statistics and factual support should be computed by code, not improvised by language models. It is also where benchmark-specific input forms are converted into evidence without exposing references.
+
+### `src/table2text/agents.py`
+
+PydanticAI agent builders, prompts, validators and fallback logic.
+
+The six main roles are implemented here:
+
+1. Data Understanding Agent
+2. Orchestrator Agent
+3. Evidence Analyst Agent
+4. Fact Verifier Agent
+5. Writer Agent
+6. Auditor Agent
+
+Additional insight roles are also defined:
+
+- Insight Synthesis Agent
+- Insight Verifier Agent
+
+Important responsibilities:
+
+- builds model objects from model specifications such as `ollama:gemma3:12b` or `deepseek:deepseek-v4-flash`;
+- configures structured output mode;
+- defines agent prompts;
+- validates LLM outputs before they enter later stages;
+- rejects unsupported insight candidates;
+- enforces safe causal, predictive and analytical permissions;
+- recovers or materialises insight ledgers;
+- validates writer grounding and support IDs;
+- builds deterministic fallbacks for understanding, planning, fact candidates and audits.
+
+Dissertation comment: this file contains the language-model behavior of the system. It is large because it holds both prompts and validation logic. Methodologically, it demonstrates that LLMs are used for interpretation and realisation, while typed validators and deterministic fallbacks prevent many unsupported outputs from moving forward.
+
+### `src/table2text/audit.py`
+
+Factual validation, report materialisation, fallback writing, repair and release decisions.
+
+Important responsibilities:
+
+- splits generated Markdown into factual sentences;
+- checks numeric support against evidence and facts;
+- checks entity support and mapped fact IDs;
+- builds profile support records from deterministic data profiles;
+- creates deterministic fact candidates from evidence when LLM stages are thin;
+- finalises fact ledgers;
+- selects priority facts and insights for the Writer;
+- builds writer evidence packs;
+- validates Writer output and support maps;
+- provides deterministic fallback writers for focused table, structured record, event and generic reports;
+- assesses report component coverage and genre quality;
+- flags causal overclaims, unsupported chronology, unsupported predictions, misleading statements and guardrail leakage;
+- merges audit proposals;
+- applies safe repair proposals;
+- decides final release status.
+
+Dissertation comment: this is the main safety and accountability layer. It is also the largest file because many guardrails live here. The dissertation can describe it as the controller and audit layer that turns evidence into permissioned report content and prevents unsupported prose from being released as approved.
+
+### `src/table2text/narrative.py`
+
+Event narrative planning.
+
+Important responsibilities:
+
+- maps event facts and insights into narrative slots;
+- distinguishes result, context, sequence, leading performances, participant contrasts and limitations;
+- down-prioritises low-value event facts;
+- builds a `NarrativePlan` for event reports before writing;
+- helps the Writer produce a coherent event recap rather than a flat list of rankings.
+
+Dissertation comment: this file addresses the key qualitative gap found during SportSett and MLB testing: a report can be factually grounded but still read like a data dump. The narrative layer provides structure without hard-coding a specific sport or forcing deterministic prose.
+
+### `src/table2text/workflow.py`
+
+End-to-end pipeline orchestration.
+
+Important responsibilities:
+
+- resolves report genre and task contract from user request, experiment config and structure profile;
+- builds compact prompt payloads;
+- decides when a deterministic event plan is safer than a generic LLM plan;
+- runs each agent stage in order;
+- stores every artifact in a run directory;
+- handles async and sync workflow execution;
+- builds and saves evidence ledgers, fact ledgers, insight ledgers, writer drafts, audit reports and final outputs;
+- applies writer quality revision and final audit decisions;
+- returns a `PipelineResult`.
+
+Dissertation comment: this is the executable embodiment of the architecture. It is useful for explaining the pipeline as an empirical system: every run produces artifacts that can be inspected, compared and audited.
+
+### `src/table2text/cli.py`
+
+Command-line interface for running the main workflow.
+
+Important responsibilities:
+
+- parses input paths, request text and output directory;
+- builds `Settings`;
+- runs the workflow;
+- prints run ID, release status and report path.
+
+Dissertation comment: this file shows that the system is usable outside notebooks. It provides a reproducible command-line route for running experiments.
+
+### `src/table2text/evaluation_backends.py`
+
+Evaluation-time generation backends, especially raw single-LLM baselines.
+
+Important responsibilities:
+
+- builds a prompt for raw DeepSeek baseline generation;
+- supports generic and task-aware raw baseline styles;
+- reads model and prompt settings from variant config or environment;
+- calls DeepSeek-compatible APIs;
+- returns generated text to the evaluation harness as a benchmark `GenerationRecord`.
+
+Dissertation comment: this file matters for fair comparison. It allows the dissertation to compare the multi-agent system with a raw LLM baseline using the same source data and references.
+
+## Evaluation Package Files
+
+### `src/table2text/evaluation/__init__.py`
+
+Public exports for notebook and script evaluation.
+
+Dissertation comment: this file makes evaluation helpers easy to import in notebooks, which became the main experiment interface during development.
+
+### `src/table2text/evaluation/models.py`
+
+Typed models for benchmark evaluation.
+
+Important structures:
+
+- `DatasetConfig`;
+- `BenchmarkExample`;
+- `VariantConfig`;
+- `GenerationRecord`;
+- `MetricObservation`;
+- `DeepEvalObservation`;
+- `HumanEvaluationPair`;
+- `HumanJudgement`;
+- `ReferenceMetricConfig`;
+- `DeepEvalConfig`;
+- `ExperimentConfig`.
+
+Dissertation comment: this file mirrors the core system's typed-artifact approach in the evaluation layer. It makes datasets, generations, metrics and human judgements reproducible records rather than ad hoc notebook variables.
+
+### `src/table2text/evaluation/datasets.py`
+
+Dataset preparation and normalization.
+
+Important responsibilities:
+
+- defines default benchmark dataset configurations;
+- loads local and Hugging Face datasets where available;
+- normalizes E2E, ToTTo, WebNLG, DART, SportSett, MLB and other examples into `BenchmarkExample`;
+- extracts references without leaking them into source payloads;
+- builds source text and PARENT tables;
+- writes and reads prepared JSONL examples;
+- deterministically samples examples.
+
+Dissertation comment: this file is central to methodology. It ensures that different benchmark datasets can be fed into the same pipeline while preserving source/reference separation.
+
+### `src/table2text/evaluation/generation.py`
+
+Generation runner for evaluation experiments.
+
+Important responsibilities:
+
+- loads generation variants;
+- materialises benchmark inputs into temporary files;
+- maps benchmark task families to workflow report genres;
+- runs the Table2Text workflow;
+- runs callable baselines and command baselines;
+- supports async notebook execution;
+- supports resume behavior;
+- writes JSONL generation records.
+
+Dissertation comment: this file is the experimental runner. It lets the project compare variants such as full system, raw DeepSeek baseline, ablated systems and precomputed outputs under a common interface.
+
+### `src/table2text/evaluation/reference_metrics.py`
+
+Reference and source-grounded metric registry.
+
+Important responsibilities:
+
+- computes lexical/reference metrics such as BLEU, chrF, TER, ROUGE and METEOR;
+- computes semantic metrics such as BERTScore where dependencies are available;
+- computes PARENT for source-table faithfulness;
+- supports HHEM sentence-level hallucination/factuality scoring;
+- supports AlignScore through a worker process;
+- normalizes event source context for source-grounded factuality metrics;
+- writes metric observations to JSONL.
+
+Dissertation comment: this file supports the quantitative part of the dissertation. It also encodes the metric story: lexical metrics are useful but limited, while semantic and source-grounded metrics better reflect the project's factuality goals.
+
+### `src/table2text/evaluation/external_factuality.py`
+
+Local factuality model helpers.
+
+Important responsibilities:
+
+- splits generated reports into sentences;
+- compacts source context for factuality models;
+- wraps HHEM evaluation;
+- summarizes sentence-level support scores.
+
+Dissertation comment: this file allows local factuality checks without depending only on API-based judges. It helps separate factual support from surface similarity to references.
+
+### `src/table2text/evaluation/alignscore_client.py`
+
+Client wrapper for AlignScore scoring.
+
+Important responsibilities:
+
+- launches or calls the AlignScore worker;
+- sends source and generated text;
+- receives scalar factuality/alignment scores.
+
+Dissertation comment: AlignScore gives another source-grounded signal. It should be treated as supplementary because setup and model availability can vary.
+
+### `src/table2text/evaluation/deepeval_metrics.py`
+
+DeepEval judge integration.
+
+Important responsibilities:
+
+- builds judge inputs from source, generated output and optional references;
+- configures DeepSeek/OpenAI-compatible judges through environment variables;
+- runs faithfulness, summarization and reference-adequacy style metrics where enabled;
+- supports timeout and retry configuration;
+- writes `DeepEvalObservation` records.
+
+Dissertation comment: this file supports LLM-as-judge evaluation. In the dissertation, DeepEval results should be framed as expert-like automated judgements, not objective ground truth.
+
+### `src/table2text/evaluation/diagnostics.py`
+
+Lightweight generation diagnostics.
+
+Important responsibilities:
+
+- counts sentences;
+- extracts numbers;
+- computes simple ratios and warning signals;
+- writes diagnostic tables.
+
+Dissertation comment: this file helps explain outputs before metric scoring. It is useful for spotting empty reports, missing numbers or suspiciously short outputs.
+
+### `src/table2text/evaluation/human_evaluation.py`
+
+Human evaluation packet generation and analysis.
+
+Important responsibilities:
+
+- creates blinded output pairs;
+- exports reviewer packets;
+- loads human judgements;
+- decodes scores;
+- computes inter-rater agreement summaries.
+
+Dissertation comment: this file operationalises human participation. It supports evaluating factuality, usefulness, conciseness and preference in ways automatic metrics cannot fully capture.
+
+### `src/table2text/evaluation/statistics.py`
+
+Metric aggregation and statistical comparison.
+
+Important responsibilities:
+
+- reads metric observations;
+- collapses judge repetitions;
+- computes descriptive summaries;
+- computes macro dataset summaries;
+- runs paired bootstrap comparisons;
+- computes metric correlations;
+- summarizes runtime and cost signals.
+
+Dissertation comment: this file is the analysis layer for evaluation results. It helps turn many JSONL metric records into tables that support a defensible experimental story.
+
+### `src/table2text/evaluation/notebook.py`
+
+Notebook-friendly wrappers.
+
+Important responsibilities:
+
+- exposes `default_paths`;
+- initializes evaluation folders;
+- prepares examples;
+- generates reports;
+- scores reference metrics;
+- scores DeepEval metrics;
+- loads diagnostics and aggregate tables into pandas DataFrames.
+
+Dissertation comment: this file exists because most experiments were run interactively in notebooks. It provides a controlled notebook API rather than copying evaluation logic into notebook cells.
+
+### `src/table2text/evaluation/cli.py`
+
+Command-line interface for the evaluation subsystem.
+
+Important responsibilities:
+
+- writes default dataset, variant and metric configs;
+- prepares datasets;
+- generates outputs;
+- scores reference metrics;
+- scores DeepEval metrics;
+- writes diagnostics;
+- exports and analyses human packets;
+- aggregates results.
+
+Dissertation comment: this file makes the evaluation reproducible outside notebooks. It is useful for describing how experiments could be rerun by another researcher.
+
+## Scripts
+
+### `scripts/alignscore_worker.py`
+
+Worker process for AlignScore.
+
+Important responsibilities:
+
+- loads AlignScore model dependencies;
+- accepts source/output pairs;
+- returns alignment scores;
+- supports local/offline Hugging Face behavior.
+
+Dissertation comment: this script keeps optional heavyweight AlignScore dependencies outside the core runtime. It also makes failures easier to isolate.
+
+## Test Suite
+
+### `tests/test_smoke.py`
+
+Broad regression and safety tests for the main workflow.
+
+Major themes:
+
+- data profiling behavior;
+- zero-value and constant-column handling;
+- generic dataset report requirements;
+- writer support-map validation;
+- report coverage recovery;
+- insight synthesis and verification rules;
+- causal and predictive overclaim rejection;
+- deterministic fallback behavior;
+- event reference quarantine;
+- nested event handling;
+- writer payload construction;
+- quality gates and release status behavior.
+
+Dissertation comment: this file demonstrates that the system's safety claims are backed by regression tests, not only by prompts. It is especially important for showing that factuality constraints are implemented as software checks.
+
+### `tests/test_semantic_event_pipeline.py`
+
+Regression tests for generic event understanding and reporting.
+
+Major themes:
+
+- semantic map validation;
+- event capability extraction;
+- participant rankings;
+- score progression;
+- event sequence highlights;
+- event report content requirements;
+- rejection of flat modelling discussion for event reports;
+- prevention of unsupported chronology and participation substitution;
+- narrative slot ordering;
+- renamed event structures;
+- reference isolation.
+
+Dissertation comment: this file is the strongest evidence that the event-reporting upgrade is not simply basketball hard-coding. It tests generic event structures and renamed fields.
+
+### `tests/test_reference_evaluation.py`
+
+Regression tests for benchmark preparation and evaluation.
+
+Major themes:
+
+- E2E/WebNLG/DART normalization;
+- raw baseline prompt reference exclusion;
+- generic prompt behavior;
+- SportSett event source context;
+- ToTTo highlighted table materialisation;
+- focused table one-sentence contracts;
+- PARENT/reference metric scoring;
+- HHEM and AlignScore availability behavior;
+- human pair ordering;
+- notebook helper execution.
+
+Dissertation comment: this file supports the validity of the evaluation setup. It is especially important because reference leakage would invalidate comparisons against raw baselines.
+
+## Input Data Files
+
+| File | Description/comment |
+| --- | --- |
+| `inputs/weatherHistory.csv` | Weather observations used for tabular descriptive, correlation and group-comparison reports. It is useful for testing classic data-science reporting on a large flat CSV. |
+| `inputs/full_format_recipes.json` | Nested recipe dataset used to test missingness, duplicates, nutritional correlations and JSON loading. It exposes how the system handles nested but primarily analytical data. |
+| `inputs/heart_disease_uci.csv` | Medical-style tabular dataset used for careful descriptive reporting and limitation language. This kind of input is useful for testing conservative wording in higher-risk domains. |
+| `inputs/basketball_data.json` | Local basketball event example used during event-report development. It exposed the need to distinguish single-event reporting from generic dataset-quality reporting. |
+| `inputs/dftRoadSafety_Accidents_2016.csv` | UK road-safety accident table used for broader tabular evaluation ideas. |
+| `inputs/Cas.csv` | Road-safety casualty table intended to be paired with accident and vehicle files in multi-file road-safety experiments. |
+| `inputs/Veh.csv` | Road-safety vehicle table intended for multi-file road-safety experiments. |
+| `inputs/MakeModel2016.csv` | Vehicle make/model reference table for road-safety experiments. |
+
+## Evaluation Configuration Files
+
+Stable configuration files:
+
+| File | Description/comment |
+| --- | --- |
+| `evaluation/config/datasets.json` | Dataset registry for benchmark preparation. It defines which datasets can be prepared, where fields come from, how references are extracted, and what task family each dataset belongs to. |
+| `evaluation/config/variants.json` | Default generation variants. It normally includes the full system and baseline definitions. Variants can override settings or call an external baseline backend. |
+| `evaluation/config/variants_ablation.json` | Ablation-specific generation variant definitions. Used to test the contribution of system components. |
+| `evaluation/config/metrics.json` | Default metric configuration. Defines enabled reference metrics, factuality metrics, source-grounded context behavior and DeepEval settings. |
+| `evaluation/config/metrics_reference_similarity.json` | Metric profile focused on similarity to human references. Useful when comparing generated text to benchmark references. |
+| `evaluation/config/metrics_source_grounded.json` | Metric profile focused on source-grounded factuality rather than reference similarity. |
+| `evaluation/config/metrics_ablation_sportsett_4934.json` | Metric configuration for the SportSett example 4934 ablation study. |
+
+Generated experiment configuration files:
+
+The directory also contains many timestamped `metrics_*` and `variants_*` files. These were produced during notebook experiments, smoke tests, five-dataset runs, raw generic baseline runs, ToTTo/WebNLG fixes, SportSett runs and ablation runs.
+
+Dissertation comment: these files are experiment provenance. They show exactly which variants and metric profiles were used for specific runs. They should not be treated as core source files, but they are useful for audit trails and for reconstructing evaluation tables.
+
+Important generated configuration families:
+
+- `metrics_four_dataset_logged_comparison_*`
+- `variants_four_dataset_logged_comparison_*`
+- `metrics_five_dataset_five_each_comparison_*`
+- `variants_five_dataset_five_each_comparison_*`
+- `metrics_five_dataset_five_each_raw_generic_flash_*`
+- `variants_five_dataset_five_each_raw_generic_flash_*`
+- `metrics_generic_only_sportsett_basketball_4934_*`
+- `variants_sportsett_basketball_4934_*`
+- `variants_totto_*`
+- `variants_e2e_nlg_*`
+- `variants_raw_deepseek_v4_flash.json`
+- `variants_raw_deepseek_v4_pro.json`
+
+## Evaluation Prepared, Generation and Result Artifacts
+
+The project contains generated artifacts under:
 
 ```text
-should_use_deterministic_event_plan()
+evaluation/prepared/
+evaluation/generations/
+evaluation/results/
+runs/
+runs_notebook/
 ```
 
-This avoids expensive or brittle planning calls for high-confidence event records while still allowing the Writer to remain generative.
+These are not source code. They are experiment outputs.
 
-### `evaluation_backends.py`
+Typical run artifacts include:
 
-Supports generation backends and model integration used by evaluation variants.
+- materialised benchmark input files;
+- `pipeline_result.json`;
+- `final_report.md`;
+- `run_manifest.json`;
+- `01_data_profile.json`;
+- `02_data_understanding.json`;
+- `03_evidence_queries.json`;
+- `06_evidence_ledger.json`;
+- `07_fact_ledger.json`;
+- `08_writer_evidence_pack.json`;
+- `09_writer_raw_report.md`;
+- `09_writer_support_map.json`;
+- `10_writer_quality_revision_candidate.md`;
+- `final_audit.json`;
+- generation JSONL files;
+- metric JSONL files.
 
-### `cli.py` and `__main__.py`
+Dissertation comment: these artifacts are a major strength of the project. They make the pipeline inspectable. When a report is weak, the failure can be traced to a specific stage: input interpretation, evidence extraction, fact verification, insight synthesis, writer selection, audit, or repair.
 
-Provide command-line entry points for running the system.
+## Major Evaluation Result Documents
 
-## Main Pipeline Artifacts
+| File | Description/comment |
+| --- | --- |
+| `evaluation/results/five_dataset_results_appendix.md` | Full evaluation appendix covering five datasets, with structured source data, references, system outputs, raw baseline outputs and metric tables. This is one of the main dissertation evidence documents. |
+| `evaluation/results/five_dataset_results_appendix.html` | HTML rendering of the full evaluation appendix. |
+| `evaluation/results/five_dataset_results_appendix.pdf` | PDF version of the evaluation appendix. |
+| `evaluation/results/five_dataset_results_appendix_designed.pdf` | Designed/styled PDF version for readability. |
+| `evaluation/results/five_dataset_results_appendix_full_content.pdf` | Full-content PDF designed to preserve detailed structured source sections. |
+| `evaluation/results/five_dataset_five_each_raw_generic_flash_20260805_181001_summary.md` | Summary for five datasets with five examples each and raw generic Flash baseline comparison. |
+| `evaluation/results/sportsett_4934_ablation_story.md` | Narrative write-up of the SportSett 4934 ablation study. |
+| `evaluation/ABLATION_STUDY_SPORTSETT_4934.md` | Main ablation-study document for SportSett example 4934. |
+| `evaluation/results/four_dataset_logged_comparison_20260803_013629_evaluation_overview.md` | Earlier four-dataset evaluation overview. Useful as historical context. |
+| `evaluation/results/four_dataset_logged_comparison_20260803_013629_deep_dive_findings.md` | Deep-dive notes from earlier evaluation runs. Useful for explaining the evolution of fixes. |
+| `evaluation/results/sportsett_basketball_4934_evaluation_overview.md` | Focused evaluation overview for SportSett basketball example 4934. |
 
-Typical run artifacts in `runs_notebook/<run_id>/` include:
+## Human Evaluation Materials
+
+| File | Description/comment |
+| --- | --- |
+| `evaluation/human_annotation_questionnaire.md` | General questionnaire draft for human participation. |
+| `evaluation/human_annotation_questions_final.md` | Final question set for human annotation. |
+| `evaluation/human_annotation_questions_optimized.md` | Optimized question set after refining dataset selection and annotation goals. |
+| `evaluation/human_annotation_study_plan.md` | Study plan explaining how volunteers should be used and what judgements they provide. |
+| `evaluation/human_participation_optimized_plan.md` | Optimized plan for selecting good and bad outputs, avoiding unsuitable deterministic fallback examples, and collecting useful human judgements. |
+| `evaluation/human/human_annotation_packets_preview.md` | Preview of annotation packets. |
+| `evaluation/human/human_annotation_packets_blinded.jsonl` | Blinded pair data for annotation. |
+| `evaluation/human/human_annotation_packets_for_forms.csv` | Form-friendly export of human annotation packets. |
+| `evaluation/human/human_annotation_answer_key_private.jsonl` | Private answer key mapping blinded outputs to systems. This should not be shown to annotators. |
+| `evaluation/human/human_annotation_diagnostic_subset_preview.md` | Preview for a smaller diagnostic subset. |
+| `evaluation/human/human_annotation_diagnostic_subset_blinded.jsonl` | Blinded diagnostic subset. |
+
+There is also an optimized human annotation packet set under `evaluation/human/optimized/`. It includes a preview Markdown file and PDF packet designed for discussion with the supervisor.
+
+Optimized human annotation files:
+
+| File | Description/comment |
+| --- | --- |
+| `evaluation/human/optimized/optimized_human_annotation_packets_preview.md` | Human-readable preview of the optimized annotation packets. |
+| `evaluation/human/optimized/optimized_human_annotation_packets_preview.pdf` | PDF rendering of the optimized packet preview for sharing with the supervisor or reviewers. |
+| `evaluation/human/optimized/optimized_human_annotation_packets_blinded.jsonl` | Blinded machine-readable packet data. |
+| `evaluation/human/optimized/optimized_human_annotation_packets_for_forms.csv` | Form-friendly export for volunteer annotation tools. |
+| `evaluation/human/optimized/optimized_human_annotation_answer_key_private.jsonl` | Private key connecting blinded outputs to system identity. It should not be shown to annotators. |
+| `evaluation/human/optimized/optimized_selection_manifest.md` | Selection rationale for the optimized packet set, including why certain examples were chosen or excluded. |
+
+Dissertation comment: the human evaluation materials are important because automatic metrics do not fully measure whether an output is useful, well-structured, faithful, concise or preferable to a baseline. The optimized packet design supports targeted annotation instead of asking volunteers vague questions.
+
+## Evaluation Metrics Shortlist
+
+The project uses many metrics, but the dissertation story should focus on a smaller set.
+
+Most useful metrics:
+
+| Metric | Class | Why it matters |
+| --- | --- | --- |
+| BERTScore F1 | Semantic similarity | Captures semantic overlap with references better than exact n-gram matching. |
+| chrF | Character-level lexical similarity | Useful for short references and morphology-sensitive overlap. |
+| ROUGE-L | Sequence/summary overlap | Measures longest common subsequence similarity and is familiar in NLG evaluation. |
+| METEOR | Alignment-aware lexical/semantic overlap | More forgiving than BLEU and useful for paraphrased outputs. |
+| PARENT F1 | Table-to-text source faithfulness | Important because the task is structured-data-to-text, not generic summarization. |
+| HHEM unsupported sentence rate | Source-grounded factuality | Helps identify sentences that appear unsupported by source context. |
+| HHEM mean support | Source-grounded factuality | Gives a continuous support signal for generated sentences. |
+| AlignScore | Source-output alignment | Provides an additional local factuality/alignment signal when available. |
+| DeepEval faithfulness/reference adequacy | LLM-as-judge | Useful as a qualitative automated judge, especially when source and reference context are rich. |
+
+Metrics to de-emphasize:
+
+| Metric | Why it is less central |
+| --- | --- |
+| BLEU | Too sensitive to wording and weak for single-reference or paraphrased outputs. |
+| TER | Useful for edit distance but less aligned with factual usefulness. |
+| ROUGE-1 and ROUGE-2 alone | Helpful as supporting evidence but too lexical to carry the main story. |
+| Corpus-only aggregates without examples | Can hide dataset-specific behavior and failure modes. |
+
+Dissertation comment: the metric story should not be "one score proves the system is better." It should be that different metric classes reveal different aspects: semantic similarity, reference overlap, source faithfulness, factual support and human preference.
+
+## Current Model and Runtime Configuration Story
+
+The system supports two main model routes:
+
+1. Local Ollama models  
+   Useful for development, cheaper runs and local privacy.
+
+2. DeepSeek models  
+   Useful for stronger Writer/Auditor behavior and raw baseline comparison.
+
+The `.env.example` currently documents:
+
+- local default routing with Gemma through Ollama;
+- DeepSeek model routing for all agents;
+- stronger Writer/Auditor routing with `deepseek-v4-pro`;
+- DeepEval judge routing through DeepSeek;
+- raw baseline settings;
+- writer word targets and optional hard ceilings;
+- insight synthesis controls;
+- deterministic fact coverage recovery thresholds.
+
+Dissertation comment: model routing is part of the experimental design. The project can ask which stages need stronger models and which can remain local or cheaper without major output loss.
+
+## Run Artifact Naming and Interpretation
+
+Notebook runs usually write outputs into:
 
 ```text
-01_inputs.json
-02_data_understanding.json
-03_evidence_queries.json
-04_evidence_ledger.json
-05_fact_candidates.json
-06_verification.json
-07_fact_ledger.json
-07_fact_ledger_pre_coverage_recovery.json
-08_writer_evidence_pack.json
-09_writer_raw_output.json
-09_writer_raw_report.md
-09_writer_support_map.json
-10_writer_quality_revision_candidate.md
-final_result.json
-final_report.md
-pipeline_result.json
+runs_notebook/<timestamp>_<fingerprint>/
 ```
 
-Not every run has every intermediate file. Files depend on fallback path, revision rounds, and whether optional stages were invoked.
-
-## Report Contracts
-
-The system now separates "what kind of output is wanted" from "what the input contains."
-
-The decision priority is:
+Evaluation runs usually write outputs into:
 
 ```text
-1. explicit user request
-2. experiment configuration
-3. structured inference
-4. deterministic fallback
+evaluation/generations/<experiment>_runs/<variant>/<dataset>/<run_id>/
 ```
 
-Examples:
+Each run directory should be read as a trace of the pipeline. For example:
 
-```text
-"Write a neutral basketball game report" -> event_report
-"Report the strongest statistical findings" -> data_science_report
-"Summarise this for senior management" -> executive/custom summary behavior
-"Understand the dataset and report its strongest findings" -> usually data_science_report unless benchmark/task metadata says otherwise
+- if `writer_mode` is `llm_writer`, the LLM Writer produced a materialised output that passed validation;
+- if `writer_mode` is `deterministic_fallback`, the deterministic fallback writer produced the final text after an upstream or materialisation failure;
+- `final_audit.decision` explains factual audit outcome;
+- `release_status` explains whether the output was approved, approved with warnings or required human review;
+- `insight_fallback_reason` indicates why insight synthesis was empty or degraded.
+
+## Important Design Concepts
+
+### Evidence
+
+Evidence is a deterministic or controlled analytical observation that can support one or more claims. Examples:
+
+- a row count;
+- a missingness rate;
+- a correlation coefficient;
+- a group difference;
+- an event result;
+- a player ranking;
+- a score-changing sequence highlight;
+- a highlighted table-cell proposition.
+
+Evidence is not the final report. It is the support substrate.
+
+### Fact
+
+A fact is a verified, reportable statement derived from evidence. It should have:
+
+- a fact ID;
+- evidence IDs;
+- claim permissions;
+- numbers and entities supported by evidence;
+- a component or narrative role.
+
+### Insight
+
+An insight is a bounded synthesis across one or more facts. It can relate facts, contrast them, or explain their analytical relevance without creating unsupported causal, predictive or historical claims.
+
+For example:
+
+- Safe insight: "Washington won despite Los Angeles having the free-throw advantage; Washington's larger advantages were in made field goals and made three-pointers."
+- Unsafe insight: "Washington won because they shot better." This is causal unless the evidence explicitly supports causation.
+
+### Report Contract
+
+The report contract defines the expected output type:
+
+- data-science report;
+- dataset overview;
+- event report;
+- reference recap;
+- focused table answer;
+- structured record verbalisation;
+- executive summary or custom form.
+
+The contract controls content slots and prohibited claim types.
+
+### Narrative Plan
+
+The narrative plan is used mostly for event reports. It organizes facts into:
+
+- result;
+- context;
+- score progression or sequence;
+- leading performances;
+- participant contrasts;
+- limitations.
+
+The plan should guide prose structure without forcing deterministic writing.
+
+### Audit
+
+The audit checks factual and quality conditions:
+
+- unsupported numbers;
+- unsupported entities;
+- unsupported causal wording;
+- unsupported chronology;
+- missing required supported content;
+- genre mismatch;
+- low-usefulness output;
+- over-repeated caveats;
+- unsupported hypotheses.
+
+## Known Strengths
+
+1. The system is highly inspectable.  
+   Each stage leaves artifacts, making debugging and dissertation analysis possible.
+
+2. Source/reference separation is explicit.  
+   Benchmark references are held out from operational prompts.
+
+3. The event-reporting system is now generic.  
+   It has been tested on basketball and MLB-style nested event records.
+
+4. The evaluation layer is richer than simple BLEU scoring.  
+   It supports reference metrics, source-grounded factuality, DeepEval and human evaluation.
+
+5. The project has a clear ablation path.  
+   Variants can disable or alter stages, allowing component-level analysis.
+
+## Known Limitations and Technical Debt
+
+1. Several files are very large.  
+   `audit.py`, `capabilities.py`, `analytics.py`, `agents.py` and `workflow.py` are monolithic. This is acceptable for a research prototype but should be refactored in future work.
+
+2. Generated artifacts are numerous.  
+   The evaluation process creates many timestamped configs and results. These are useful for provenance but make the repository visually noisy.
+
+3. Some automatic metrics are imperfect for this task.  
+   Human references may omit correct facts, and generated reports may be source-faithful but lexically different. This can depress BLEU/ROUGE even when the report is useful.
+
+4. LLM-as-judge metrics require careful framing.  
+   DeepEval can be helpful but depends on judge model, prompt, timeout and repetition settings.
+
+5. Event reports remain sensitive to content prioritisation.  
+   The system may produce very factual outputs that still need better narration or salience selection.
+
+6. Deterministic fallback is not inherently bad but must be reported honestly.  
+   It can produce safe outputs, but the dissertation should distinguish LLM-written and fallback-written reports.
+
+7. Worktree state is active.  
+   At snapshot time, several source and test files are modified and many experiment configs are untracked. Commit boundaries should be used when finalising dissertation experiments.
+
+## Source File Size Snapshot
+
+Approximate line counts from the current source tree:
+
+| File | Lines | Comment |
+| --- | ---: | --- |
+| `src/table2text/audit.py` | 9890 | Largest controller, validation, fallback and audit file. |
+| `src/table2text/capabilities.py` | 5501 | Generic capability and event evidence extraction logic. |
+| `src/table2text/analytics.py` | 4975 | Deterministic analytical execution and benchmark verbalisation. |
+| `src/table2text/agents.py` | 4661 | Agent builders, prompts, validators and fallback agent logic. |
+| `src/table2text/workflow.py` | 4194 | End-to-end pipeline orchestration. |
+| `src/table2text/schemas.py` | 1268 | Typed contracts for the system. |
+| `src/table2text/data.py` | 960 | Loading and profiling. |
+| `src/table2text/structure.py` | 650 | Input-shape inspection and field filtering. |
+| `src/table2text/evaluation/reference_metrics.py` | 1133 | Reference/source-grounded metric registry. |
+| `src/table2text/evaluation/datasets.py` | 869 | Benchmark preparation and normalization. |
+| `src/table2text/evaluation/generation.py` | 718 | Evaluation generation runner. |
+| `src/table2text/evaluation/deepeval_metrics.py` | 452 | DeepEval judge integration. |
+| `src/table2text/narrative.py` | 401 | Event narrative planning. |
+| `src/table2text/config.py` | 425 | Settings and environment management. |
+| `src/table2text/evaluation/statistics.py` | 305 | Metric aggregation and comparison. |
+| `src/table2text/evaluation/external_factuality.py` | 296 | HHEM/local factuality helpers. |
+| `src/table2text/evaluation/human_evaluation.py` | 252 | Human evaluation packet and judgement helpers. |
+| `src/table2text/evaluation_backends.py` | 219 | Raw baseline generation backend. |
+| `src/table2text/evaluation/notebook.py` | 196 | Notebook helper API. |
+| `src/table2text/cli.py` | 178 | Main workflow CLI. |
+| `src/table2text/evaluation/cli.py` | 359 | Evaluation CLI. |
+| `src/table2text/evaluation/alignscore_client.py` | 145 | AlignScore worker client. |
+| `src/table2text/evaluation/diagnostics.py` | 115 | Lightweight diagnostics. |
+| `src/table2text/evaluation/__init__.py` | 50 | Evaluation exports. |
+| `src/table2text/__init__.py` | 7 | Package exports. |
+| `src/table2text/__main__.py` | 4 | Module entry point. |
+
+## Suggested Dissertation Structure Using This Codebase
+
+### Methodology chapter
+
+Use these files:
+
+- `schemas.py` to explain typed artifacts;
+- `workflow.py` to explain the pipeline;
+- `data.py` and `structure.py` to explain input handling;
+- `capabilities.py` and `analytics.py` to explain evidence generation;
+- `agents.py` to explain LLM roles;
+- `audit.py` to explain factual controls;
+- `narrative.py` to explain event-report narration.
+
+### Evaluation chapter
+
+Use these files:
+
+- `evaluation/datasets.py` for benchmark preparation;
+- `evaluation/generation.py` for generation variants;
+- `evaluation/reference_metrics.py` for metric registry;
+- `evaluation/deepeval_metrics.py` for LLM-as-judge evaluation;
+- `evaluation/statistics.py` for aggregation;
+- `evaluation/human_evaluation.py` for human annotation;
+- `evaluation/results/five_dataset_results_appendix.md` for concrete examples.
+
+### Results chapter
+
+Use:
+
+- five-dataset appendix;
+- SportSett 4934 ablation story;
+- raw generic baseline comparisons;
+- DeepEval/source-grounded metrics;
+- human annotation packet design.
+
+### Discussion chapter
+
+Emphasize:
+
+- the system improves controllability and auditability;
+- automatic metrics do not perfectly reward faithful, differently worded outputs;
+- genre and narrative planning are necessary for event reports;
+- deterministic evidence is valuable but cannot replace human judgement about communicative quality;
+- future work should refactor large modules and expand human evaluation.
+
+## Recommended Future Refactors
+
+These are not required for the dissertation but are useful future engineering improvements:
+
+1. Split `audit.py` into:
+   - support checking;
+   - writer materialisation;
+   - fallback writers;
+   - quality assessment;
+   - repair logic.
+
+2. Split `capabilities.py` into:
+   - registry and availability;
+   - semantic map validation;
+   - event extraction;
+   - sequence extraction;
+   - generic query execution.
+
+3. Split `analytics.py` into:
+   - tabular analytics;
+   - focused table analysis;
+   - structured record verbalisation;
+   - predictive/forecasting analysis.
+
+4. Move prompt text out of `agents.py` into versioned prompt modules.
+
+5. Add experiment manifests that bundle:
+   - variant config;
+   - metric config;
+   - generation file;
+   - result file;
+   - model configuration;
+   - commit hash.
+
+6. Reduce generated config clutter by storing per-run configs under experiment-specific folders.
+
+## Practical Commands
+
+Install:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
 ```
 
-For benchmark event tasks, `evaluation/generation.py` maps the task family to:
+Install evaluation extras as needed:
 
-```text
-focus_scope = reference_recap
+```bash
+pip install -e ".[evaluation]"
+pip install -e ".[evaluation-deepeval]"
+pip install -e ".[evaluation-hhem]"
 ```
 
-That tells the system to favor reference-style event recap over a generic dataset-quality report.
+Run tests:
 
-## Event Reporting Design
-
-The current event-report architecture is deliberately generic.
-
-It should work for:
-
-```text
-basketball games
-baseball games
-competitions
-elections
-awards
-incidents
-transactions
-other single-event records
+```bash
+pytest
 ```
 
-It should not require new code for every sport or domain.
+Run CLI:
 
-Current event content slots include:
-
-```text
-event_result
-event_context
-participant_record_context
-event_status
-score_progression
-event_sequence
-leading_performance
-main_contrast
-secondary_performance
-scope_limitations
+```bash
+table2text inputs/weatherHistory.csv --request "Understand the dataset and report its strongest findings."
 ```
 
-For reference-recap evaluation style:
-
-- visible headings are disabled.
-- generic limitations sections are discouraged.
-- dataset-quality boilerplate is prohibited.
-- correlation, regression, statistical power, missingness, and modelling discussion are prohibited unless directly requested.
-- event sequence and participant contrasts are prioritized when evidence exists.
-
-## Important Behavioral Boundaries
-
-Allowed:
-
-- "Team A defeated Team B 116-114."
-- "Player X led all players with 35 points."
-- "Team A made more field goals, while Team B made more free throws."
-- "The score-changing sequence includes a lead change in the fifth inning."
-- "The comparison describes only the supplied event."
-
-Not allowed unless explicitly supported:
-
-- causation, for example "field goals caused the win."
-- unsupported chronology, for example "dominated throughout" without sequence support.
-- unsupported historical meaning, for example "upset" without standings/context support.
-- broad generalization from one event.
-- outside knowledge not present in source/evidence.
-- leaking benchmark reference text into source/evidence.
-
-## Insight System
-
-An insight is a bounded interpretation that relates multiple verified facts or evidence items into a useful statement while staying inside claim permissions.
-
-Examples:
-
-```text
-Data-science insight:
-Temperature and apparent temperature are almost redundant as linear features because their Pearson correlation is 0.9926.
-
-Event insight:
-Washington's top three scorers were all Wizards players, while the assist leader came from the Lakers.
-
-Table-local insight:
-Among highlighted countries, Switzerland had the lower corporate tax rate and France had the higher rate.
-```
-
-Current insight principles:
-
-- insights must have provenance.
-- event insights can be useful rankings, contrasts, or narrative syntheses.
-- event insights do not need a deeper data-science implication.
-- hypotheses are blocked from reports unless explicitly allowed.
-- failing one candidate should not require dropping the whole insight ledger.
-
-## Evaluation Subsystem
-
-The evaluation subsystem is under `src/table2text/evaluation/`.
-
-### Main Files
-
-```text
-models.py              Typed benchmark, variant, metric, and experiment configs
-datasets.py            Dataset preparation and normalisation
-generation.py          Runs variants and records generations
-reference_metrics.py   Lexical, semantic, source-grounded, HHEM, AlignScore, PARENT-style metrics
-deepeval_metrics.py    DeepEval judge metrics
-alignscore_client.py   Local AlignScore worker integration
-external_factuality.py External factuality helpers
-diagnostics.py         Run/metric diagnostics
-statistics.py          Aggregation, correlations, bootstrap comparisons
-human_evaluation.py    Human review support
-notebook.py            Notebook-friendly wrappers
-cli.py                 Evaluation command-line interface
-```
-
-### Notebook Helpers
+Use notebook helpers:
 
 ```python
-from table2text.evaluation import (
-    default_paths,
-    generate_reports_for_notebook,
-    score_reference_metrics_for_notebook,
-    score_deepeval_for_notebook,
-    diagnostics_for_notebook,
-)
-```
-
-### Dataset Preparation
-
-Configured datasets include:
-
-```text
-sportsett_basketball
-totto
-e2e_nlg
-web_nlg
-dart
-logicnlg
-fetaqa
-viggo
-mlb_data_to_text
-conversational_weather
-turku_hockey
-rotowire_english_german
-```
-
-Some Hugging Face datasets may be unavailable in the current environment because dataset scripts are no longer supported by the installed `datasets` version. Local prepared JSONL files are therefore important for repeatable notebook experiments.
-
-### Generation Variants
-
-Evaluation variants can use:
-
-```text
-table2text full system
-precomputed generation files
-callable generation functions
-command backends
-raw LLM baselines
-```
-
-Current local variant files include:
-
-```text
-variants.json
-variants_raw_deepseek_v4_flash.json
-variants_raw_deepseek_v4_pro.json
-variants_sportsett_basketball_4934.json
-variants_totto_full_system.json
-variants_e2e_nlg_one.json
-variants_mlb_data_to_text_one.json
-```
-
-### Metrics
-
-Reference similarity metrics:
-
-```text
-BLEU
-chrF
-TER
-ROUGE-1
-ROUGE-2
-ROUGE-L
-ROUGE-Lsum
-METEOR
-BERTScore
-PARENT-style table metrics when parent table data exists
-```
-
-Local/source-grounded factuality metrics:
-
-```text
-HHEM
-AlignScore
-```
-
-Judge-based metrics:
-
-```text
-DeepEval with a configurable judge model, including DeepSeek through the existing env setup
-```
-
-For source-grounded event evaluation, `reference_metrics.py` now builds normalized event source context from structured JSON when possible. This gives HHEM/AlignScore a more readable factual context than raw nested JSON.
-
-## Latest SportSett 4934 Comparison
-
-Most recent compared files:
-
-```text
-evaluation/generations/sportsett_basketball_4934_generations.jsonl
-evaluation/generations/sportsett_raw_deepseek_v4_flash_generations.jsonl
-evaluation/generations/sportsett_4934_new_run_vs_raw_flash_baseline.jsonl
-evaluation/results/sportsett_4934_new_run_vs_raw_flash_reference_metrics.jsonl
-evaluation/results/sportsett_4934_new_run_vs_raw_flash_source_grounded_reference_metrics.jsonl
-```
-
-Latest full-system run:
-
-```text
-run_id: 20260801T151226Z_7ccd0b3a42
-variant_id: full_system
-writer_mode: llm_writer
-release_status: approved
-elapsed_seconds: about 795.21
-generated_words: about 329
-```
-
-Raw Flash baseline:
-
-```text
-variant_id: raw_deepseek_v4_flash
-elapsed_seconds: about 13.43
-generated_words: about 216
-```
-
-Reference-similarity comparison:
-
-| Metric | Full system | Raw flash | Better |
-| --- | ---: | ---: | --- |
-| BLEU | 0.107134 | 0.135714 | raw flash |
-| chrF | 0.416579 | 0.385963 | full system |
-| TER | 0.909910 | 0.813814 | raw flash |
-| ROUGE-1 | 0.471495 | 0.514178 | raw flash |
-| ROUGE-2 | 0.154560 | 0.189753 | raw flash |
-| ROUGE-L | 0.231125 | 0.321361 | raw flash |
-| METEOR | 0.257996 | 0.253407 | full system |
-| HHEM mean support | 0.268974 | 0.250427 | full system |
-| HHEM unsupported rate | 0.736842 | 0.769231 | full system |
-| AlignScore base | 0.398620 | 0.307779 | full system |
-| BERTScore F1 | 0.851689 | 0.850376 | full system |
-
-Source-grounded comparison:
-
-| Metric | Full system | Raw flash | Better |
-| --- | ---: | ---: | --- |
-| HHEM mean support | 0.206466 | 0.166208 | full system |
-| HHEM min support | 0.008334 | 0.011255 | raw flash |
-| HHEM unsupported rate | 0.789474 | 0.769231 | raw flash |
-| AlignScore base | 0.190825 | 0.180214 | full system |
-
-Interpretation:
-
-- Raw flash still has stronger lexical overlap on BLEU/ROUGE/TER for this example.
-- The full system is stronger on chrF, METEOR, BERTScore, reference-context HHEM mean support, reference-context AlignScore, and source-grounded AlignScore.
-- The full system is slower because it runs structure interpretation, capability selection, evidence extraction, verification, insight handling, writing, support validation, audit, and repair.
-- The latest reference-recap style is closer to benchmark prose, but visible caveat language can still hurt reference overlap.
-
-## Current Notebook Run Pattern
-
-Single specific example:
-
-```python
-import json
 from pathlib import Path
-
 from table2text.evaluation import default_paths, generate_reports_for_notebook
-from table2text.evaluation.datasets import read_examples, write_jsonl
 
 project_dir = Path("/Users/realgobs/Documents/MScproject/table2text_pydanticai")
 paths = default_paths(project_dir)
-examples = read_examples(paths["prepared_examples"])
-
-dataset_id = "sportsett_basketball"
-example_id = "4934"
-one_example = next(
-    example
-    for example in examples
-    if example.dataset_id == dataset_id and example.example_id == example_id
-)
-
-examples_path = project_dir / f"evaluation/prepared/{dataset_id}_{example_id}.jsonl"
-write_jsonl(examples_path, [one_example])
-
-variants_payload = json.loads(paths["variant_config"].read_text(encoding="utf-8"))
-variants = {
-    "variants": [
-        {**variant, "enabled": variant["variant_id"] == "full_system"}
-        for variant in variants_payload["variants"]
-    ]
-}
-
-variants_path = project_dir / f"evaluation/config/variants_{dataset_id}_{example_id}.json"
-variants_path.write_text(json.dumps(variants, indent=2), encoding="utf-8")
-
-generations_path = project_dir / f"evaluation/generations/{dataset_id}_{example_id}_generations.jsonl"
-run_root = project_dir / f"evaluation/generations/{dataset_id}_{example_id}_runs"
-
-generations = await generate_reports_for_notebook(
-    project_dir,
-    examples_path=examples_path,
-    variants_path=variants_path,
-    output_path=generations_path,
-    run_root=run_root,
-    resume=False,
-)
 ```
 
-## Tests
+## Final Dissertation Framing
 
-Primary tests:
+This codebase should be presented as a research prototype with a strong emphasis on control, traceability and evaluation. Its novelty is not that it simply prompts a stronger LLM. Its novelty is the layered architecture:
 
 ```text
-tests/test_smoke.py
-tests/test_semantic_event_pipeline.py
-tests/test_reference_evaluation.py
+Input interpretation
+    + deterministic evidence
+    + typed claim permissions
+    + verified facts
+    + bounded insights
+    + genre-aware writing
+    + factual audit
+    + metric and human evaluation
 ```
 
-Recent targeted verification command:
-
-```bash
-table2text_pydanticai/.venv/bin/python -m pytest -p no:rerunfailures \
-  table2text_pydanticai/tests/test_reference_evaluation.py \
-  table2text_pydanticai/tests/test_smoke.py \
-  table2text_pydanticai/tests/test_semantic_event_pipeline.py \
-  -q
-```
-
-This targeted suite has been passing after the recent evaluation and event-report fixes.
-
-## Known Issues And Risks
-
-### Runtime
-
-Full-system event runs can be very slow compared with a raw single-call baseline. The latest SportSett 4934 run took about 795 seconds, while raw DeepSeek Flash took about 13 seconds.
-
-Main runtime drivers:
-
-- multi-stage LLM orchestration.
-- verification and audit calls.
-- insight synthesis and verification.
-- large event evidence packs.
-- external metric models such as HHEM, AlignScore, BERTScore, and DeepEval.
-
-### Token Use
-
-Token-heavy areas:
-
-- data-understanding payloads for nested JSON.
-- evidence synthesis over large event structures.
-- verifier batches over many fact candidates.
-- Writer evidence packs when uncapped event evidence is preserved.
-- audit/repair prompts with full support context.
-
-### Evaluation Ambiguity
-
-Reference metrics measure closeness to the human reference, not pure correctness. A conservative report can score lower if it omits reference wording, and a raw baseline can score higher if it imitates the reference style while being less auditable.
-
-Source-grounded metrics are useful but imperfect:
-
-- raw structured JSON is difficult for HHEM/AlignScore.
-- normalized event context improves readability but is still a proxy.
-- sentence segmentation affects unsupported-rate metrics.
-
-### Dataset Availability
-
-Some benchmark datasets are unavailable through current Hugging Face dataset-loading paths because dataset scripts are no longer supported. Prepared local JSONL files are the stable path for experiments.
-
-### DeepEval Timeouts
-
-DeepEval calls using remote judges can time out. Disabling per-attempt timeouts entirely can cause notebook cells to hang; increasing the timeout is safer than setting it to an unbounded value.
-
-### Reference-Recap Style
-
-The latest event-recap path is closer to target benchmark outputs, but any visible "scope limitations" sentence in benchmark event reports may still reduce lexical overlap against concise human references.
-
-## Recommended Next Improvements
-
-High-impact improvements that preserve the architecture:
-
-1. Keep evidence extraction broad, but add smarter salience ordering before the Writer.
-2. Teach the Writer to compress event evidence into a reference-style recap without visible methodology language.
-3. Use the LLM for narrative realization, but keep support-map validation strict.
-4. Prefer small-batch fact verification over whole-ledger failure.
-5. Keep normalized source context for HHEM/AlignScore and extend it to more task families.
-6. Add a report-length policy that is soft and task-specific, not a fixed findings cap.
-7. Compare outputs against both references and source-grounded metrics in every benchmark table.
-
-## Current Design Principle
-
-The system should remain generic:
-
-```text
-input adapter:
-  what does the data structure represent?
-
-capability registry:
-  what can be computed safely?
-
-orchestrator:
-  which supported operations answer the request?
-
-fact and insight ledgers:
-  what claims are permitted?
-
-report contract:
-  what content should this output type contain?
-
-writer:
-  how should verified content be expressed?
-
-auditors:
-  is it factually supported and does it fulfil the task?
-```
-
-The target is not to hard-code basketball, baseball, ToTTo, or E2E outputs. The target is a general structure-aware, genre-aware, capability-aware table-to-text system whose reports are useful, auditable, and comparable against benchmark references.
+The project is strongest when the dissertation treats the system as an auditable pipeline and uses concrete run artifacts to show where it succeeds, where it fails, and how each design choice affects factuality and usefulness.

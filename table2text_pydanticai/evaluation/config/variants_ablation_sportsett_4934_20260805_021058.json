@@ -1,0 +1,52 @@
+{
+  "variants": [
+    {
+      "variant_id": "no_insight_synthesis",
+      "enabled": true,
+      "backend": "table2text",
+      "description": "Full system with the insight synthesis and insight-verification stages disabled.",
+      "settings_overrides": {
+        "enable_insight_synthesis": false
+      },
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    },
+    {
+      "variant_id": "no_writer_quality_revision",
+      "enabled": true,
+      "backend": "table2text",
+      "description": "Full system with the pre-audit writer quality revision pass disabled.",
+      "settings_overrides": {
+        "writer_quality_revision_rounds": 0
+      },
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    },
+    {
+      "variant_id": "no_audit_repair_rounds",
+      "enabled": true,
+      "backend": "table2text",
+      "description": "Full system with post-audit repair rounds disabled; deterministic audit still runs.",
+      "settings_overrides": {
+        "max_revision_rounds": 0
+      },
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    }
+  ]
+}

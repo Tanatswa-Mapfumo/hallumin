@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,10 @@ from .datasets import (
 from .diagnostics import write_diagnostics
 from .deepeval_metrics import evaluate_deepeval
 from .generation import generate_all_async, load_variants, read_generations
+from .llm_judge_annotations import (
+    OpenAIJudgeAnnotationConfig,
+    annotate_generations_with_openai_judge,
+)
 from .models import ExperimentConfig
 from .reference_metrics import evaluate_reference_metrics
 from .statistics import write_analysis
@@ -33,6 +38,8 @@ def default_paths(project_dir: Path) -> dict[str, Path]:
         "run_root": project_dir / "evaluation/generations/runs",
         "reference_metrics": project_dir / "evaluation/results/reference_metrics.jsonl",
         "deepeval_metrics": project_dir / "evaluation/results/deepeval_metrics.jsonl",
+        "llm_judge_annotations": project_dir
+        / "evaluation/results/llm_judge_annotations.jsonl",
         "diagnostics": project_dir / "evaluation/results/diagnostics.csv",
         "analysis": project_dir / "evaluation/results/analysis",
     }
@@ -138,6 +145,120 @@ def score_deepeval_for_notebook(
         resume=resume,
     )
     return pd.DataFrame([item.model_dump(mode="json") for item in observations])
+
+
+def score_openai_judge_for_notebook(
+    project_dir: Path,
+    *,
+    generations_path: Path | None = None,
+    metric_config_path: Path | None = None,
+    output_path: Path | None = None,
+    judge_model: str = "gpt-5.6-sol",
+    judge_repetitions: int = 1,
+    max_source_characters: int | None = None,
+    run_summarization: bool | None = None,
+    run_faithfulness: bool | None = None,
+    run_factual_correctness: bool | None = None,
+    run_reference_adequacy: bool | None = None,
+    run_task_relevance: bool | None = None,
+    run_coherence: bool | None = None,
+    run_usefulness: bool | None = None,
+    resume: bool = True,
+) -> pd.DataFrame:
+    """Run the configured DeepEval judge metrics with an OpenAI judge model.
+
+    This is a notebook convenience wrapper around the same evaluator used by
+    ``score_deepeval_for_notebook``. It keeps the metric toggles from the
+    selected metrics config unless an override is supplied here.
+    """
+
+    load_project_env(project_dir)
+    paths = default_paths(project_dir)
+    experiment = ExperimentConfig.model_validate(
+        json.loads((metric_config_path or paths["metric_config"]).read_text(encoding="utf-8"))
+    )
+    updates: dict[str, Any] = {
+        "enabled": True,
+        "judge_provider": "openai",
+        "judge_model": judge_model,
+        "judge_repetitions": judge_repetitions,
+    }
+    optional_updates = {
+        "max_source_characters": max_source_characters,
+        "run_summarization": run_summarization,
+        "run_faithfulness": run_faithfulness,
+        "run_factual_correctness": run_factual_correctness,
+        "run_reference_adequacy": run_reference_adequacy,
+        "run_task_relevance": run_task_relevance,
+        "run_coherence": run_coherence,
+        "run_usefulness": run_usefulness,
+    }
+    updates |= {
+        key: value
+        for key, value in optional_updates.items()
+        if value is not None
+    }
+    config = experiment.deepeval.model_copy(update=updates)
+    observations = evaluate_deepeval(
+        read_generations(generations_path or paths["generations"]),
+        config,
+        output_path
+        or (paths["deepeval_metrics"].parent / "openai_judge_metrics.jsonl"),
+        resume=resume,
+    )
+    return pd.DataFrame([item.model_dump(mode="json") for item in observations])
+
+
+def annotate_with_openai_judge_for_notebook(
+    project_dir: Path,
+    *,
+    generations_path: Path | None = None,
+    output_path: Path | None = None,
+    judge_model: str | None = None,
+    judge_repetitions: int = 1,
+    reasoning_effort: str | None = None,
+    max_source_characters: int = 50_000,
+    max_output_tokens: int = 2_500,
+    include_references: bool = False,
+    include_system_identity: bool = False,
+    include_metric_scores: bool = False,
+    resume: bool = True,
+) -> pd.DataFrame:
+    """Run the OpenAI LLM judge as a structured error annotator.
+
+    Unlike the scalar DeepEval wrapper, this sends each generated output
+    independently and returns span-level error annotations using the configured
+    taxonomy. Human references and metric scores are excluded by default.
+    """
+
+    load_project_env(project_dir)
+    paths = default_paths(project_dir)
+    config = OpenAIJudgeAnnotationConfig(
+        judge_model=(
+            judge_model
+            or os.getenv("T2T_OPENAI_JUDGE_ANNOTATION_MODEL")
+            or os.getenv("T2T_DEEPEVAL_JUDGE_MODEL")
+            or "gpt-5.6-sol"
+        ),
+        judge_repetitions=judge_repetitions,
+        reasoning_effort=(
+            reasoning_effort
+            or os.getenv("T2T_OPENAI_JUDGE_REASONING_EFFORT")
+            or "high"
+        ),
+        max_source_characters=max_source_characters,
+        max_output_tokens=max_output_tokens,
+        include_references=include_references,
+        include_system_identity=include_system_identity,
+        include_metric_scores=include_metric_scores,
+    )
+    annotations = annotate_generations_with_openai_judge(
+        read_generations(generations_path or paths["generations"]),
+        config,
+        output_path or paths["llm_judge_annotations"],
+        resume=resume,
+    )
+    return pd.DataFrame([item.model_dump(mode="json") for item in annotations])
 
 
 def diagnostics_for_notebook(

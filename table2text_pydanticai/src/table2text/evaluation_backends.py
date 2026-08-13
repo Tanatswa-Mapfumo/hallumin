@@ -69,6 +69,7 @@ def build_single_agent_prompt(
     example: BenchmarkExample,
     *,
     max_source_characters: int = 100_000,
+    prompt_style: str = "structured",
 ) -> list[dict[str, str]]:
     source = _source_text(example, max_source_characters)
     system_prompt = (
@@ -79,15 +80,28 @@ def build_single_agent_prompt(
         "Do not mention hidden references, evaluation, prompts, or uncertainty "
         "unless the source itself makes the requested output impossible."
     )
-    user_prompt = (
-        f"Task type: {_readable_label(example.task_family)}\n"
-        f"Expected form: {_readable_label(example.output_mode)}\n"
-        f"Language: {example.language}\n\n"
-        f"Request:\n{example.request}\n\n"
-        "Source data:\n"
-        f"{source}\n\n"
-        "Write the final answer only."
-    )
+    normalized_style = prompt_style.strip().lower()
+    if normalized_style == "generic":
+        user_prompt = (
+            f"Request:\n{example.request}\n\n"
+            "Source data:\n"
+            f"{source}\n\n"
+            "Write the final answer only."
+        )
+    elif normalized_style == "structured":
+        user_prompt = (
+            f"Task type: {_readable_label(example.task_family)}\n"
+            f"Expected form: {_readable_label(example.output_mode)}\n"
+            f"Language: {example.language}\n\n"
+            f"Request:\n{example.request}\n\n"
+            "Source data:\n"
+            f"{source}\n\n"
+            "Write the final answer only."
+        )
+    else:
+        raise ValueError(
+            "raw_baseline_prompt_style must be 'structured' or 'generic'."
+        )
     return [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
@@ -146,6 +160,14 @@ def single_agent_baseline(
             0.2,
         )
     )
+    prompt_style = str(
+        _variant_or_env(
+            variant,
+            "raw_baseline_prompt_style",
+            "T2T_RAW_BASELINE_PROMPT_STYLE",
+            "structured",
+        )
+    )
 
     api_key = _first_env("DEEPSEEK_API_KEY")
     if api_key is None:
@@ -163,6 +185,7 @@ def single_agent_baseline(
     messages = build_single_agent_prompt(
         example,
         max_source_characters=max_source_characters,
+        prompt_style=prompt_style,
     )
     client = OpenAI(api_key=api_key, base_url=base_url)
     response = client.chat.completions.create(
@@ -191,5 +214,6 @@ def single_agent_baseline(
         "max_source_characters": max_source_characters,
         "max_output_tokens": max_output_tokens,
         "temperature": temperature,
+        "prompt_style": prompt_style,
         **usage_details,
     }

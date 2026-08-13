@@ -480,24 +480,42 @@ def task_contract_fields(
 
     if (
         communication_task == CommunicationTask.EVENT_REPORT
-        and focus_scope == "reference_recap"
+        and focus_scope in {"event_recap", "reference_recap"}
     ):
+        reference_recap_style = focus_scope == "reference_recap"
         return {
             "communication_task": communication_task,
             "output_form": output_form,
             "focus_scope": focus_scope,
-            "allow_headings": False,
+            "allow_headings": not reference_recap_style,
             "max_sentences": None,
             "max_paragraphs": None,
             "require_complete_sentence": True,
             "realisation_policy": RealisationPolicy.EVENT_RECAP_STYLE,
             "communication_goal": (
-                "Write a reference-style event recap from verified source "
-                "evidence: lead with the result, then integrate supplied "
-                "context, score progression, leading performances, major "
-                "participant contrasts and follow-up context when verified."
+                (
+                    "Write a reference-style event recap from verified source "
+                    "evidence: lead with the result, then integrate supplied "
+                    "context, score progression, leading performances, major "
+                    "participant contrasts and follow-up context when verified."
+                )
+                if reference_recap_style
+                else (
+                    "Write a coherent event recap from verified source "
+                    "evidence: lead with the result, then integrate supplied "
+                    "context, score progression, leading performances and "
+                    "major participant contrasts. Keep the report event-first, "
+                    "not a dataset profile."
+                )
             ),
-            "preferred_sections": [],
+            "preferred_sections": []
+            if reference_recap_style
+            else [
+                "Event overview",
+                "Score progression",
+                "Key performances",
+                "Participant contrasts",
+            ],
             "required_components": [],
             "required_content_slots": [
                 "event_result",
@@ -527,11 +545,21 @@ def task_contract_fields(
             "include_negative_findings": False,
             "include_methodological_details": False,
             "prioritisation_rule": (
-                "Optimise for a fluent event recap: include the most salient "
-                "verified result, context, progression, performances and "
-                "contrasts. Keep factual caveats internal unless needed to "
-                "avoid a misleading claim. Do not add a generic limitations "
-                "section for reference-style event recaps."
+                (
+                    "Optimise for a fluent event recap: include the most "
+                    "salient verified result, context, progression, "
+                    "performances and contrasts. Keep factual caveats "
+                    "internal unless needed to avoid a misleading claim. Do "
+                    "not add a generic limitations section for reference-style "
+                    "event recaps."
+                )
+                if reference_recap_style
+                else (
+                    "Optimise for a fluent event recap: include the most "
+                    "salient verified result, context, progression, "
+                    "performances and contrasts before secondary rankings. "
+                    "Keep any visible caveat concise and event-scoped."
+                )
             ),
         }
 
@@ -541,6 +569,43 @@ def task_contract_fields(
         "focus_scope": focus_scope,
         "realisation_policy": RealisationPolicy.STRICT_SOURCE_SURFACE,
     }
+
+
+def infer_event_focus_scope(
+    *,
+    selected_genre: ReportGenre,
+    selection_source: ReportSelectionSource,
+    configured_communication_task: CommunicationTask | None,
+    configured_output_form: OutputForm | None,
+    configured_focus_scope: str | None,
+    input_structure: Any | None,
+    semantic_map: InputSemanticMap | None,
+) -> str | None:
+    if configured_focus_scope is not None:
+        return configured_focus_scope
+    if selected_genre not in EVENT_GENRES:
+        return None
+    if configured_communication_task is not None or configured_output_form is not None:
+        return None
+    if selection_source != ReportSelectionSource.STRUCTURED_INFERENCE:
+        return None
+
+    semantic_event = bool(
+        semantic_map is not None
+        and semantic_map.confidence >= 0.7
+        and (
+            semantic_map.input_shape == InputShape.EVENT_RECORD
+            or semantic_map.recommended_report_genre in EVENT_GENRES
+        )
+    )
+    structural_event = bool(
+        input_structure is not None
+        and input_structure.shape == InputShape.EVENT_RECORD
+        and input_structure.confidence >= 0.7
+    )
+    if semantic_event or structural_event:
+        return "event_recap"
+    return None
 
 
 SHORT_FORM_COMMUNICATION_TASKS = {
@@ -1057,15 +1122,23 @@ def _event_report_writing_guidance(
     realisation_policy = (
         content_requirements or {}
     ).get("realisation_policy", RealisationPolicy.STRICT_SOURCE_SURFACE.value)
+    reference_recap_style = bool(
+        (content_requirements or {}).get("reference_recap_style")
+    )
+    event_recap_style = bool(
+        (content_requirements or {}).get("event_recap_style")
+    )
 
     return {
         "realisation_policy": realisation_policy,
+        "event_recap_style": event_recap_style,
+        "reference_recap_style": reference_recap_style,
         "style": (
             (
                 "Write a reference-style event recap from verified evidence "
                 "as flowing prose without visible headings."
             )
-            if (content_requirements or {}).get("reference_recap_style")
+            if reference_recap_style
             else (
                 "Write a coherent event recap from verified evidence, not a "
                 "flat-table profile or a mechanical ranking dump."
@@ -1107,7 +1180,7 @@ def _event_report_writing_guidance(
             "For reference-style recaps, do not use Markdown headings or a "
             "generic limitations paragraph. Keep caveats internal unless a "
             "visible caveat is necessary to prevent an unsupported inference."
-            if (content_requirements or {}).get("reference_recap_style")
+            if reference_recap_style
             else (
                 "Use the requested report structure while keeping event "
                 "scope limitations concise and event-specific."
@@ -2110,7 +2183,7 @@ class Table2TextWorkflow:
         short_form_realisation_task = is_short_form_realisation_task(
             initial_manifest_task,
             output_form or OutputForm.MULTI_PARAGRAPH_REPORT,
-        )
+        ) and not self.settings.force_llm_short_form_writer
         manifest = RunManifest(
             run_id=run_id,
             created_at=datetime.now(timezone.utc).isoformat(),
@@ -2387,13 +2460,22 @@ class Table2TextWorkflow:
             input_structure=input_structure,
             semantic_map=semantic_map,
         )
+        resolved_focus_scope = infer_event_focus_scope(
+            selected_genre=selected_genre,
+            selection_source=selection_source,
+            configured_communication_task=communication_task,
+            configured_output_form=output_form,
+            configured_focus_scope=focus_scope,
+            input_structure=input_structure,
+            semantic_map=semantic_map,
+        )
         contract_fields = {
             **report_contract_fields(selected_genre),
             **task_contract_fields(
                 genre=selected_genre,
                 communication_task=communication_task,
                 output_form=output_form,
-                focus_scope=focus_scope,
+                focus_scope=resolved_focus_scope,
             ),
         }
         required_components = (
@@ -2504,6 +2586,15 @@ class Table2TextWorkflow:
             capabilities=capabilities,
             enable_insight_synthesis=self.settings.enable_insight_synthesis,
         )
+        final_manifest = manifest.model_copy(
+            update={
+                "report_genre": plan.report_specification.genre,
+                "communication_task": plan.report_specification.communication_task,
+                "output_form": plan.report_specification.output_form,
+                "focus_scope": plan.report_specification.focus_scope,
+            }
+        )
+        store.save_json("00_manifest.json", final_manifest)
         if (
             selected_genre in EVENT_GENRES
             and semantic_map is not None

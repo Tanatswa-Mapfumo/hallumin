@@ -126,6 +126,32 @@ def build_model(model_specification: str, settings: Settings) -> Any:
     return model_specification
 
 
+def _uses_openai_gpt5_defaults(model_specification: str) -> bool:
+    provider = ""
+    model_name = model_specification
+    if ":" in model_specification:
+        provider, model_name = model_specification.split(":", 1)
+
+    return (
+        provider == "openai"
+        or not provider
+    ) and model_name.startswith("gpt-5")
+
+
+def agent_model_settings(
+    settings: Settings,
+    role: str,
+    *,
+    temperature: float,
+    max_tokens: int,
+) -> ModelSettings:
+    model_specification = settings.model_for(role)
+    kwargs: dict[str, Any] = {"max_tokens": max_tokens}
+    if not _uses_openai_gpt5_defaults(model_specification):
+        kwargs["temperature"] = temperature
+    return ModelSettings(**kwargs)
+
+
 def output_schema(output_type: type, settings: Settings) -> Any:
     if settings.structured_output_mode == "native":
         return NativeOutput(output_type)
@@ -243,7 +269,9 @@ def build_data_understanding_agent(settings: Settings) -> Agent:
             settings,
         ),
         instructions=DATA_UNDERSTANDING_INSTRUCTIONS,
-        model_settings=ModelSettings(
+        model_settings=agent_model_settings(
+            settings,
+            "data_understanding",
             temperature=0.0,
             max_tokens=7_000,
         ),
@@ -443,7 +471,9 @@ def build_orchestrator_agent(settings: Settings) -> Agent:
             settings,
         ),
         instructions=ORCHESTRATOR_INSTRUCTIONS,
-        model_settings=ModelSettings(
+        model_settings=agent_model_settings(
+            settings,
+            "orchestrator",
             temperature=0.1,
             max_tokens=8_000,
         ),
@@ -836,7 +866,9 @@ def build_evidence_agent(settings: Settings) -> Agent:
             settings,
         ),
         instructions=EVIDENCE_INSTRUCTIONS,
-        model_settings=ModelSettings(
+        model_settings=agent_model_settings(
+            settings,
+            "evidence",
             temperature=0.0,
             max_tokens=9_000,
         ),
@@ -953,7 +985,9 @@ def build_verifier_agent(settings: Settings) -> Agent:
             settings,
         ),
         instructions=VERIFIER_INSTRUCTIONS,
-        model_settings=ModelSettings(
+        model_settings=agent_model_settings(
+            settings,
+            "verifier",
             temperature=0.0,
             max_tokens=8_000,
         ),
@@ -1888,7 +1922,9 @@ def build_insight_synthesis_agent(
             settings,
         ),
         instructions=INSIGHT_SYNTHESIS_INSTRUCTIONS,
-        model_settings=ModelSettings(
+        model_settings=agent_model_settings(
+            settings,
+            "evidence",
             temperature=0.0,
             max_tokens=8_000,
         ),
@@ -2092,7 +2128,9 @@ def build_insight_verifier_agent(
             settings,
         ),
         instructions=INSIGHT_VERIFIER_INSTRUCTIONS,
-        model_settings=ModelSettings(
+        model_settings=agent_model_settings(
+            settings,
+            "verifier",
             temperature=0.0,
             max_tokens=8_000,
         ),
@@ -2913,7 +2951,9 @@ def build_writer_agent(settings: Settings) -> Agent:
             settings,
         ),
         instructions=WRITER_INSTRUCTIONS,
-        model_settings=ModelSettings(
+        model_settings=agent_model_settings(
+            settings,
+            "writer",
             temperature=0.15,
             max_tokens=11_000,
         ),
@@ -3465,7 +3505,9 @@ def build_auditor_agent(settings: Settings) -> Agent:
             settings,
         ),
         instructions=AUDITOR_INSTRUCTIONS,
-        model_settings=ModelSettings(
+        model_settings=agent_model_settings(
+            settings,
+            "auditor",
             temperature=0.1,
             max_tokens=12_000,
         ),

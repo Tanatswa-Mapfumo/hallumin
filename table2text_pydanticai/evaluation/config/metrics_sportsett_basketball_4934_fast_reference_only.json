@@ -1,0 +1,18 @@
+{
+  "experiment_id": "sportsett_basketball_4934_fast_reference_only",
+  "baseline_variant": "raw_deepseek_v4_pro",
+  "reference_metrics": {
+    "run_bleu": true,
+    "run_chrf": true,
+    "run_ter": true,
+    "run_rouge": true,
+    "run_meteor": true,
+    "run_bertscore": true,
+    "run_parent": true,
+    "run_hhem": false,
+    "run_alignscore": false
+  },
+  "deepeval": {
+    "enabled": false
+  }
+}

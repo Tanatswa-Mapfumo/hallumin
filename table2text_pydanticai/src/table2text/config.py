@@ -118,6 +118,7 @@ class Settings:
     writer_quality_revision_rounds: int = 1
     writer_priority_fact_limit: int | None = None
     writer_supporting_fact_limit: int | None = None
+    force_llm_short_form_writer: bool = False
 
     enable_insight_synthesis: bool = True
     max_insight_candidates: int | None = None
@@ -292,6 +293,10 @@ class Settings:
             ),
             writer_supporting_fact_limit=env_optional_int(
                 "T2T_WRITER_SUPPORTING_FACT_LIMIT",
+            ),
+            force_llm_short_form_writer=env_bool(
+                "T2T_FORCE_LLM_SHORT_FORM_WRITER",
+                False,
             ),
             enable_insight_synthesis=env_bool(
                 "T2T_ENABLE_INSIGHT_SYNTHESIS",

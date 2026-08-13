@@ -1575,6 +1575,9 @@ def test_event_writer_content_requirements_are_controller_enforced():
 
     assert requirements["enforce_minimum_words"]
     assert requirements["minimum_word_count"] == 225
+    assert requirements["word_count_validation"] == "quality"
+    assert requirements["narrative_validation"] == "quality"
+    assert requirements["content_unit_validation"] == "quality"
     assert requirements["narrative_requirements"] == {
         "enforce": True,
         "minimum_synthesis_sentences": 2,
@@ -1601,12 +1604,32 @@ def test_event_writer_content_requirements_are_controller_enforced():
         },
     )
 
-    assert any("at least 225 words" in error for error in incomplete_errors)
-    assert any("leading_performance" in error for error in incomplete_errors)
-    assert any("main_contrast" in error for error in incomplete_errors)
-    assert any("multi-fact" in error for error in incomplete_errors)
-    assert any("verified insight-backed" in error for error in incomplete_errors)
-    assert any("event-scoped limitation" in error for error in incomplete_errors)
+    quality_errors = content_requirement_errors(
+        used_fact_ids={
+            "FACT_0001",
+            "FACT_0002",
+            "FACT_0003",
+            "FACT_0005",
+        },
+        used_insight_ids=set(),
+        word_count=130,
+        requirements=requirements,
+        narrative_stats={
+            "synthesis_sentences": 0,
+            "insight_sentences": 0,
+            "connective_sentences": 0,
+            "scope_limitation_sentences": 0,
+        },
+        respect_validation_severity=False,
+    )
+
+    assert incomplete_errors == []
+    assert any("at least 225 words" in error for error in quality_errors)
+    assert any("leading_performance" in error for error in quality_errors)
+    assert any("main_contrast" in error for error in quality_errors)
+    assert any("multi-fact" in error for error in quality_errors)
+    assert any("verified insight-backed" in error for error in quality_errors)
+    assert any("event-scoped limitation" in error for error in quality_errors)
 
     narrative_support = [
         SentenceSupport(

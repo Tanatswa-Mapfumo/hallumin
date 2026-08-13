@@ -228,6 +228,44 @@ class DeepEvalObservation(StrictModel):
     error: str | None = None
 
 
+class LLMJudgeErrorAnnotation(StrictModel):
+    error_span: str
+    category: Literal[
+        "NAME",
+        "NUMBER",
+        "WORD",
+        "CONTEXT",
+        "NOT CHECKABLE",
+        "OTHER",
+        "OMISSION",
+        "TASK/FORMAT",
+    ]
+    correction_or_explanation: str
+
+
+class LLMJudgeAnnotationPayload(StrictModel):
+    errors: list[LLMJudgeErrorAnnotation]
+
+
+class LLMJudgeAnnotationRecord(StrictModel):
+    generation_id: str
+    dataset_id: str
+    example_id: str
+    variant_id: str
+    repetition: int
+    judge_provider: Literal["openai"] = "openai"
+    judge_model: str
+    judge_repetition: int
+    status: MetricStatus
+    errors: list[LLMJudgeErrorAnnotation] = Field(default_factory=list)
+    error_count: int = 0
+    duration_seconds: float | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    error: str | None = None
+
+
 class HumanEvaluationPair(StrictModel):
     pair_id: str
     dataset_id: str
@@ -299,7 +337,7 @@ class ReferenceMetricConfig(StrictModel):
 
 class DeepEvalConfig(StrictModel):
     enabled: bool = True
-    judge_provider: Literal["default", "deepseek"] = "default"
+    judge_provider: Literal["default", "deepseek", "openai"] = "default"
     judge_model: str = "gpt-4.1-mini"
     judge_repetitions: int = Field(default=3, ge=1)
     threshold: float = Field(default=0.5, ge=0.0, le=1.0)

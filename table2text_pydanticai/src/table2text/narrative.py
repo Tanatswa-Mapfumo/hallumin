@@ -228,10 +228,12 @@ def build_event_narrative_plan(
         "realisation_policy",
         pack.report_specification.realisation_policy.value,
     )
+    event_recap_style = bool(
+        realisation_policy == RealisationPolicy.EVENT_RECAP_STYLE.value
+    )
     reference_recap_style = bool(
         requirements.get("reference_recap_style")
         or pack.report_specification.focus_scope == "reference_recap"
-        or realisation_policy == RealisationPolicy.EVENT_RECAP_STYLE.value
     )
 
     evidence_by_id = _evidence_lookup(pack)
@@ -369,10 +371,12 @@ def build_event_narrative_plan(
         style=(
             "reference_recap"
             if reference_recap_style
+            else "event_recap"
+            if event_recap_style
             else "structured_event_report"
         ),
         allow_headings=not reference_recap_style,
-        target_paragraphs=4 if reference_recap_style else 5,
+        target_paragraphs=4 if (reference_recap_style or event_recap_style) else 5,
         slots=planned_slots,
         low_priority_fact_ids=list(dict.fromkeys(low_priority_fact_ids)),
         prohibited_narrative_moves=[

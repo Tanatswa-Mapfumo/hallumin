@@ -146,6 +146,12 @@ def _normalise_deepseek_model_name(model_name: str) -> str:
     return model_name
 
 
+def _normalise_openai_model_name(model_name: str) -> str:
+    if model_name.startswith("openai:"):
+        return model_name.split(":", 1)[1]
+    return model_name
+
+
 def apply_deepeval_env_overrides(config: DeepEvalConfig) -> DeepEvalConfig:
     updates: dict[str, Any] = {}
     provider = _first_env(
@@ -180,6 +186,9 @@ def build_judge_model(config: DeepEvalConfig) -> Any:
     if model_name.startswith("deepseek:"):
         provider = "deepseek"
         model_name = _normalise_deepseek_model_name(model_name)
+    elif model_name.startswith("openai:"):
+        provider = "openai"
+        model_name = _normalise_openai_model_name(model_name)
 
     if provider == "deepseek":
         api_key = _first_env("DEEPSEEK_API_KEY")
@@ -193,6 +202,21 @@ def build_judge_model(config: DeepEvalConfig) -> Any:
         return DeepSeekModel(
             model=_normalise_deepseek_model_name(model_name),
             api_key=api_key,
+        )
+
+    if provider == "openai":
+        api_key = _first_env("OPENAI_API_KEY", "T2T_OPENAI_API_KEY")
+        if api_key is None:
+            raise RuntimeError(
+                "DeepEval is configured to use OpenAI, but OPENAI_API_KEY "
+                "is not set in the environment or project .env file."
+            )
+        from deepeval.models import GPTModel
+
+        return GPTModel(
+            model=_normalise_openai_model_name(model_name),
+            api_key=api_key,
+            base_url=_first_env("OPENAI_BASE_URL", "T2T_OPENAI_BASE_URL"),
         )
 
     return model_name

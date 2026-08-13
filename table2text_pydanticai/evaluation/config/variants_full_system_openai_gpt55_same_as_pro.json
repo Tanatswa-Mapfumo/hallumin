@@ -1,0 +1,30 @@
+{
+  "variants": [
+    {
+      "variant_id": "full_system_openai_gpt55",
+      "enabled": true,
+      "backend": "table2text",
+      "description": "Full Table2Text workflow using OpenAI GPT-5.5 for all LLM-backed agents.",
+      "settings_overrides": {
+        "use_llm": true,
+        "structured_output_mode": "prompted",
+        "max_total_tokens": 200000,
+        "max_agent_requests": 8,
+        "force_llm_short_form_writer": false,
+        "data_understanding_model": "openai:gpt-5.5",
+        "orchestrator_model": "openai:gpt-5.5",
+        "evidence_model": "openai:gpt-5.5",
+        "verifier_model": "openai:gpt-5.5",
+        "writer_model": "openai:gpt-5.5",
+        "auditor_model": "openai:gpt-5.5"
+      },
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "variants": [
+    {
+      "variant_id": "full_system",
+      "enabled": true,
+      "backend": "table2text",
+      "description": "Full multi-agent workflow after event prompt compaction fix.",
+      "settings_overrides": {
+        "use_llm": true,
+        "structured_output_mode": "prompted",
+        "max_total_tokens": 300000,
+        "max_agent_requests": 12,
+        "writer_target_words": 650,
+        "writer_max_words": null,
+        "writer_priority_fact_limit": null,
+        "writer_supporting_fact_limit": null,
+        "max_verified_main_insights": null
+      },
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    },
+    {
+      "variant_id": "raw_deepseek_v4_flash",
+      "enabled": true,
+      "backend": "callable",
+      "description": "Raw single-LLM DeepSeek baseline from source data only.",
+      "settings_overrides": {
+        "raw_baseline_model": "deepseek-v4-flash",
+        "raw_baseline_max_source_characters": 100000,
+        "raw_baseline_max_output_tokens": 3000,
+        "raw_baseline_temperature": 0.2
+      },
+      "callable_path": "table2text.evaluation_backends.single_agent_baseline",
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    }
+  ]
+}

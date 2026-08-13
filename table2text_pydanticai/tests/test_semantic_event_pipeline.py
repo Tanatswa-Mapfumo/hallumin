@@ -48,6 +48,7 @@ from table2text.schemas import (
     AnalysisRoute,
     AuditMode,
     ClaimPermission,
+    CommunicationTask,
     DataUnderstanding,
     EvaluationFieldPolicy,
     EvidenceCapability,
@@ -93,7 +94,9 @@ from table2text.schemas import (
 from table2text.structure import build_structural_catalog
 from table2text.workflow import (
     build_orchestrator_prompt_context,
+    infer_event_focus_scope,
     resolve_report_genre,
+    task_contract_fields,
 )
 
 
@@ -2782,6 +2785,76 @@ def test_event_narrative_plan_orders_reference_recap_slots():
     }
 
 
+def test_event_narrative_plan_distinguishes_generic_event_recap_style():
+    result = evidence_item(
+        evidence_id="EVD_RESULT",
+        capability=EvidenceCapability.EVENT_OUTCOME,
+        evidence_type="event_outcome",
+        semantic_level=SemanticLevel.EVENT,
+    )
+    contrast = evidence_item(
+        evidence_id="EVD_CONTRAST",
+        capability=EvidenceCapability.GROUP_COMPARISON,
+        evidence_type="participant_comparison",
+        semantic_level=SemanticLevel.EVENT,
+    )
+    spec = event_report_specification().model_copy(
+        update={
+            "focus_scope": "event_recap",
+            "realisation_policy": RealisationPolicy.EVENT_RECAP_STYLE,
+            "required_content_slots": [
+                "event_result",
+                "main_contrast",
+            ],
+        }
+    )
+    facts = [
+        verified_fact(fact_id="FACT_RESULT", evidence=result),
+        verified_fact(fact_id="FACT_CONTRAST", evidence=contrast),
+    ]
+    pack = WriterEvidencePack(
+        user_request="Understand the data and report its strongest findings.",
+        report_specification=spec,
+        dataset_understanding=DataUnderstanding(
+            profile_fingerprint="fixture",
+            dataset_summary="Synthetic event.",
+            tables=[],
+        ),
+        input_structure=event_structure(),
+        available_capabilities=[
+            EvidenceCapability.EVENT_OUTCOME,
+            EvidenceCapability.GROUP_COMPARISON,
+        ],
+        priority_facts=facts,
+        supporting_facts=[],
+        limitation_facts=[],
+        evidence_ledger=EvidenceLedger(
+            fingerprint="fixture",
+            items=[result, contrast],
+        ),
+    )
+
+    plan = build_event_narrative_plan(
+        pack,
+        {
+            "realisation_policy": RealisationPolicy.EVENT_RECAP_STYLE.value,
+            "event_recap_style": True,
+            "reference_recap_style": False,
+            "narrative_requirements": {
+                "minimum_scope_limitations": 1,
+            },
+        },
+    )
+
+    assert plan.applies
+    assert plan.style == "event_recap"
+    assert plan.allow_headings
+    assert NarrativeSlot.CLOSING_SCOPE in {
+        slot.slot
+        for slot in plan.slots
+    }
+
+
 def test_reference_recap_quality_gate_does_not_require_visible_limitation():
     result = evidence_item(
         evidence_id="EVD_RESULT",
@@ -3113,6 +3186,64 @@ def test_generic_request_uses_semantically_inferred_event_genre():
     )
     assert explicit_genre == ReportGenre.DATA_SCIENCE_REPORT
     assert explicit_source == ReportSelectionSource.EXPLICIT_USER_REQUEST
+
+
+def test_generic_event_inference_uses_event_recap_contract():
+    genre, source, _ = resolve_report_genre(
+        request="Understand the supplied data and report its strongest findings.",
+        planned_genre=ReportGenre.DATA_SCIENCE_REPORT,
+        configured_genre=None,
+        input_structure=event_structure(),
+        semantic_map=semantic_map(),
+    )
+    focus_scope = infer_event_focus_scope(
+        selected_genre=genre,
+        selection_source=source,
+        configured_communication_task=None,
+        configured_output_form=None,
+        configured_focus_scope=None,
+        input_structure=event_structure(),
+        semantic_map=semantic_map(),
+    )
+    contract = task_contract_fields(
+        genre=genre,
+        communication_task=None,
+        output_form=None,
+        focus_scope=focus_scope,
+    )
+
+    assert focus_scope == "event_recap"
+    assert contract["communication_task"].value == "event_report"
+    assert contract["realisation_policy"] == RealisationPolicy.EVENT_RECAP_STYLE
+    assert contract["allow_headings"] is True
+    assert "main_contrast" in contract["required_content_slots"]
+
+
+def test_explicit_or_configured_event_contract_does_not_infer_event_recap_scope():
+    assert (
+        infer_event_focus_scope(
+            selected_genre=ReportGenre.EVENT_REPORT,
+            selection_source=ReportSelectionSource.EXPLICIT_USER_REQUEST,
+            configured_communication_task=None,
+            configured_output_form=None,
+            configured_focus_scope=None,
+            input_structure=event_structure(),
+            semantic_map=semantic_map(),
+        )
+        is None
+    )
+    assert (
+        infer_event_focus_scope(
+            selected_genre=ReportGenre.EVENT_REPORT,
+            selection_source=ReportSelectionSource.STRUCTURED_INFERENCE,
+            configured_communication_task=CommunicationTask.EVENT_REPORT,
+            configured_output_form=None,
+            configured_focus_scope=None,
+            input_structure=event_structure(),
+            semantic_map=semantic_map(),
+        )
+        is None
+    )
 
 
 def test_event_capabilities_require_event_semantics_within_one_table():
@@ -3537,6 +3668,66 @@ def test_content_requirement_counts_insight_source_fact_coverage():
     )
 
     assert errors == []
+
+
+def test_event_content_requirements_are_quality_not_fatal_for_writer_validation():
+    result = evidence_item(
+        evidence_id="EVID_RESULT",
+        capability=EvidenceCapability.EVENT_OUTCOME,
+        evidence_type="event_outcome",
+        semantic_level=SemanticLevel.EVENT,
+    )
+    contrast = evidence_item(
+        evidence_id="EVID_CONTRAST",
+        capability=EvidenceCapability.GROUP_COMPARISON,
+        evidence_type="event_contrast",
+        semantic_level=SemanticLevel.PARTICIPANT,
+        analytical_function=AnalyticalFunction.OUTCOME_COMPONENT,
+    )
+    spec = event_report_specification().model_copy(
+        update={
+            "focus_scope": "event_recap",
+            "realisation_policy": RealisationPolicy.EVENT_RECAP_STYLE,
+            "required_content_slots": [
+                "event_result",
+                "main_contrast",
+            ],
+            "optional_content_slots": [],
+        }
+    )
+    requirements = build_writer_content_requirements(
+        report_specification=spec,
+        fact_ledger=FactLedger(
+            writer_ready_facts=[
+                verified_fact(fact_id="FACT_RESULT", evidence=result),
+                verified_fact(fact_id="FACT_CONTRAST", evidence=contrast),
+            ]
+        ),
+        evidence=EvidenceLedger(
+            fingerprint="fixture",
+            items=[result, contrast],
+        ),
+        insight_ledger=InsightLedger(synthesis_enabled=False),
+        settings=Settings(),
+    )
+
+    fatal_errors = content_requirement_errors(
+        used_fact_ids={"FACT_RESULT"},
+        used_insight_ids=set(),
+        word_count=80,
+        requirements=requirements,
+    )
+    quality_errors = content_requirement_errors(
+        used_fact_ids={"FACT_RESULT"},
+        used_insight_ids=set(),
+        word_count=80,
+        requirements=requirements,
+        respect_validation_severity=False,
+    )
+
+    assert requirements["content_unit_validation"] == "quality"
+    assert fatal_errors == []
+    assert any("main_contrast" in error for error in quality_errors)
 
 
 def test_event_quality_gate_requires_actionable_sequence_coverage():

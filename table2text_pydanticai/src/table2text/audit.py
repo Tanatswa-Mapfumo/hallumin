@@ -1147,6 +1147,10 @@ def build_writer_content_requirements(
         getattr(report_specification, "focus_scope", None)
         == "reference_recap"
     )
+    event_recap_style = (
+        realisation_policy_value
+        == RealisationPolicy.EVENT_RECAP_STYLE.value
+    )
     lookup = build_evidence_lookup(evidence)
     facts = fact_ledger.writer_ready_facts
     insights = [
@@ -1269,6 +1273,9 @@ def build_writer_content_requirements(
 
     return {
         "minimum_word_count": minimum_words,
+        "word_count_validation": "quality",
+        "narrative_validation": "quality",
+        "content_unit_validation": "quality",
         "enforce_minimum_words": bool(
             enforce_narrative
         ),
@@ -1297,6 +1304,7 @@ def build_writer_content_requirements(
         ),
         "allow_headings": False if reference_recap_style else True,
         "reference_recap_style": reference_recap_style,
+        "event_recap_style": event_recap_style,
         "narrative_requirements": {
             "enforce": enforce_narrative,
             "minimum_synthesis_sentences": 2,
@@ -1320,14 +1328,28 @@ def content_requirement_errors(
     requirements: dict[str, Any] | None,
     narrative_stats: dict[str, int] | None = None,
     include_word_count: bool = True,
+    respect_validation_severity: bool = True,
 ) -> list[str]:
     if not requirements:
         return []
 
     errors: list[str] = []
+    word_count_validation_is_fatal = (
+        not respect_validation_severity
+        or requirements.get("word_count_validation", "fatal") == "fatal"
+    )
+    narrative_validation_is_fatal = (
+        not respect_validation_severity
+        or requirements.get("narrative_validation", "fatal") == "fatal"
+    )
+    content_unit_validation_is_fatal = (
+        not respect_validation_severity
+        or requirements.get("content_unit_validation", "fatal") == "fatal"
+    )
     minimum_words = requirements.get("minimum_word_count")
     if (
         include_word_count
+        and word_count_validation_is_fatal
         and requirements.get("enforce_minimum_words")
         and minimum_words is not None
         and word_count < int(minimum_words)
@@ -1339,7 +1361,11 @@ def content_requirement_errors(
             )
 
     narrative = requirements.get("narrative_requirements") or {}
-    if narrative.get("enforce") and narrative_stats is not None:
+    if (
+        narrative_validation_is_fatal
+        and narrative.get("enforce")
+        and narrative_stats is not None
+    ):
         for field, stat_key, label in [
             (
                 "minimum_synthesis_sentences",
@@ -1378,6 +1404,9 @@ def content_requirement_errors(
                     "is available."
                 )
 
+    if not content_unit_validation_is_fatal:
+        return errors
+
     for unit in requirements.get("units", []):
         candidate_fact_ids = set(unit.get("candidate_fact_ids", []))
         candidate_insight_ids = set(unit.get("candidate_insight_ids", []))
@@ -1414,6 +1443,7 @@ def writer_output_content_requirement_errors(
     writer_output: WriterOutput,
     requirements: dict[str, Any] | None,
     include_word_count: bool = False,
+    respect_validation_severity: bool = True,
 ) -> list[str]:
     requirements = requirements or {}
     used_fact_ids = {
@@ -1438,6 +1468,7 @@ def writer_output_content_requirement_errors(
             writer_output.sentence_support
         ),
         include_word_count=include_word_count,
+        respect_validation_severity=respect_validation_severity,
     )
     if requirements.get("allow_headings") is False and re.search(
         r"(?m)^#{1,6}\s+",
@@ -8824,6 +8855,7 @@ def deterministic_audit(
         writer_output=writer_output,
         requirements=content_requirements,
         include_word_count=False,
+        respect_validation_severity=False,
     ):
         quality_findings.append(content_error)
         quality_recommendations.append(

@@ -1,0 +1,30 @@
+{
+  "variants": [
+    {
+      "variant_id": "full_system_flash_pipeline_gpt55_writer",
+      "enabled": true,
+      "backend": "table2text",
+      "description": "DeepSeek flash/basic pipeline with OpenAI GPT-5.5 writer.",
+      "settings_overrides": {
+        "use_llm": true,
+        "structured_output_mode": "prompted",
+        "max_total_tokens": 80000,
+        "max_agent_requests": 8,
+        "force_llm_short_form_writer": false,
+        "data_understanding_model": "deepseek:deepseek-v4-flash",
+        "orchestrator_model": "deepseek:deepseek-v4-flash",
+        "evidence_model": "deepseek:deepseek-v4-flash",
+        "verifier_model": "deepseek:deepseek-v4-flash",
+        "writer_model": "openai:gpt-5.5",
+        "auditor_model": "deepseek:deepseek-v4-flash"
+      },
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    }
+  ]
+}

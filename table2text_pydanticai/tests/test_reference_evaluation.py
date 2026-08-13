@@ -14,6 +14,10 @@ from table2text.evaluation.diagnostics import number_diagnostics
 from table2text.evaluation.generation import focus_scope_for_task, materialise_input
 from table2text.evaluation.deepeval_metrics import input_for_judge
 from table2text.evaluation.human_evaluation import make_blinded_pairs
+from table2text.evaluation.llm_judge_annotations import (
+    OpenAIJudgeAnnotationConfig,
+    build_annotation_judge_input,
+)
 from table2text.evaluation.models import (
     BenchmarkExample,
     DatasetConfig,
@@ -149,6 +153,34 @@ def test_single_agent_baseline_prompt_excludes_references():
     assert "fixture-1" not in prompt_text
     assert "Task type: event report" in prompt_text
     assert "Expected form: multi paragraph report" in prompt_text
+
+
+def test_single_agent_generic_prompt_excludes_task_metadata():
+    example = BenchmarkExample(
+        dataset_id="sportsett_basketball",
+        example_id="fixture-1",
+        task_family=TaskFamily.EVENT_REPORT,
+        output_mode=OutputMode.MULTI_PARAGRAPH_REPORT,
+        language="en",
+        source_payload={"winner": "Home", "score": "10-8"},
+        source_text='{"winner":"Home","score":"10-8"}',
+        references=["Home won by two points."],
+        request="Understand the supplied data and report its strongest supported findings.",
+        source_sha256="source",
+        reference_sha256="reference",
+    )
+
+    messages = build_single_agent_prompt(example, prompt_style="generic")
+    prompt_text = "\n".join(message["content"] for message in messages)
+
+    assert '{"winner":"Home","score":"10-8"}' in prompt_text
+    assert "Understand the supplied data" in prompt_text
+    assert "Home won by two points." not in prompt_text
+    assert "Task type:" not in prompt_text
+    assert "Expected form:" not in prompt_text
+    assert "Language:" not in prompt_text
+    assert "sportsett_basketball" not in prompt_text
+    assert "fixture-1" not in prompt_text
 
 
 def test_event_benchmark_uses_reference_recap_focus_scope():
@@ -1612,6 +1644,40 @@ def test_deepeval_input_includes_focused_table_task_guidance():
     assert "table-local proposition" in judge_input
     assert "row co-entity" in judge_input
     assert "Ma Ying-jeou" in judge_input
+
+
+def test_openai_annotation_judge_input_uses_source_output_and_taxonomy_only():
+    record = generation(
+        variant="full",
+        text="Ma Ying-jeou received 58.45% of the vote.",
+    ).model_copy(
+        update={
+            "dataset_id": "totto",
+            "task_family": TaskFamily.HIGHLIGHTED_TABLE_DESCRIPTION,
+            "output_mode": OutputMode.ONE_SENTENCE,
+            "source_text": (
+                "page_title: Ma Ying-jeou\n"
+                "section_title: Inauguration\n"
+                "row: Ma Ying-jeou | Vincent Siew | 7,659,014 | 58.45%"
+            ),
+            "request": "Describe the highlighted table region.",
+            "references": ["Ma won the presidency by 58.45% of the vote."],
+        }
+    )
+
+    judge_input = build_annotation_judge_input(
+        record,
+        OpenAIJudgeAnnotationConfig(),
+    )
+
+    assert "SOURCE DATA" in judge_input
+    assert "GENERATED OUTPUT" in judge_input
+    assert "ERROR TAXONOMY" in judge_input
+    assert "NAME" in judge_input
+    assert "NUMBER" in judge_input
+    assert "NOT CHECKABLE" in judge_input
+    assert "HUMAN REFERENCES" not in judge_input
+    assert "Ma won the presidency" not in judge_input
 
 
 def test_reference_metrics_score_identical_text(tmp_path: Path):
