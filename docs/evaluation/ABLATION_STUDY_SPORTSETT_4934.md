@@ -266,7 +266,7 @@ if RUN_REFERENCE_METRICS:
     reference_scores_path = (
         project_dir / f"evaluation/results/{experiment_name}_reference_metrics.jsonl"
     )
-    metrics_path = project_dir / "evaluation/config/metrics_ablation_sportsett_4934.json"
+    metrics_path = project_dir / "evaluation/config/archive/metrics_ablation_sportsett_4934.json"
 
     log("Scoring compact reference metrics")
     reference_scores = score_reference_metrics_for_notebook(
@@ -291,7 +291,7 @@ if RUN_DEEPEVAL:
     deepeval_scores_path = (
         project_dir / f"evaluation/results/{experiment_name}_deepeval_metrics.jsonl"
     )
-    metrics_path = project_dir / "evaluation/config/metrics_ablation_sportsett_4934.json"
+    metrics_path = project_dir / "evaluation/config/archive/metrics_ablation_sportsett_4934.json"
 
     log("Scoring DeepEval metrics")
     deepeval_scores = score_deepeval_for_notebook(

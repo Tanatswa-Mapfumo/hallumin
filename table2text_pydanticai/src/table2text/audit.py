@@ -1,3 +1,5 @@
+"""Validate, materialise, repair, and audit evidence-grounded writer output."""
+
 from __future__ import annotations
 
 import json

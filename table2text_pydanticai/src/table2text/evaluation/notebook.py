@@ -1,3 +1,5 @@
+"""Notebook-friendly wrappers around the evaluation framework."""
+
 from __future__ import annotations
 
 import json

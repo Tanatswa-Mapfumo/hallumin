@@ -1,3 +1,5 @@
+"""Public API for dataset preparation, generation, metrics, and human studies."""
+
 from __future__ import annotations
 
 from .models import (

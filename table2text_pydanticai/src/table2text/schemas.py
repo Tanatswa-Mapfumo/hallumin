@@ -1,3 +1,5 @@
+"""Strict Pydantic schemas shared across generation, verification, and audit."""
+
 from __future__ import annotations
 
 from enum import Enum

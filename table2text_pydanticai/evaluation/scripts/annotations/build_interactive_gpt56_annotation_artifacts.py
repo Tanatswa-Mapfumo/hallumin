@@ -18,7 +18,7 @@ from typing import Any
 from table2text.evaluation.models import GenerationRecord, LLMJudgeAnnotationRecord
 
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
+PROJECT_DIR = Path(__file__).resolve().parents[3]
 EVALUATION_DIR = PROJECT_DIR / "evaluation"
 RESULT_DIR = EVALUATION_DIR / "task_aware_direct_baseline" / "results"
 

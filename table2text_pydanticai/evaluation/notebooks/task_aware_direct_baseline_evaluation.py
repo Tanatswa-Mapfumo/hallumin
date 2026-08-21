@@ -15,7 +15,6 @@
 
 # %%
 import asyncio
-import copy
 import hashlib
 import json
 import os
@@ -103,11 +102,13 @@ CANONICAL_GENERATIONS = (
 CANONICAL_REFERENCE_CONFIG = (
     PROJECT_DIR
     / "evaluation/config/"
+    "archive/"
     "metrics_five_dataset_five_each_raw_generic_flash_20260805_181001_reference.json"
 )
 CANONICAL_SOURCE_CONFIG = (
     PROJECT_DIR
     / "evaluation/config/"
+    "archive/"
     "metrics_five_dataset_five_each_raw_generic_flash_20260805_181001_source_grounded.json"
 )
 CANONICAL_SOURCE_METRICS = (

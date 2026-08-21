@@ -1,3 +1,5 @@
+"""Typed configuration and observation models for evaluation experiments."""
+
 from __future__ import annotations
 
 from enum import Enum

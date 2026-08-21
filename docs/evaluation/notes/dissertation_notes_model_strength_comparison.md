@@ -21,7 +21,7 @@ the model used inside or outside the architecture?
 |---|---|
 | Four-dataset pro generations | `evaluation/generations/four_dataset_pro_comparison_20260812_215239_combined_generations.jsonl` |
 | Four-dataset pro metrics | `evaluation/results/four_dataset_pro_comparison_20260812_215239_reference_metrics_combined.jsonl` |
-| Four-dataset pro variant config | `evaluation/config/variants_four_dataset_pro_comparison_20260812_215239.json` |
+| Four-dataset pro variant config | `evaluation/config/archive/variants_four_dataset_pro_comparison_20260812_215239.json` |
 | Main 25-example flash generations | `evaluation/generations/five_dataset_five_each_raw_generic_flash_20260805_181001_combined_generations.jsonl` |
 | Main 25-example flash metrics | `evaluation/results/five_dataset_five_each_raw_generic_flash_20260805_181001_reference_metrics.jsonl` |
 | SportSett pro case metrics | `evaluation/results/sportsett_basketball_4934_fast_reference_metrics_fixed.jsonl` |

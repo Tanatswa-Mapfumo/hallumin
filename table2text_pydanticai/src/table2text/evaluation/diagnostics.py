@@ -1,3 +1,5 @@
+"""Derive generation diagnostics from workflow artifacts and metric records."""
+
 from __future__ import annotations
 
 import re

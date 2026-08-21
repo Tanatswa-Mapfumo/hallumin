@@ -1,3 +1,5 @@
+"""Orchestrate the complete evidence-to-report workflow and persist artifacts."""
+
 from __future__ import annotations
 
 import asyncio

@@ -1,3 +1,5 @@
+"""Select and order verified content for genre-appropriate narrative plans."""
+
 from __future__ import annotations
 
 import re

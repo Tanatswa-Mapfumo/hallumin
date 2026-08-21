@@ -1,3 +1,5 @@
+"""Compute optional source-grounded factuality metrics such as HHEM."""
+
 from __future__ import annotations
 
 import os

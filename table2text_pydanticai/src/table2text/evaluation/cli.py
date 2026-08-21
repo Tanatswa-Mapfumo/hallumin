@@ -1,3 +1,5 @@
+"""Command-line interface for the reproducible evaluation subsystem."""
+
 from __future__ import annotations
 
 import argparse

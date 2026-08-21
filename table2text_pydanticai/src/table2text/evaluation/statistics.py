@@ -1,3 +1,5 @@
+"""Aggregate metric observations and estimate uncertainty and comparisons."""
+
 from __future__ import annotations
 
 import json

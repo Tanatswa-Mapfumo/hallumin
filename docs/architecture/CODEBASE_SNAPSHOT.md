@@ -1,13 +1,15 @@
 # Table2Text PydanticAI Codebase Snapshot
 
-Updated: 2026-08-08  
-Branch: `main`  
-Current commit at snapshot time: `166d752`  
+Updated: 2026-08-21
+Branch: `main`
+Restructuring checkpoint: `dbc59dc`
 Snapshot purpose: dissertation-facing technical overview and file-by-file commentary.
 
 This document describes the current `table2text_pydanticai` project as an implemented research system, not just as a collection of scripts. It is intended to help write the dissertation by explaining what each major file contributes, why it exists, and how the pieces fit together.
 
-The codebase is currently in active experimental development. Several source and test files have local modifications, and many generated evaluation artifacts are untracked. That is expected for the project stage: the core system, evaluation harness, human annotation materials, and experiment outputs are being iterated together.
+The codebase contains a packaged runtime, a test suite, a reusable evaluation
+framework, and separately organised research evidence. Protected-holdout
+artifacts remain immutable so their recorded paths and hashes stay valid.
 
 ## One-Sentence System Description
 
@@ -102,23 +104,26 @@ Evaluation subsystem:
 ## Directory Overview
 
 ```text
-table2text_pydanticai/
+MScproject/
     README.md
-    pyproject.toml
-    .env.example
-    CODEBASE_SNAPSHOT.md
-    inputs/
-    src/table2text/
-    src/table2text/evaluation/
-    scripts/
-    tests/
-    evaluation/config/
-    evaluation/prepared/
-    evaluation/generations/
-    evaluation/results/
-    evaluation/human/
-    runs/
-    runs_notebook/
+    docs/
+        architecture/
+        evaluation/
+        figures/
+        human-study/
+    notebooks/
+    table2text_pydanticai/
+        README.md
+        pyproject.toml
+        .env.example
+        src/table2text/
+        src/table2text/evaluation/
+        scripts/
+        tests/
+        evaluation/config/
+        evaluation/notebooks/
+        evaluation/scripts/
+        evaluation/protected_holdout_*/
 ```
 
 The most important source code lives under `src/table2text`. The evaluation framework lives under `src/table2text/evaluation`. Experiment outputs live under `evaluation/results`, `evaluation/generations`, and `runs_notebook`.
@@ -131,10 +136,8 @@ The most important source code lives under `src/table2text`. The evaluation fram
 | `pyproject.toml` | Python package metadata, dependencies, optional evaluation extras, CLI entry points, pytest and Ruff configuration. | This file shows the engineering packaging story. The core system depends on Pydantic, PydanticAI, pandas, numpy, scikit-learn, pyarrow and OpenPyXL. Evaluation tools are optional extras so the main workflow remains lighter than the full research evaluation stack. |
 | `.env.example` | Environment template for model routing, token budgets, writer length controls, insight settings, DeepSeek, Ollama, DeepEval and raw baseline configuration. | This is central to reproducibility. It documents how the same code can be run locally with Ollama models or remotely with DeepSeek models, and how evaluation settings can be adjusted without editing code. |
 | `.env` | Local private environment file. | This normally contains real API keys, active model choices and local experiment overrides. It should not be committed or included in dissertation appendices. When writing the methodology, cite `.env.example` instead of `.env`. |
-| `.DS_Store` | macOS Finder metadata. | This has no research or runtime meaning and should be ignored. It is mentioned here only because it is physically present at the project root. |
-| `apply_report_coverage_fix.py` | One-off helper script from an earlier coverage-recovery patch. | This is historical project scaffolding rather than a core runtime entry point. It reflects a previous maintenance step where report coverage recovery was applied or inspected. |
-| `evaluation_manifest.json` | Evaluation manifest file. | This stores evaluation-level metadata for generated experiments. It is part of the reproducibility trail and helps connect runs, configs and result documents. |
-| `CODEBASE_SNAPSHOT.md` | This snapshot document. | This file is the dissertation-facing architectural commentary. It should be updated whenever the project structure or research story changes substantially. |
+| `evaluation/archive/manifests/evaluation_manifest_legacy.json` | Historical notebook-evaluation manifest. | It is retained for provenance but is not a runtime default. |
+| `docs/architecture/CODEBASE_SNAPSHOT.md` | This snapshot document. | This file is dissertation-facing architectural commentary and should be refreshed after substantial structural changes. |
 
 ## Core Package Files
 
@@ -666,7 +669,7 @@ Stable configuration files:
 | `evaluation/config/metrics.json` | Default metric configuration. Defines enabled reference metrics, factuality metrics, source-grounded context behavior and DeepEval settings. |
 | `evaluation/config/metrics_reference_similarity.json` | Metric profile focused on similarity to human references. Useful when comparing generated text to benchmark references. |
 | `evaluation/config/metrics_source_grounded.json` | Metric profile focused on source-grounded factuality rather than reference similarity. |
-| `evaluation/config/metrics_ablation_sportsett_4934.json` | Metric configuration for the SportSett example 4934 ablation study. |
+| `evaluation/config/archive/metrics_ablation_sportsett_4934.json` | Metric configuration for the SportSett example 4934 ablation study. |
 
 Generated experiment configuration files:
 

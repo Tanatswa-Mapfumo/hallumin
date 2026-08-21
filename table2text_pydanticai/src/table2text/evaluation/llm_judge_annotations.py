@@ -1,3 +1,5 @@
+"""Produce structured, source-only factual error annotations with an LLM judge."""
+
 from __future__ import annotations
 
 import os

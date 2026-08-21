@@ -1,3 +1,5 @@
+"""Resolve generic evidence capabilities and execute structure-aware tasks."""
+
 from __future__ import annotations
 
 import re

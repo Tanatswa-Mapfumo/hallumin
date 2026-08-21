@@ -1,3 +1,5 @@
+"""Environment-backed configuration for workflow models, budgets, and gates."""
+
 from __future__ import annotations
 
 import os

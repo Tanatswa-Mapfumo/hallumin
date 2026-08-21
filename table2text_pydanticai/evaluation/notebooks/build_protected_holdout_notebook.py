@@ -1,3 +1,5 @@
+"""Regenerate the protected-holdout notebook from its percent-format source."""
+
 from __future__ import annotations
 
 import ast

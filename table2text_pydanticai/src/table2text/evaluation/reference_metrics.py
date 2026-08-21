@@ -1,3 +1,5 @@
+"""Compute lexical, semantic, and source-grounded evaluation metrics."""
+
 from __future__ import annotations
 
 import json

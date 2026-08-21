@@ -1,3 +1,5 @@
+"""Command-line entry points for running the Table2Text workflow."""
+
 from __future__ import annotations
 
 import argparse

@@ -1,3 +1,5 @@
+"""Prepare heterogeneous benchmark datasets as canonical evaluation examples."""
+
 from __future__ import annotations
 
 import hashlib

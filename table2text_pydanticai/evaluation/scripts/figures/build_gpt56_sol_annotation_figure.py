@@ -8,7 +8,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
+PROJECT_DIR = Path(__file__).resolve().parents[3]
 RESULTS_DIR = PROJECT_DIR / "evaluation/results"
 FIGURE_DIR = RESULTS_DIR / "figures"
 ANNOTATIONS_PATH = RESULTS_DIR / "openai_structured_error_annotations.jsonl"

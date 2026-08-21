@@ -1,3 +1,5 @@
+"""Invoke an isolated AlignScore worker and normalise its factuality scores."""
+
 from __future__ import annotations
 
 import json

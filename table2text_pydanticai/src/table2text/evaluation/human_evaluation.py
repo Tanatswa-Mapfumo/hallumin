@@ -1,3 +1,5 @@
+"""Build blinded human-study packets and analyse completed annotations."""
+
 from __future__ import annotations
 
 import csv

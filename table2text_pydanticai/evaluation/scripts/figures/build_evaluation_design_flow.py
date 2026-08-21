@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
+PROJECT_DIR = Path(__file__).resolve().parents[3]
 FIGURE_DIR = PROJECT_DIR / "evaluation/results/figures"
 
 
@@ -212,7 +212,7 @@ def main() -> None:
         size=11.5,
         weight="bold",
     )
-    reference = box(
+    box(
         (0.07, 0.365),
         0.15,
         0.12,

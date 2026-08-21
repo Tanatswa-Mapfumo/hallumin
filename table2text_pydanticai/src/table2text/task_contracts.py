@@ -1,3 +1,5 @@
+"""Infer bounded communication contracts from requests and structured inputs."""
+
 from __future__ import annotations
 
 import re

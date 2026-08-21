@@ -1,3 +1,5 @@
+"""Interpret input shape, nested records, field roles, and reference isolation."""
+
 from __future__ import annotations
 
 import copy

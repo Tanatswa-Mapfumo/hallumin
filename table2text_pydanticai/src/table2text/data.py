@@ -1,3 +1,5 @@
+"""Load supported data formats and build deterministic table profiles."""
+
 from __future__ import annotations
 
 import hashlib

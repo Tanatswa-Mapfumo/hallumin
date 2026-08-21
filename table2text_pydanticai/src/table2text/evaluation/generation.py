@@ -1,3 +1,5 @@
+"""Run evaluation variants and persist resumable generation records."""
+
 from __future__ import annotations
 
 import importlib

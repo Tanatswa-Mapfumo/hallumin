@@ -1,3 +1,5 @@
+"""Execute deterministic analytical tasks and produce typed evidence items."""
+
 from __future__ import annotations
 
 import math

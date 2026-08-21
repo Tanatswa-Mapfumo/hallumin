@@ -1,3 +1,5 @@
+"""Isolated command-line worker for local AlignScore inference."""
+
 from __future__ import annotations
 
 import argparse

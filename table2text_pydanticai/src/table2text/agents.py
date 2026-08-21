@@ -1,3 +1,5 @@
+"""Build and configure the six PydanticAI agents used by the workflow."""
+
 from __future__ import annotations
 
 import re

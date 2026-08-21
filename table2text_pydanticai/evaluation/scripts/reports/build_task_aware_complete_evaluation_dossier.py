@@ -19,7 +19,7 @@ from typing import Any, Iterable
 from table2text.evaluation.models import GenerationRecord
 
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
+PROJECT_DIR = Path(__file__).resolve().parents[3]
 EVALUATION_DIR = PROJECT_DIR / "evaluation"
 EXPERIMENT_DIR = EVALUATION_DIR / "task_aware_direct_baseline"
 RESULT_DIR = EXPERIMENT_DIR / "results"
@@ -58,7 +58,10 @@ SOURCE_CONFIG_PATH = (
 NOTEBOOK_PATH = EVALUATION_DIR / "notebooks" / "task_aware_direct_baseline_evaluation.ipynb"
 NOTEBOOK_SOURCE_PATH = EVALUATION_DIR / "notebooks" / "task_aware_direct_baseline_evaluation.py"
 ANNOTATION_BUILDER_PATH = (
-    EVALUATION_DIR / "notebooks" / "build_interactive_gpt56_annotation_artifacts.py"
+    EVALUATION_DIR
+    / "scripts"
+    / "annotations"
+    / "build_interactive_gpt56_annotation_artifacts.py"
 )
 DOSSIER_BUILDER_PATH = Path(__file__).resolve()
 
@@ -747,7 +750,6 @@ def build_document() -> tuple[str, dict[str, Any]]:
         dataset_id, example_id = identity
         case_rows = grouped[identity]
         by_variant = {row.variant_id: row for row in case_rows}
-        anchor = by_variant["full_system"]
         prepared = prepared_by_id[identity]
         lines.extend(
             [

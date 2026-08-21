@@ -1,3 +1,5 @@
+"""Generation backends used by the evaluation framework and direct baselines."""
+
 from __future__ import annotations
 
 import json

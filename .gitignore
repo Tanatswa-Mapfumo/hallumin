@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
+.matplotlib/
+.deepeval/
 .ipynb_checkpoints/
 
 # Local environment/secrets
@@ -23,6 +26,9 @@ table2text_pydanticai/.venv-alignscore/
 table2text_pydanticai/.bootstrap39/
 table2text_pydanticai/.uv-cache/
 table2text_pydanticai/.uv-python/
+
+# Local experimental worktrees and snapshots
+table2text_pydanticai_experiment/
 
 # Generated run artifacts
 runs/
