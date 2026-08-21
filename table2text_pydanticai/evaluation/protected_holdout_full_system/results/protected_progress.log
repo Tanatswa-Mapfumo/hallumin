@@ -1,0 +1,395 @@
+[01:28:22] Project: /Users/realgobs/Documents/MScproject/table2text_pydanticai
+[01:28:22] Experiment: protected_holdout_full_system_flash_25
+[01:28:22] Created frozen variant: /Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/protected_holdout_full_system/config/protected_full_system_flash.json
+[01:28:22] Frozen implementation snapshot: f525ca0c932819f533eab9229752a055a8e9c1acef8dea420bfa7e1e8b6b91fb
+[01:28:22] Protected selection frozen at 2026-08-21T00:28:22.944030+00:00
+[01:28:23] ================================================================================
+[01:28:23] Protected batch: 0/25 already complete; 25 scheduled this session.
+[01:28:23] --------------------------------------------------------------------------------
+[01:28:23] CASE 1/25 this session; protected position 1/25: e2e_nlg/e2e_nlg-test-1330
+[01:28:43] e2e_nlg/e2e_nlg-test-1330 attempt 1/2: still running (20.0s elapsed)
+[01:28:48] e2e_nlg/e2e_nlg-test-1330 attempt 1/2: completed after 25.8s
+[01:28:48] e2e_nlg/e2e_nlg-test-1330: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[01:28:48] Batch completion: {'successful': 1, 'failed': 0, 'not_started': 24}
+[01:28:48] --------------------------------------------------------------------------------
+[01:28:48] CASE 2/25 this session; protected position 2/25: web_nlg/web_nlg_en-test-1209
+[01:29:01] web_nlg/web_nlg_en-test-1209 attempt 1/2: completed after 12.7s
+[01:29:01] web_nlg/web_nlg_en-test-1209: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[01:29:01] Batch completion: {'successful': 2, 'failed': 0, 'not_started': 23}
+[01:29:01] --------------------------------------------------------------------------------
+[01:29:01] CASE 3/25 this session; protected position 3/25: dart/dart-test-1791
+[01:29:11] dart/dart-test-1791 attempt 1/2: completed after 9.8s
+[01:29:11] dart/dart-test-1791: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[01:29:11] Batch completion: {'successful': 3, 'failed': 0, 'not_started': 22}
+[01:29:11] --------------------------------------------------------------------------------
+[01:29:11] CASE 4/25 this session; protected position 4/25: totto/totto-validation-1828
+[01:29:31] totto/totto-validation-1828 attempt 1/2: still running (20.0s elapsed)
+[01:29:34] totto/totto-validation-1828 attempt 1/2: completed after 23.2s
+[01:29:34] totto/totto-validation-1828: success=True, release=approved_with_warnings, writer=deterministic_short_form_writer, error=None
+[01:29:34] Batch completion: {'successful': 4, 'failed': 0, 'not_started': 21}
+[01:29:34] --------------------------------------------------------------------------------
+[01:29:34] CASE 5/25 this session; protected position 5/25: sportsett_basketball/5130
+[01:29:54] sportsett_basketball/5130 attempt 1/2: still running (20.0s elapsed)
+[01:30:14] sportsett_basketball/5130 attempt 1/2: still running (40.0s elapsed)
+[01:30:34] sportsett_basketball/5130 attempt 1/2: still running (60.0s elapsed)
+[01:30:54] sportsett_basketball/5130 attempt 1/2: still running (80.0s elapsed)
+[01:31:14] sportsett_basketball/5130 attempt 1/2: still running (100.0s elapsed)
+[01:31:34] sportsett_basketball/5130 attempt 1/2: still running (120.0s elapsed)
+[01:31:54] sportsett_basketball/5130 attempt 1/2: still running (140.0s elapsed)
+[01:32:14] sportsett_basketball/5130 attempt 1/2: still running (160.1s elapsed)
+[01:32:34] sportsett_basketball/5130 attempt 1/2: still running (180.1s elapsed)
+[01:32:54] sportsett_basketball/5130 attempt 1/2: still running (200.1s elapsed)
+[01:33:14] sportsett_basketball/5130 attempt 1/2: still running (220.1s elapsed)
+[01:33:34] sportsett_basketball/5130 attempt 1/2: still running (240.1s elapsed)
+[01:33:54] sportsett_basketball/5130 attempt 1/2: still running (260.1s elapsed)
+[01:34:14] sportsett_basketball/5130 attempt 1/2: still running (280.1s elapsed)
+[01:34:34] sportsett_basketball/5130 attempt 1/2: still running (300.1s elapsed)
+[01:34:54] sportsett_basketball/5130 attempt 1/2: still running (320.1s elapsed)
+[01:35:14] sportsett_basketball/5130 attempt 1/2: still running (340.1s elapsed)
+[01:35:34] sportsett_basketball/5130 attempt 1/2: still running (360.1s elapsed)
+[01:35:54] sportsett_basketball/5130 attempt 1/2: still running (380.1s elapsed)
+[01:36:14] sportsett_basketball/5130 attempt 1/2: still running (400.1s elapsed)
+[01:36:34] sportsett_basketball/5130 attempt 1/2: still running (420.1s elapsed)
+[01:36:54] sportsett_basketball/5130 attempt 1/2: still running (440.2s elapsed)
+[01:37:14] sportsett_basketball/5130 attempt 1/2: still running (460.2s elapsed)
+[01:37:34] sportsett_basketball/5130 attempt 1/2: still running (480.2s elapsed)
+[01:37:54] sportsett_basketball/5130 attempt 1/2: still running (500.2s elapsed)
+[01:38:14] sportsett_basketball/5130 attempt 1/2: still running (520.2s elapsed)
+[01:38:34] sportsett_basketball/5130 attempt 1/2: still running (540.2s elapsed)
+[01:38:54] sportsett_basketball/5130 attempt 1/2: still running (560.2s elapsed)
+[01:39:14] sportsett_basketball/5130 attempt 1/2: still running (580.2s elapsed)
+[01:39:34] sportsett_basketball/5130 attempt 1/2: still running (600.2s elapsed)
+[01:39:54] sportsett_basketball/5130 attempt 1/2: still running (620.2s elapsed)
+[01:40:14] sportsett_basketball/5130 attempt 1/2: still running (640.2s elapsed)
+[01:40:34] sportsett_basketball/5130 attempt 1/2: still running (660.2s elapsed)
+[01:40:55] sportsett_basketball/5130 attempt 1/2: still running (680.2s elapsed)
+[01:41:15] sportsett_basketball/5130 attempt 1/2: still running (700.3s elapsed)
+[01:41:35] sportsett_basketball/5130 attempt 1/2: still running (720.3s elapsed)
+[01:41:55] sportsett_basketball/5130 attempt 1/2: still running (740.3s elapsed)
+[01:42:15] sportsett_basketball/5130 attempt 1/2: still running (760.3s elapsed)
+[01:42:17] sportsett_basketball/5130 attempt 1/2: completed after 763.2s
+[01:42:18] sportsett_basketball/5130: success=True, release=approved, writer=llm_writer, error=None
+[01:42:18] Batch completion: {'successful': 5, 'failed': 0, 'not_started': 20}
+[01:42:18] --------------------------------------------------------------------------------
+[01:42:18] CASE 6/25 this session; protected position 6/25: e2e_nlg/e2e_nlg-test-209
+[01:42:24] e2e_nlg/e2e_nlg-test-209 attempt 1/2: completed after 6.0s
+[01:42:24] e2e_nlg/e2e_nlg-test-209: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[01:42:24] Batch completion: {'successful': 6, 'failed': 0, 'not_started': 19}
+[01:42:24] --------------------------------------------------------------------------------
+[01:42:24] CASE 7/25 this session; protected position 7/25: web_nlg/web_nlg_en-test-1330
+[01:42:33] web_nlg/web_nlg_en-test-1330 attempt 1/2: completed after 9.3s
+[01:42:33] web_nlg/web_nlg_en-test-1330: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[01:42:33] Batch completion: {'successful': 7, 'failed': 0, 'not_started': 18}
+[01:42:33] --------------------------------------------------------------------------------
+[01:42:33] CASE 8/25 this session; protected position 8/25: dart/dart-test-1805
+[01:42:45] dart/dart-test-1805 attempt 1/2: completed after 12.4s
+[01:42:46] dart/dart-test-1805: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[01:42:46] Batch completion: {'successful': 8, 'failed': 0, 'not_started': 17}
+[01:42:46] --------------------------------------------------------------------------------
+[01:42:46] CASE 9/25 this session; protected position 9/25: totto/totto-validation-4467
+[01:42:56] totto/totto-validation-4467 attempt 1/2: completed after 11.0s
+[01:42:57] totto/totto-validation-4467: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[01:42:57] Batch completion: {'successful': 9, 'failed': 0, 'not_started': 16}
+[01:42:57] --------------------------------------------------------------------------------
+[01:42:57] CASE 10/25 this session; protected position 10/25: sportsett_basketball/5372
+[01:43:17] sportsett_basketball/5372 attempt 1/2: still running (20.0s elapsed)
+[01:43:37] sportsett_basketball/5372 attempt 1/2: still running (40.0s elapsed)
+[01:43:57] sportsett_basketball/5372 attempt 1/2: still running (60.0s elapsed)
+[01:44:17] sportsett_basketball/5372 attempt 1/2: still running (80.0s elapsed)
+[01:44:37] sportsett_basketball/5372 attempt 1/2: still running (100.0s elapsed)
+[01:44:57] sportsett_basketball/5372 attempt 1/2: still running (120.0s elapsed)
+[01:45:17] sportsett_basketball/5372 attempt 1/2: still running (140.0s elapsed)
+[01:45:37] sportsett_basketball/5372 attempt 1/2: still running (160.0s elapsed)
+[01:45:57] sportsett_basketball/5372 attempt 1/2: still running (180.1s elapsed)
+[01:46:17] sportsett_basketball/5372 attempt 1/2: still running (200.1s elapsed)
+[01:46:37] sportsett_basketball/5372 attempt 1/2: still running (220.1s elapsed)
+[01:46:57] sportsett_basketball/5372 attempt 1/2: still running (240.1s elapsed)
+[01:47:17] sportsett_basketball/5372 attempt 1/2: still running (260.1s elapsed)
+[01:47:37] sportsett_basketball/5372 attempt 1/2: still running (280.1s elapsed)
+[01:47:57] sportsett_basketball/5372 attempt 1/2: still running (300.1s elapsed)
+[01:48:17] sportsett_basketball/5372 attempt 1/2: still running (320.1s elapsed)
+[01:48:37] sportsett_basketball/5372 attempt 1/2: still running (340.1s elapsed)
+[01:48:57] sportsett_basketball/5372 attempt 1/2: still running (360.1s elapsed)
+[01:49:17] sportsett_basketball/5372 attempt 1/2: still running (380.1s elapsed)
+[01:49:37] sportsett_basketball/5372 attempt 1/2: still running (400.1s elapsed)
+[01:49:57] sportsett_basketball/5372 attempt 1/2: still running (420.1s elapsed)
+[01:50:17] sportsett_basketball/5372 attempt 1/2: still running (440.1s elapsed)
+[01:50:37] sportsett_basketball/5372 attempt 1/2: still running (460.2s elapsed)
+[01:50:57] sportsett_basketball/5372 attempt 1/2: still running (480.2s elapsed)
+[01:51:17] sportsett_basketball/5372 attempt 1/2: still running (500.2s elapsed)
+[01:51:37] sportsett_basketball/5372 attempt 1/2: still running (520.2s elapsed)
+[01:51:57] sportsett_basketball/5372 attempt 1/2: still running (540.2s elapsed)
+[01:52:17] sportsett_basketball/5372 attempt 1/2: still running (560.2s elapsed)
+[01:52:37] sportsett_basketball/5372 attempt 1/2: still running (580.2s elapsed)
+[01:52:57] sportsett_basketball/5372 attempt 1/2: still running (600.2s elapsed)
+[01:53:17] sportsett_basketball/5372 attempt 1/2: still running (620.2s elapsed)
+[01:53:37] sportsett_basketball/5372 attempt 1/2: still running (640.2s elapsed)
+[01:53:57] sportsett_basketball/5372 attempt 1/2: still running (660.2s elapsed)
+[01:54:17] sportsett_basketball/5372 attempt 1/2: still running (680.2s elapsed)
+[01:54:37] sportsett_basketball/5372 attempt 1/2: still running (700.2s elapsed)
+[01:54:57] sportsett_basketball/5372 attempt 1/2: still running (720.3s elapsed)
+[01:55:17] sportsett_basketball/5372 attempt 1/2: still running (740.3s elapsed)
+[01:55:37] sportsett_basketball/5372 attempt 1/2: still running (760.3s elapsed)
+[01:55:57] sportsett_basketball/5372 attempt 1/2: still running (780.3s elapsed)
+[01:56:17] sportsett_basketball/5372 attempt 1/2: still running (800.3s elapsed)
+[01:56:37] sportsett_basketball/5372 attempt 1/2: still running (820.3s elapsed)
+[01:56:57] sportsett_basketball/5372 attempt 1/2: still running (840.3s elapsed)
+[01:57:17] sportsett_basketball/5372 attempt 1/2: still running (860.3s elapsed)
+[01:57:37] sportsett_basketball/5372 attempt 1/2: still running (880.3s elapsed)
+[01:57:57] sportsett_basketball/5372 attempt 1/2: still running (900.3s elapsed)
+[01:58:17] sportsett_basketball/5372 attempt 1/2: still running (920.3s elapsed)
+[01:58:37] sportsett_basketball/5372 attempt 1/2: still running (940.3s elapsed)
+[01:58:57] sportsett_basketball/5372 attempt 1/2: still running (960.3s elapsed)
+[01:59:17] sportsett_basketball/5372 attempt 1/2: still running (980.3s elapsed)
+[01:59:37] sportsett_basketball/5372 attempt 1/2: still running (1000.4s elapsed)
+[01:59:57] sportsett_basketball/5372 attempt 1/2: still running (1020.4s elapsed)
+[02:00:17] sportsett_basketball/5372 attempt 1/2: still running (1040.4s elapsed)
+[02:00:37] sportsett_basketball/5372 attempt 1/2: still running (1060.4s elapsed)
+[02:00:57] sportsett_basketball/5372 attempt 1/2: still running (1080.4s elapsed)
+[02:01:17] sportsett_basketball/5372 attempt 1/2: still running (1100.4s elapsed)
+[02:01:37] sportsett_basketball/5372 attempt 1/2: still running (1120.4s elapsed)
+[02:01:57] sportsett_basketball/5372 attempt 1/2: still running (1140.4s elapsed)
+[02:02:17] sportsett_basketball/5372 attempt 1/2: still running (1160.4s elapsed)
+[02:02:37] sportsett_basketball/5372 attempt 1/2: still running (1180.4s elapsed)
+[02:02:57] sportsett_basketball/5372 attempt 1/2: still running (1200.4s elapsed)
+[02:03:17] sportsett_basketball/5372 attempt 1/2: still running (1220.4s elapsed)
+[02:03:37] sportsett_basketball/5372 attempt 1/2: still running (1240.4s elapsed)
+[02:03:57] sportsett_basketball/5372 attempt 1/2: still running (1260.4s elapsed)
+[02:04:17] sportsett_basketball/5372 attempt 1/2: still running (1280.5s elapsed)
+[02:04:37] sportsett_basketball/5372 attempt 1/2: still running (1300.5s elapsed)
+[02:04:57] sportsett_basketball/5372 attempt 1/2: still running (1320.5s elapsed)
+[02:05:17] sportsett_basketball/5372 attempt 1/2: still running (1340.5s elapsed)
+[02:05:37] sportsett_basketball/5372 attempt 1/2: still running (1360.5s elapsed)
+[02:05:57] sportsett_basketball/5372 attempt 1/2: still running (1380.5s elapsed)
+[02:06:15] sportsett_basketball/5372 attempt 1/2: completed after 1398.0s
+[02:06:15] sportsett_basketball/5372: success=True, release=approved, writer=auditor_repaired, error=None
+[02:06:15] Batch completion: {'successful': 10, 'failed': 0, 'not_started': 15}
+[02:06:15] --------------------------------------------------------------------------------
+[02:06:15] CASE 11/25 this session; protected position 11/25: e2e_nlg/e2e_nlg-test-447
+[02:06:25] e2e_nlg/e2e_nlg-test-447 attempt 1/2: completed after 10.4s
+[02:06:25] e2e_nlg/e2e_nlg-test-447: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[02:06:25] Batch completion: {'successful': 11, 'failed': 0, 'not_started': 14}
+[02:06:25] --------------------------------------------------------------------------------
+[02:06:25] CASE 12/25 this session; protected position 12/25: web_nlg/web_nlg_en-test-1466
+[02:06:32] web_nlg/web_nlg_en-test-1466 attempt 1/2: completed after 6.7s
+[02:06:32] web_nlg/web_nlg_en-test-1466: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[02:06:32] Batch completion: {'successful': 12, 'failed': 0, 'not_started': 13}
+[02:06:32] --------------------------------------------------------------------------------
+[02:06:32] CASE 13/25 this session; protected position 13/25: dart/dart-test-1828
+[02:06:42] dart/dart-test-1828 attempt 1/2: completed after 9.9s
+[02:06:43] dart/dart-test-1828: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[02:06:43] Batch completion: {'successful': 13, 'failed': 0, 'not_started': 12}
+[02:06:43] --------------------------------------------------------------------------------
+[02:06:43] CASE 14/25 this session; protected position 14/25: totto/totto-validation-6067
+[02:06:50] totto/totto-validation-6067 attempt 1/2: completed after 7.6s
+[02:06:50] totto/totto-validation-6067: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[02:06:50] Batch completion: {'successful': 14, 'failed': 0, 'not_started': 11}
+[02:06:50] --------------------------------------------------------------------------------
+[02:06:50] CASE 15/25 this session; protected position 15/25: sportsett_basketball/5786
+[02:07:10] sportsett_basketball/5786 attempt 1/2: still running (20.0s elapsed)
+[02:07:30] sportsett_basketball/5786 attempt 1/2: still running (40.0s elapsed)
+[02:07:50] sportsett_basketball/5786 attempt 1/2: still running (60.0s elapsed)
+[02:08:10] sportsett_basketball/5786 attempt 1/2: still running (80.0s elapsed)
+[02:08:30] sportsett_basketball/5786 attempt 1/2: still running (100.0s elapsed)
+[02:08:50] sportsett_basketball/5786 attempt 1/2: still running (120.0s elapsed)
+[02:09:10] sportsett_basketball/5786 attempt 1/2: still running (140.0s elapsed)
+[02:09:30] sportsett_basketball/5786 attempt 1/2: still running (160.1s elapsed)
+[02:09:50] sportsett_basketball/5786 attempt 1/2: still running (180.1s elapsed)
+[02:10:10] sportsett_basketball/5786 attempt 1/2: still running (200.1s elapsed)
+[02:10:30] sportsett_basketball/5786 attempt 1/2: still running (220.1s elapsed)
+[02:10:50] sportsett_basketball/5786 attempt 1/2: still running (240.1s elapsed)
+[02:11:10] sportsett_basketball/5786 attempt 1/2: still running (260.1s elapsed)
+[02:11:30] sportsett_basketball/5786 attempt 1/2: still running (280.1s elapsed)
+[02:11:50] sportsett_basketball/5786 attempt 1/2: still running (300.1s elapsed)
+[02:12:11] sportsett_basketball/5786 attempt 1/2: still running (320.1s elapsed)
+[02:12:31] sportsett_basketball/5786 attempt 1/2: still running (340.1s elapsed)
+[02:12:51] sportsett_basketball/5786 attempt 1/2: still running (360.1s elapsed)
+[02:13:11] sportsett_basketball/5786 attempt 1/2: still running (380.1s elapsed)
+[02:13:31] sportsett_basketball/5786 attempt 1/2: still running (400.1s elapsed)
+[02:13:51] sportsett_basketball/5786 attempt 1/2: still running (420.1s elapsed)
+[02:14:11] sportsett_basketball/5786 attempt 1/2: still running (440.2s elapsed)
+[02:14:31] sportsett_basketball/5786 attempt 1/2: still running (460.2s elapsed)
+[02:14:51] sportsett_basketball/5786 attempt 1/2: still running (480.2s elapsed)
+[02:15:11] sportsett_basketball/5786 attempt 1/2: still running (500.2s elapsed)
+[02:15:31] sportsett_basketball/5786 attempt 1/2: still running (520.2s elapsed)
+[02:15:51] sportsett_basketball/5786 attempt 1/2: still running (540.2s elapsed)
+[02:16:11] sportsett_basketball/5786 attempt 1/2: still running (560.2s elapsed)
+[02:16:31] sportsett_basketball/5786 attempt 1/2: still running (580.2s elapsed)
+[02:16:51] sportsett_basketball/5786 attempt 1/2: still running (600.2s elapsed)
+[02:17:11] sportsett_basketball/5786 attempt 1/2: still running (620.2s elapsed)
+[02:17:31] sportsett_basketball/5786 attempt 1/2: still running (640.2s elapsed)
+[02:17:51] sportsett_basketball/5786 attempt 1/2: still running (660.2s elapsed)
+[02:18:11] sportsett_basketball/5786 attempt 1/2: still running (680.2s elapsed)
+[02:18:31] sportsett_basketball/5786 attempt 1/2: still running (700.2s elapsed)
+[02:18:51] sportsett_basketball/5786 attempt 1/2: still running (720.2s elapsed)
+[02:19:11] sportsett_basketball/5786 attempt 1/2: still running (740.2s elapsed)
+[02:19:31] sportsett_basketball/5786 attempt 1/2: still running (760.2s elapsed)
+[02:19:51] sportsett_basketball/5786 attempt 1/2: still running (780.3s elapsed)
+[02:20:11] sportsett_basketball/5786 attempt 1/2: still running (800.3s elapsed)
+[02:20:31] sportsett_basketball/5786 attempt 1/2: still running (820.3s elapsed)
+[02:20:51] sportsett_basketball/5786 attempt 1/2: still running (840.3s elapsed)
+[02:20:51] sportsett_basketball/5786 attempt 1/2: completed after 840.3s
+[02:20:51] sportsett_basketball/5786: success=True, release=approved, writer=llm_writer, error=None
+[02:20:51] Batch completion: {'successful': 15, 'failed': 0, 'not_started': 10}
+[02:20:51] --------------------------------------------------------------------------------
+[02:20:51] CASE 16/25 this session; protected position 16/25: e2e_nlg/e2e_nlg-test-476
+[02:20:58] e2e_nlg/e2e_nlg-test-476 attempt 1/2: completed after 6.5s
+[02:20:58] e2e_nlg/e2e_nlg-test-476: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[02:20:58] Batch completion: {'successful': 16, 'failed': 0, 'not_started': 9}
+[02:20:58] --------------------------------------------------------------------------------
+[02:20:58] CASE 17/25 this session; protected position 17/25: web_nlg/web_nlg_en-test-859
+[02:21:15] web_nlg/web_nlg_en-test-859 attempt 1/2: completed after 17.5s
+[02:21:15] web_nlg/web_nlg_en-test-859: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[02:21:15] Batch completion: {'successful': 17, 'failed': 0, 'not_started': 8}
+[02:21:15] --------------------------------------------------------------------------------
+[02:21:15] CASE 18/25 this session; protected position 18/25: dart/dart-test-2278
+[02:21:29] dart/dart-test-2278 attempt 1/2: completed after 14.0s
+[02:21:30] dart/dart-test-2278: success=True, release=approved, writer=llm_writer, error=None
+[02:21:30] Batch completion: {'successful': 18, 'failed': 0, 'not_started': 7}
+[02:21:30] --------------------------------------------------------------------------------
+[02:21:30] CASE 19/25 this session; protected position 19/25: totto/totto-validation-839
+[02:21:45] totto/totto-validation-839 attempt 1/2: completed after 15.4s
+[02:21:46] totto/totto-validation-839: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[02:21:46] Batch completion: {'successful': 19, 'failed': 0, 'not_started': 6}
+[02:21:46] --------------------------------------------------------------------------------
+[02:21:46] CASE 20/25 this session; protected position 20/25: sportsett_basketball/5955
+[02:22:06] sportsett_basketball/5955 attempt 1/2: still running (20.0s elapsed)
+[02:22:26] sportsett_basketball/5955 attempt 1/2: still running (40.0s elapsed)
+[02:22:46] sportsett_basketball/5955 attempt 1/2: still running (60.0s elapsed)
+[02:23:06] sportsett_basketball/5955 attempt 1/2: still running (80.0s elapsed)
+[02:23:26] sportsett_basketball/5955 attempt 1/2: still running (100.0s elapsed)
+[02:23:46] sportsett_basketball/5955 attempt 1/2: still running (120.0s elapsed)
+[02:24:06] sportsett_basketball/5955 attempt 1/2: still running (140.0s elapsed)
+[02:24:26] sportsett_basketball/5955 attempt 1/2: still running (160.1s elapsed)
+[02:24:46] sportsett_basketball/5955 attempt 1/2: still running (180.1s elapsed)
+[02:25:06] sportsett_basketball/5955 attempt 1/2: still running (200.1s elapsed)
+[02:25:26] sportsett_basketball/5955 attempt 1/2: still running (220.1s elapsed)
+[02:25:46] sportsett_basketball/5955 attempt 1/2: still running (240.1s elapsed)
+[02:26:06] sportsett_basketball/5955 attempt 1/2: still running (260.1s elapsed)
+[02:26:26] sportsett_basketball/5955 attempt 1/2: still running (280.1s elapsed)
+[02:26:46] sportsett_basketball/5955 attempt 1/2: still running (300.1s elapsed)
+[02:27:06] sportsett_basketball/5955 attempt 1/2: still running (320.1s elapsed)
+[02:27:26] sportsett_basketball/5955 attempt 1/2: still running (340.1s elapsed)
+[02:27:46] sportsett_basketball/5955 attempt 1/2: still running (360.1s elapsed)
+[02:28:06] sportsett_basketball/5955 attempt 1/2: still running (380.1s elapsed)
+[02:28:26] sportsett_basketball/5955 attempt 1/2: still running (400.1s elapsed)
+[02:28:46] sportsett_basketball/5955 attempt 1/2: still running (420.1s elapsed)
+[02:29:06] sportsett_basketball/5955 attempt 1/2: still running (440.2s elapsed)
+[02:29:26] sportsett_basketball/5955 attempt 1/2: still running (460.2s elapsed)
+[02:29:46] sportsett_basketball/5955 attempt 1/2: still running (480.2s elapsed)
+[02:30:06] sportsett_basketball/5955 attempt 1/2: still running (500.2s elapsed)
+[02:30:26] sportsett_basketball/5955 attempt 1/2: still running (520.2s elapsed)
+[02:30:46] sportsett_basketball/5955 attempt 1/2: still running (540.2s elapsed)
+[02:31:06] sportsett_basketball/5955 attempt 1/2: still running (560.2s elapsed)
+[02:31:26] sportsett_basketball/5955 attempt 1/2: still running (580.2s elapsed)
+[02:31:46] sportsett_basketball/5955 attempt 1/2: still running (600.2s elapsed)
+[02:32:06] sportsett_basketball/5955 attempt 1/2: still running (620.2s elapsed)
+[02:32:26] sportsett_basketball/5955 attempt 1/2: still running (640.2s elapsed)
+[02:32:46] sportsett_basketball/5955 attempt 1/2: still running (660.2s elapsed)
+[02:33:06] sportsett_basketball/5955 attempt 1/2: still running (680.2s elapsed)
+[02:33:26] sportsett_basketball/5955 attempt 1/2: still running (700.2s elapsed)
+[02:33:46] sportsett_basketball/5955 attempt 1/2: still running (720.2s elapsed)
+[02:34:06] sportsett_basketball/5955 attempt 1/2: still running (740.2s elapsed)
+[02:34:26] sportsett_basketball/5955 attempt 1/2: still running (760.3s elapsed)
+[02:34:46] sportsett_basketball/5955 attempt 1/2: still running (780.3s elapsed)
+[02:35:06] sportsett_basketball/5955 attempt 1/2: still running (800.3s elapsed)
+[02:35:26] sportsett_basketball/5955 attempt 1/2: still running (820.3s elapsed)
+[02:35:46] sportsett_basketball/5955 attempt 1/2: still running (840.3s elapsed)
+[02:36:06] sportsett_basketball/5955 attempt 1/2: still running (860.3s elapsed)
+[02:36:26] sportsett_basketball/5955 attempt 1/2: still running (880.3s elapsed)
+[02:36:46] sportsett_basketball/5955 attempt 1/2: still running (900.3s elapsed)
+[02:37:06] sportsett_basketball/5955 attempt 1/2: still running (920.3s elapsed)
+[02:37:26] sportsett_basketball/5955 attempt 1/2: still running (940.3s elapsed)
+[02:37:38] sportsett_basketball/5955 attempt 1/2: completed after 952.6s
+[02:37:39] sportsett_basketball/5955: success=True, release=approved_with_warnings, writer=auditor_repaired, error=None
+[02:37:39] Batch completion: {'successful': 20, 'failed': 0, 'not_started': 5}
+[02:37:39] --------------------------------------------------------------------------------
+[02:37:39] CASE 21/25 this session; protected position 21/25: e2e_nlg/e2e_nlg-test-864
+[02:37:59] e2e_nlg/e2e_nlg-test-864 attempt 1/2: still running (20.0s elapsed)
+[02:38:07] e2e_nlg/e2e_nlg-test-864 attempt 1/2: completed after 28.0s
+[02:38:07] e2e_nlg/e2e_nlg-test-864: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[02:38:07] Batch completion: {'successful': 21, 'failed': 0, 'not_started': 4}
+[02:38:07] --------------------------------------------------------------------------------
+[02:38:07] CASE 22/25 this session; protected position 22/25: web_nlg/web_nlg_en-test-864
+[02:38:17] web_nlg/web_nlg_en-test-864 attempt 1/2: completed after 9.6s
+[02:38:17] web_nlg/web_nlg_en-test-864: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[02:38:17] Batch completion: {'successful': 22, 'failed': 0, 'not_started': 3}
+[02:38:17] --------------------------------------------------------------------------------
+[02:38:17] CASE 23/25 this session; protected position 23/25: dart/dart-test-4597
+[02:38:28] dart/dart-test-4597 attempt 1/2: completed after 11.4s
+[02:38:28] dart/dart-test-4597: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[02:38:28] Batch completion: {'successful': 23, 'failed': 0, 'not_started': 2}
+[02:38:28] --------------------------------------------------------------------------------
+[02:38:28] CASE 24/25 this session; protected position 24/25: totto/totto-validation-912
+[02:38:38] totto/totto-validation-912 attempt 1/2: completed after 9.3s
+[02:38:38] totto/totto-validation-912: success=True, release=approved_with_warnings, writer=llm_writer, error=None
+[02:38:38] Batch completion: {'successful': 24, 'failed': 0, 'not_started': 1}
+[02:38:38] --------------------------------------------------------------------------------
+[02:38:38] CASE 25/25 this session; protected position 25/25: sportsett_basketball/6127
+[02:38:58] sportsett_basketball/6127 attempt 1/2: still running (20.0s elapsed)
+[02:39:18] sportsett_basketball/6127 attempt 1/2: still running (40.0s elapsed)
+[02:39:38] sportsett_basketball/6127 attempt 1/2: still running (60.0s elapsed)
+[02:39:58] sportsett_basketball/6127 attempt 1/2: still running (80.0s elapsed)
+[02:40:18] sportsett_basketball/6127 attempt 1/2: still running (100.0s elapsed)
+[02:40:38] sportsett_basketball/6127 attempt 1/2: still running (120.1s elapsed)
+[02:40:58] sportsett_basketball/6127 attempt 1/2: still running (140.1s elapsed)
+[02:41:18] sportsett_basketball/6127 attempt 1/2: still running (160.1s elapsed)
+[02:41:38] sportsett_basketball/6127 attempt 1/2: still running (180.1s elapsed)
+[02:41:58] sportsett_basketball/6127 attempt 1/2: still running (200.1s elapsed)
+[02:42:18] sportsett_basketball/6127 attempt 1/2: still running (220.1s elapsed)
+[02:42:38] sportsett_basketball/6127 attempt 1/2: still running (240.1s elapsed)
+[02:42:58] sportsett_basketball/6127 attempt 1/2: still running (260.1s elapsed)
+[02:43:18] sportsett_basketball/6127 attempt 1/2: still running (280.1s elapsed)
+[02:43:38] sportsett_basketball/6127 attempt 1/2: still running (300.1s elapsed)
+[02:43:58] sportsett_basketball/6127 attempt 1/2: still running (320.1s elapsed)
+[02:44:18] sportsett_basketball/6127 attempt 1/2: still running (340.1s elapsed)
+[02:44:38] sportsett_basketball/6127 attempt 1/2: still running (360.1s elapsed)
+[02:44:58] sportsett_basketball/6127 attempt 1/2: still running (380.1s elapsed)
+[02:45:18] sportsett_basketball/6127 attempt 1/2: still running (400.1s elapsed)
+[02:45:38] sportsett_basketball/6127 attempt 1/2: still running (420.1s elapsed)
+[02:45:58] sportsett_basketball/6127 attempt 1/2: still running (440.1s elapsed)
+[02:46:18] sportsett_basketball/6127 attempt 1/2: still running (460.1s elapsed)
+[02:46:38] sportsett_basketball/6127 attempt 1/2: still running (480.1s elapsed)
+[02:46:58] sportsett_basketball/6127 attempt 1/2: still running (500.2s elapsed)
+[02:47:18] sportsett_basketball/6127 attempt 1/2: still running (520.2s elapsed)
+[02:47:38] sportsett_basketball/6127 attempt 1/2: still running (540.2s elapsed)
+[02:47:58] sportsett_basketball/6127 attempt 1/2: still running (560.2s elapsed)
+[02:48:18] sportsett_basketball/6127 attempt 1/2: still running (580.2s elapsed)
+[02:48:38] sportsett_basketball/6127 attempt 1/2: still running (600.2s elapsed)
+[02:48:58] sportsett_basketball/6127 attempt 1/2: still running (620.2s elapsed)
+[02:49:18] sportsett_basketball/6127 attempt 1/2: still running (640.2s elapsed)
+[02:49:38] sportsett_basketball/6127 attempt 1/2: still running (660.2s elapsed)
+[02:49:58] sportsett_basketball/6127 attempt 1/2: still running (680.2s elapsed)
+[02:50:18] sportsett_basketball/6127 attempt 1/2: still running (700.2s elapsed)
+[02:50:38] sportsett_basketball/6127 attempt 1/2: still running (720.2s elapsed)
+[02:50:58] sportsett_basketball/6127 attempt 1/2: still running (740.2s elapsed)
+[02:51:18] sportsett_basketball/6127 attempt 1/2: still running (760.2s elapsed)
+[02:51:38] sportsett_basketball/6127 attempt 1/2: still running (780.2s elapsed)
+[02:51:58] sportsett_basketball/6127 attempt 1/2: still running (800.2s elapsed)
+[02:52:18] sportsett_basketball/6127 attempt 1/2: still running (820.2s elapsed)
+[02:52:38] sportsett_basketball/6127 attempt 1/2: still running (840.2s elapsed)
+[02:52:58] sportsett_basketball/6127 attempt 1/2: still running (860.2s elapsed)
+[02:53:18] sportsett_basketball/6127 attempt 1/2: still running (880.2s elapsed)
+[02:53:38] sportsett_basketball/6127 attempt 1/2: still running (900.3s elapsed)
+[02:53:58] sportsett_basketball/6127 attempt 1/2: still running (920.3s elapsed)
+[02:54:18] sportsett_basketball/6127 attempt 1/2: still running (940.3s elapsed)
+[02:54:38] sportsett_basketball/6127 attempt 1/2: still running (960.3s elapsed)
+[02:54:58] sportsett_basketball/6127 attempt 1/2: still running (980.3s elapsed)
+[02:55:18] sportsett_basketball/6127 attempt 1/2: still running (1000.3s elapsed)
+[02:55:38] sportsett_basketball/6127 attempt 1/2: still running (1020.3s elapsed)
+[02:55:58] sportsett_basketball/6127 attempt 1/2: still running (1040.3s elapsed)
+[02:56:18] sportsett_basketball/6127 attempt 1/2: still running (1060.3s elapsed)
+[02:56:38] sportsett_basketball/6127 attempt 1/2: still running (1080.3s elapsed)
+[02:56:58] sportsett_basketball/6127 attempt 1/2: still running (1100.3s elapsed)
+[02:57:18] sportsett_basketball/6127 attempt 1/2: still running (1120.3s elapsed)
+[02:57:38] sportsett_basketball/6127 attempt 1/2: still running (1140.3s elapsed)
+[02:57:58] sportsett_basketball/6127 attempt 1/2: still running (1160.3s elapsed)
+[02:58:18] sportsett_basketball/6127 attempt 1/2: still running (1180.4s elapsed)
+[02:58:38] sportsett_basketball/6127 attempt 1/2: still running (1200.4s elapsed)
+[02:58:41] sportsett_basketball/6127 attempt 1/2: completed after 1203.4s
+[02:58:42] sportsett_basketball/6127: success=True, release=approved, writer=llm_writer, error=None
+[02:58:42] Batch completion: {'successful': 25, 'failed': 0, 'not_started': 0}
+[02:58:42] ================================================================================
+[02:58:42] Session complete. Batch status: complete
+[02:58:42] Completion: {'successful': 25, 'failed': 0, 'not_started': 0}
+[02:58:42] Execution report: /Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/protected_holdout_full_system/results/PROTECTED_HOLDOUT_EXECUTION_REPORT.md

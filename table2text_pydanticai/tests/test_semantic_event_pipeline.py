@@ -92,6 +92,7 @@ from table2text.schemas import (
     WriterAgentDraft,
 )
 from table2text.structure import build_structural_catalog
+from table2text.task_contracts import infer_task_contract
 from table2text.workflow import (
     build_orchestrator_prompt_context,
     infer_event_focus_scope,
@@ -3189,6 +3190,17 @@ def test_generic_request_uses_semantically_inferred_event_genre():
 
 
 def test_generic_event_inference_uses_event_recap_contract():
+    inferred = infer_task_contract(
+        request="Understand the supplied data and report its strongest findings.",
+        structured_inputs={"contest": renamed_event()},
+        input_structure=event_structure(),
+        semantic_map=semantic_map(),
+    )
+    assert inferred.communication_task == CommunicationTask.EVENT_REPORT
+    assert inferred.output_form.value == "multi_paragraph_report"
+    assert inferred.focus_scope == "event_recap"
+    assert inferred.selection_source == ReportSelectionSource.STRUCTURED_INFERENCE
+
     genre, source, _ = resolve_report_genre(
         request="Understand the supplied data and report its strongest findings.",
         planned_genre=ReportGenre.DATA_SCIENCE_REPORT,

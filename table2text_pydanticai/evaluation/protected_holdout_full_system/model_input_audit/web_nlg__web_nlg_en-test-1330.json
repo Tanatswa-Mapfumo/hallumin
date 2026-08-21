@@ -1,0 +1,27 @@
+{
+  "__table2text_benchmark_example__": true,
+  "dataset_id": "web_nlg",
+  "example_id": "web_nlg_en-test-1330",
+  "task_family": "triple_verbalisation",
+  "output_mode": "short_text",
+  "request": "Express all and only the supplied triples as short, coherent natural language. Do not add unsupported facts.",
+  "source_text": "Brandon_Carter | doctoralAdvisor | Dennis_William_Sciama\nBrandon_Carter | birthPlace | England\nBrandon_Carter | birthDate | 1942-01-01\nBrandon_Carter | almaMater | University_of_Cambridge\nBrandon_Carter | knownFor | Doomsday_argument",
+  "source_payload": {
+    "triples": [
+      "Brandon_Carter | doctoralAdvisor | Dennis_William_Sciama",
+      "Brandon_Carter | birthPlace | England",
+      "Brandon_Carter | birthDate | 1942-01-01",
+      "Brandon_Carter | almaMater | University_of_Cambridge",
+      "Brandon_Carter | knownFor | Doomsday_argument"
+    ],
+    "category": "Scientist"
+  },
+  "parent_table": null,
+  "metadata": {
+    "category": "Scientist",
+    "normalizer": "webnlg",
+    "requested_split": "test",
+    "hub_id": "GEM/web_nlg",
+    "config_name": "en"
+  }
+}

@@ -11,7 +11,11 @@ from table2text.agents import materialise_insight_ledger
 from table2text.data import load_data
 from table2text.evaluation.datasets import merge_examples, normalise_row
 from table2text.evaluation.diagnostics import number_diagnostics
-from table2text.evaluation.generation import focus_scope_for_task, materialise_input
+from table2text.evaluation.generation import (
+    focus_scope_for_task,
+    materialise_input,
+    workflow_contract_for_variant,
+)
 from table2text.evaluation.deepeval_metrics import input_for_judge
 from table2text.evaluation.human_evaluation import make_blinded_pairs
 from table2text.evaluation.llm_judge_annotations import (
@@ -28,6 +32,7 @@ from table2text.evaluation.models import (
     OutputMode,
     ReferenceMetricConfig,
     TaskFamily,
+    VariantConfig,
 )
 from table2text.evaluation_backends import build_single_agent_prompt
 from table2text.schemas import (
@@ -42,9 +47,13 @@ from table2text.schemas import (
     InsightVerificationRecord,
     InsightVerificationResult,
     InsightVerificationStatus,
+    InputRepresentationStatus,
+    InputShape,
+    InputStructureProfile,
     InterpretationLevel,
     OutputForm as WorkflowOutputForm,
     ReportGenre,
+    ReportSelectionSource,
 )
 from table2text.evaluation.notebook import (
     generate_reports_for_notebook,
@@ -59,6 +68,7 @@ from table2text.evaluation.reference_metrics import (
     plain_text,
 )
 from table2text.workflow import task_contract_fields
+from table2text.task_contracts import infer_task_contract, resolve_task_contract
 from table2text.evaluation.statistics import paired_bootstrap
 
 
@@ -301,6 +311,183 @@ def test_attribute_verbalisation_materialises_structured_record(
         "5 out of 5",
         "Crowne Plaza Hotel",
     ]
+
+
+def test_generic_contract_inference_uses_source_structure_not_benchmark_labels():
+    input_structure = InputStructureProfile(
+        shape=InputShape.NESTED_RECORD,
+        representation_status=InputRepresentationStatus.VALID,
+        row_semantics="one record",
+        confidence=0.95,
+    )
+    decision = infer_task_contract(
+        request=(
+            "Understand the supplied data and report its strongest supported "
+            "findings."
+        ),
+        structured_inputs={
+            "input": {
+                "__table2text_benchmark_example__": True,
+                "dataset_id": "misleading_event_name",
+                "task_family": "event_report",
+                "output_mode": "multi_paragraph_report",
+                "source_payload": {
+                    "meaning_representation": "name[Clowns], eatType[pub]",
+                },
+            }
+        },
+        input_structure=input_structure,
+    )
+
+    assert decision.communication_task == CommunicationTask.ATTRIBUTE_VERBALISATION
+    assert decision.output_form == WorkflowOutputForm.SHORT_TEXT
+    assert decision.report_genre == ReportGenre.DATASET_OVERVIEW
+    assert decision.selection_source == ReportSelectionSource.STRUCTURED_INFERENCE
+    assert decision.confidence == pytest.approx(0.97)
+
+
+def test_inferred_evaluation_variant_uses_source_only_and_omits_contract(
+    tmp_path: Path,
+):
+    example = normalise_row(
+        {
+            "gem_id": "e2e-test-1",
+            "meaning_representation": "name[Clowns], eatType[pub]",
+            "target": "Clowns is a pub.",
+        },
+        e2e_config(),
+        0,
+    )
+    variant = VariantConfig(
+        variant_id="full_inferred_contract",
+        task_contract_mode="inferred",
+        request_override=(
+            "Understand the supplied data and report its strongest supported "
+            "findings."
+        ),
+    )
+    input_path = materialise_input(
+        example,
+        tmp_path,
+        source_only=True,
+    )
+    payload = json.loads(input_path.read_text(encoding="utf-8"))
+
+    assert payload == example.source_payload
+    assert "task_family" not in payload
+    assert all(
+        value is None
+        for value in workflow_contract_for_variant(example, variant).values()
+    )
+
+
+def test_configured_contract_fields_override_inferred_values():
+    input_structure = InputStructureProfile(
+        shape=InputShape.NESTED_RECORD,
+        representation_status=InputRepresentationStatus.VALID,
+        row_semantics="one record",
+        confidence=0.95,
+    )
+    inferred = infer_task_contract(
+        request="Understand the supplied data.",
+        structured_inputs={
+            "input": {
+                "table": [["Name", "Value"], ["A", "1"]],
+                "highlighted_cells": [[1, 1]],
+            }
+        },
+        input_structure=input_structure,
+    )
+    resolved = resolve_task_contract(
+        inferred=inferred,
+        selected_genre=ReportGenre.DATASET_OVERVIEW,
+        genre_source=ReportSelectionSource.EXPERIMENT_CONFIGURATION,
+        genre_confidence=1.0,
+        configured_communication_task=CommunicationTask.TRIPLE_VERBALISATION,
+        configured_output_form=WorkflowOutputForm.SHORT_TEXT,
+        configured_focus_scope=None,
+    )
+
+    assert resolved.communication_task == CommunicationTask.TRIPLE_VERBALISATION
+    assert resolved.output_form == WorkflowOutputForm.SHORT_TEXT
+    assert resolved.focus_scope is None
+    assert resolved.confidence == 1.0
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_task", "expected_form", "expected_text"),
+    [
+        (
+            {
+                "meaning_representation": (
+                    "name[Clowns], eatType[pub], customer rating[5 out of 5], "
+                    "near[Crowne Plaza Hotel]"
+                )
+            },
+            CommunicationTask.ATTRIBUTE_VERBALISATION,
+            WorkflowOutputForm.SHORT_TEXT,
+            "Clowns",
+        ),
+        (
+            {
+                "triples": [
+                    ["ALCO_RS-3", "engine", "Four-stroke_engine"],
+                    ["ALCO_RS-3", "cylinderCount", "12"],
+                ]
+            },
+            CommunicationTask.TRIPLE_VERBALISATION,
+            WorkflowOutputForm.SHORT_TEXT,
+            "ALCO RS-3",
+        ),
+        (
+            {
+                "table_page_title": "Election",
+                "table_section_title": "Results",
+                "table": [
+                    [
+                        {"value": "Candidate", "is_header": True},
+                        {"value": "Vote share", "is_header": True},
+                    ],
+                    [
+                        {"value": "Ma Ying-jeou", "is_header": False},
+                        {"value": "58.45%", "is_header": False},
+                    ],
+                ],
+                "highlighted_cells": [[1, 1]],
+            },
+            CommunicationTask.FOCUSED_TABLE_DESCRIPTION,
+            WorkflowOutputForm.ONE_SENTENCE,
+            "58.45%",
+        ),
+    ],
+)
+def test_generic_workflow_infers_short_form_contract_from_source_only(
+    tmp_path: Path,
+    payload: dict,
+    expected_task: CommunicationTask,
+    expected_form: WorkflowOutputForm,
+    expected_text: str,
+):
+    input_path = tmp_path / f"{expected_task.value}.json"
+    input_path.write_text(json.dumps(payload), encoding="utf-8")
+    workflow = Table2TextWorkflow(
+        Settings(use_llm=False, output_dir=tmp_path / "runs")
+    )
+
+    result = workflow.run_sync(
+        inputs=[input_path],
+        request=(
+            "Understand the supplied data and report its strongest supported "
+            "findings."
+        ),
+        audit_mode=AuditMode.INTERNAL,
+    )
+
+    specification = result.execution_plan.report_specification
+    assert specification.communication_task == expected_task
+    assert specification.output_form == expected_form
+    assert specification.selection_source == ReportSelectionSource.STRUCTURED_INFERENCE
+    assert expected_text in plain_text(result.final_writer_output.markdown)
 
 
 def test_attribute_verbalisation_workflow_avoids_dataset_profile(

@@ -1,0 +1,25 @@
+{
+  "experiment_id": "task_aware_direct_flash_25",
+  "created_or_updated_at": "2026-08-20T13:29:04.632696",
+  "model": "deepseek-v4-flash",
+  "task_aware_prompt_style": "structured",
+  "seed": 42,
+  "temperature": 0.2,
+  "selected_examples": 25,
+  "condition_counts": {
+    "full_system": 25,
+    "raw_generic_flash": 25,
+    "task_aware_direct_flash": 25
+  },
+  "include_ineligible_stored_outputs": true,
+  "canonical_generations": "/Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/generations/five_dataset_five_each_raw_generic_flash_20260805_181001_combined_generations.jsonl",
+  "selected_examples_path": "/Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/task_aware_direct_baseline/prepared/task_aware_direct_flash_25_examples.jsonl",
+  "task_aware_generations": "/Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/task_aware_direct_baseline/generations/task_aware_direct_flash_25_generations.jsonl",
+  "three_condition_generations": "/Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/task_aware_direct_baseline/generations/task_aware_direct_flash_25_three_condition_generations.jsonl",
+  "reference_metrics": "/Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/task_aware_direct_baseline/results/task_aware_direct_flash_25_reference_metrics.jsonl",
+  "source_grounded_metrics": "/Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/task_aware_direct_baseline/results/task_aware_direct_flash_25_source_grounded_metrics.jsonl",
+  "existing_selected_five_source_metrics": "/Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/task_aware_direct_baseline/results/selected_five_existing_full_raw_source_metrics.csv",
+  "task_aware_gpt56_annotations": "/Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/task_aware_direct_baseline/results/task_aware_direct_flash_25_gpt56_annotations.jsonl",
+  "canonical_gap_gpt56_annotations": "/Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/task_aware_direct_baseline/results/canonical_missing_gpt56_annotations.jsonl",
+  "progress_log": "/Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/task_aware_direct_baseline/results/task_aware_direct_flash_25_progress.log"
+}

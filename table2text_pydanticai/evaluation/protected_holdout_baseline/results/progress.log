@@ -1,0 +1,234 @@
+[03:20:29] Protected selection verified: exact same 25 examples.
+[03:20:29] Baseline prompt isolation verified for all 25 examples.
+[03:20:29] Baseline status before session: 0/25 complete.
+[03:20:29] Baseline 1/25: starting e2e_nlg/e2e_nlg-test-1330
+[03:20:30] Finished Baseline e2e_nlg/e2e_nlg-test-1330 after 1.7s
+[03:20:30] Baseline completed e2e_nlg/e2e_nlg-test-1330; seconds=1.7; tokens=297
+[03:20:30] Baseline 2/25: starting web_nlg/web_nlg_en-test-1209
+[03:20:32] Finished Baseline web_nlg/web_nlg_en-test-1209 after 1.8s
+[03:20:32] Baseline completed web_nlg/web_nlg_en-test-1209; seconds=1.8; tokens=360
+[03:20:32] Baseline 3/25: starting dart/dart-test-1791
+[03:20:34] Finished Baseline dart/dart-test-1791 after 1.7s
+[03:20:34] Baseline completed dart/dart-test-1791; seconds=1.7; tokens=298
+[03:20:34] Baseline 4/25: starting totto/totto-validation-1828
+[03:20:37] Finished Baseline totto/totto-validation-1828 after 3.1s
+[03:20:37] Baseline completed totto/totto-validation-1828; seconds=3.1; tokens=843
+[03:20:37] Baseline 5/25: starting sportsett_basketball/5130
+[03:20:42] Finished Baseline sportsett_basketball/5130 after 4.9s
+[03:20:42] Baseline completed sportsett_basketball/5130; seconds=4.9; tokens=9237
+[03:20:42] Baseline 6/25: starting e2e_nlg/e2e_nlg-test-209
+[03:20:43] Finished Baseline e2e_nlg/e2e_nlg-test-209 after 1.3s
+[03:20:43] Baseline completed e2e_nlg/e2e_nlg-test-209; seconds=1.3; tokens=262
+[03:20:43] Baseline 7/25: starting web_nlg/web_nlg_en-test-1330
+[03:20:45] Finished Baseline web_nlg/web_nlg_en-test-1330 after 1.9s
+[03:20:45] Baseline completed web_nlg/web_nlg_en-test-1330; seconds=1.9; tokens=356
+[03:20:45] Baseline 8/25: starting dart/dart-test-1805
+[03:20:47] Finished Baseline dart/dart-test-1805 after 1.6s
+[03:20:47] Baseline completed dart/dart-test-1805; seconds=1.5; tokens=303
+[03:20:47] Baseline 9/25: starting totto/totto-validation-4467
+[03:20:51] Finished Baseline totto/totto-validation-4467 after 4.7s
+[03:20:51] Baseline completed totto/totto-validation-4467; seconds=4.7; tokens=1057
+[03:20:51] Baseline 10/25: starting sportsett_basketball/5372
+[03:20:58] Finished Baseline sportsett_basketball/5372 after 7.1s
+[03:20:58] Baseline completed sportsett_basketball/5372; seconds=7.1; tokens=9347
+[03:20:58] Baseline 11/25: starting e2e_nlg/e2e_nlg-test-447
+[03:21:00] Finished Baseline e2e_nlg/e2e_nlg-test-447 after 1.3s
+[03:21:00] Baseline completed e2e_nlg/e2e_nlg-test-447; seconds=1.3; tokens=256
+[03:21:00] Baseline 12/25: starting web_nlg/web_nlg_en-test-1466
+[03:21:01] Finished Baseline web_nlg/web_nlg_en-test-1466 after 1.5s
+[03:21:01] Baseline completed web_nlg/web_nlg_en-test-1466; seconds=1.5; tokens=264
+[03:21:01] Baseline 13/25: starting dart/dart-test-1828
+[03:21:03] Finished Baseline dart/dart-test-1828 after 1.8s
+[03:21:03] Baseline completed dart/dart-test-1828; seconds=1.8; tokens=359
+[03:21:03] Baseline 14/25: starting totto/totto-validation-6067
+[03:21:08] Finished Baseline totto/totto-validation-6067 after 4.4s
+[03:21:08] Baseline completed totto/totto-validation-6067; seconds=4.4; tokens=681
+[03:21:08] Baseline 15/25: starting sportsett_basketball/5786
+[03:21:15] Finished Baseline sportsett_basketball/5786 after 7.8s
+[03:21:15] Baseline completed sportsett_basketball/5786; seconds=7.8; tokens=9022
+[03:21:15] Baseline 16/25: starting e2e_nlg/e2e_nlg-test-476
+[03:21:17] Finished Baseline e2e_nlg/e2e_nlg-test-476 after 1.9s
+[03:21:17] Baseline completed e2e_nlg/e2e_nlg-test-476; seconds=1.9; tokens=335
+[03:21:17] Baseline 17/25: starting web_nlg/web_nlg_en-test-859
+[03:21:19] Finished Baseline web_nlg/web_nlg_en-test-859 after 1.6s
+[03:21:19] Baseline completed web_nlg/web_nlg_en-test-859; seconds=1.6; tokens=257
+[03:21:19] Baseline 18/25: starting dart/dart-test-2278
+[03:21:22] Finished Baseline dart/dart-test-2278 after 2.8s
+[03:21:22] Baseline completed dart/dart-test-2278; seconds=2.8; tokens=558
+[03:21:22] Baseline 19/25: starting totto/totto-validation-839
+[03:21:24] Finished Baseline totto/totto-validation-839 after 2.6s
+[03:21:24] Baseline completed totto/totto-validation-839; seconds=2.6; tokens=475
+[03:21:24] Baseline 20/25: starting sportsett_basketball/5955
+[03:21:33] Finished Baseline sportsett_basketball/5955 after 9.1s
+[03:21:33] Baseline completed sportsett_basketball/5955; seconds=9.1; tokens=9216
+[03:21:33] Baseline 21/25: starting e2e_nlg/e2e_nlg-test-864
+[03:21:35] Finished Baseline e2e_nlg/e2e_nlg-test-864 after 2.0s
+[03:21:35] Baseline completed e2e_nlg/e2e_nlg-test-864; seconds=2.0; tokens=292
+[03:21:35] Baseline 22/25: starting web_nlg/web_nlg_en-test-864
+[03:21:37] Finished Baseline web_nlg/web_nlg_en-test-864 after 1.4s
+[03:21:37] Baseline completed web_nlg/web_nlg_en-test-864; seconds=1.4; tokens=265
+[03:21:37] Baseline 23/25: starting dart/dart-test-4597
+[03:21:39] Finished Baseline dart/dart-test-4597 after 2.2s
+[03:21:39] Baseline completed dart/dart-test-4597; seconds=2.2; tokens=369
+[03:21:39] Baseline 24/25: starting totto/totto-validation-912
+[03:21:43] Finished Baseline totto/totto-validation-912 after 4.4s
+[03:21:43] Baseline completed totto/totto-validation-912; seconds=4.4; tokens=874
+[03:21:43] Baseline 25/25: starting sportsett_basketball/6127
+[03:21:53] Finished Baseline sportsett_basketball/6127 after 9.0s
+[03:21:53] Baseline completed sportsett_basketball/6127; seconds=9.0; tokens=8975
+[03:21:53] Baseline consolidated status: 25/25.
+[03:21:53] All 25 Baseline outputs sealed and paired with Full System.
+[03:21:53] GPT-5.6 Sol status before session: 0/50 complete.
+[03:21:53] GPT-5.6 Sol 1/50: starting totto/totto-validation-912 (Baseline)
+[03:22:07] Finished GPT-5.6 Sol totto/totto-validation-912 (Baseline) after 14.5s
+[03:22:07] Judge completed totto/totto-validation-912 (Baseline); errors=2; tokens=1967
+[03:22:07] GPT-5.6 Sol 2/50: starting e2e_nlg/e2e_nlg-test-209 (Full System)
+[03:22:10] Finished GPT-5.6 Sol e2e_nlg/e2e_nlg-test-209 (Full System) after 2.7s
+[03:22:10] Judge completed e2e_nlg/e2e_nlg-test-209 (Full System); errors=0; tokens=768
+[03:22:10] GPT-5.6 Sol 3/50: starting e2e_nlg/e2e_nlg-test-476 (Baseline)
+[03:22:11] Finished GPT-5.6 Sol e2e_nlg/e2e_nlg-test-476 (Baseline) after 1.5s
+[03:22:11] Judge completed e2e_nlg/e2e_nlg-test-476 (Baseline); errors=0; tokens=805
+[03:22:11] GPT-5.6 Sol 4/50: starting dart/dart-test-1828 (Baseline)
+[03:22:15] Finished GPT-5.6 Sol dart/dart-test-1828 (Baseline) after 3.2s
+[03:22:15] Judge completed dart/dart-test-1828 (Baseline); errors=0; tokens=909
+[03:22:15] GPT-5.6 Sol 5/50: starting totto/totto-validation-839 (Baseline)
+[03:22:20] Finished GPT-5.6 Sol totto/totto-validation-839 (Baseline) after 5.6s
+[03:22:20] Judge completed totto/totto-validation-839 (Baseline); errors=1; tokens=1140
+[03:22:20] GPT-5.6 Sol 6/50: starting dart/dart-test-1791 (Baseline)
+[03:22:22] Finished GPT-5.6 Sol dart/dart-test-1791 (Baseline) after 2.3s
+[03:22:22] Judge completed dart/dart-test-1791 (Baseline); errors=0; tokens=855
+[03:22:22] GPT-5.6 Sol 7/50: starting web_nlg/web_nlg_en-test-1466 (Baseline)
+[03:22:24] Finished GPT-5.6 Sol web_nlg/web_nlg_en-test-1466 (Baseline) after 1.6s
+[03:22:24] Judge completed web_nlg/web_nlg_en-test-1466 (Baseline); errors=0; tokens=758
+[03:22:24] GPT-5.6 Sol 8/50: starting sportsett_basketball/6127 (Baseline)
+[03:22:39] Finished GPT-5.6 Sol sportsett_basketball/6127 (Baseline) after 15.0s
+[03:22:39] Judge completed sportsett_basketball/6127 (Baseline); errors=3; tokens=9702
+[03:22:39] GPT-5.6 Sol 9/50: starting totto/totto-validation-4467 (Baseline)
+[03:22:45] Finished GPT-5.6 Sol totto/totto-validation-4467 (Baseline) after 6.1s
+[03:22:45] Judge completed totto/totto-validation-4467 (Baseline); errors=1; tokens=1517
+[03:22:45] GPT-5.6 Sol 10/50: starting e2e_nlg/e2e_nlg-test-1330 (Full System)
+[03:22:47] Finished GPT-5.6 Sol e2e_nlg/e2e_nlg-test-1330 (Full System) after 2.5s
+[03:22:47] Judge completed e2e_nlg/e2e_nlg-test-1330 (Full System); errors=0; tokens=805
+[03:22:47] GPT-5.6 Sol 11/50: starting totto/totto-validation-839 (Full System)
+[03:22:52] Finished GPT-5.6 Sol totto/totto-validation-839 (Full System) after 4.9s
+[03:22:52] Judge completed totto/totto-validation-839 (Full System); errors=1; tokens=1054
+[03:22:52] GPT-5.6 Sol 12/50: starting dart/dart-test-4597 (Baseline)
+[03:22:54] Finished GPT-5.6 Sol dart/dart-test-4597 (Baseline) after 1.2s
+[03:22:54] Judge completed dart/dart-test-4597 (Baseline); errors=0; tokens=820
+[03:22:54] GPT-5.6 Sol 13/50: starting sportsett_basketball/5786 (Baseline)
+[03:23:00] Finished GPT-5.6 Sol sportsett_basketball/5786 (Baseline) after 6.2s
+[03:23:00] Judge completed sportsett_basketball/5786 (Baseline); errors=1; tokens=9280
+[03:23:00] GPT-5.6 Sol 14/50: starting sportsett_basketball/5372 (Full System)
+[03:23:17] Finished GPT-5.6 Sol sportsett_basketball/5372 (Full System) after 16.7s
+[03:23:17] Judge completed sportsett_basketball/5372 (Full System); errors=2; tokens=10615
+[03:23:17] GPT-5.6 Sol 15/50: starting dart/dart-test-1791 (Full System)
+[03:23:18] Finished GPT-5.6 Sol dart/dart-test-1791 (Full System) after 1.2s
+[03:23:18] Judge completed dart/dart-test-1791 (Full System); errors=0; tokens=794
+[03:23:18] GPT-5.6 Sol 16/50: starting sportsett_basketball/5130 (Full System)
+[03:23:35] Finished GPT-5.6 Sol sportsett_basketball/5130 (Full System) after 16.8s
+[03:23:35] Judge completed sportsett_basketball/5130 (Full System); errors=2; tokens=10538
+[03:23:35] GPT-5.6 Sol 17/50: starting totto/totto-validation-1828 (Full System)
+[03:23:43] Finished GPT-5.6 Sol totto/totto-validation-1828 (Full System) after 8.2s
+[03:23:43] Judge completed totto/totto-validation-1828 (Full System); errors=2; tokens=1714
+[03:23:43] GPT-5.6 Sol 18/50: starting web_nlg/web_nlg_en-test-864 (Baseline)
+[03:23:44] Finished GPT-5.6 Sol web_nlg/web_nlg_en-test-864 (Baseline) after 1.2s
+[03:23:44] Judge completed web_nlg/web_nlg_en-test-864 (Baseline); errors=0; tokens=776
+[03:23:44] GPT-5.6 Sol 19/50: starting web_nlg/web_nlg_en-test-1466 (Full System)
+[03:23:45] Finished GPT-5.6 Sol web_nlg/web_nlg_en-test-1466 (Full System) after 1.1s
+[03:23:45] Judge completed web_nlg/web_nlg_en-test-1466 (Full System); errors=0; tokens=753
+[03:23:45] GPT-5.6 Sol 20/50: starting dart/dart-test-2278 (Baseline)
+[03:23:48] Finished GPT-5.6 Sol dart/dart-test-2278 (Baseline) after 2.7s
+[03:23:48] Judge completed dart/dart-test-2278 (Baseline); errors=0; tokens=959
+[03:23:48] GPT-5.6 Sol 21/50: starting e2e_nlg/e2e_nlg-test-864 (Full System)
+[03:23:49] Finished GPT-5.6 Sol e2e_nlg/e2e_nlg-test-864 (Full System) after 1.2s
+[03:23:49] Judge completed e2e_nlg/e2e_nlg-test-864 (Full System); errors=0; tokens=759
+[03:23:49] GPT-5.6 Sol 22/50: starting totto/totto-validation-6067 (Full System)
+[03:23:50] Finished GPT-5.6 Sol totto/totto-validation-6067 (Full System) after 1.3s
+[03:23:50] Judge completed totto/totto-validation-6067 (Full System); errors=0; tokens=861
+[03:23:50] GPT-5.6 Sol 23/50: starting totto/totto-validation-1828 (Baseline)
+[03:23:58] Finished GPT-5.6 Sol totto/totto-validation-1828 (Baseline) after 7.6s
+[03:23:58] Judge completed totto/totto-validation-1828 (Baseline); errors=3; tokens=1710
+[03:23:58] GPT-5.6 Sol 24/50: starting web_nlg/web_nlg_en-test-1330 (Baseline)
+[03:24:02] Finished GPT-5.6 Sol web_nlg/web_nlg_en-test-1330 (Baseline) after 3.9s
+[03:24:02] Judge completed web_nlg/web_nlg_en-test-1330 (Baseline); errors=1; tokens=950
+[03:24:02] GPT-5.6 Sol 25/50: starting e2e_nlg/e2e_nlg-test-447 (Full System)
+[03:24:03] Finished GPT-5.6 Sol e2e_nlg/e2e_nlg-test-447 (Full System) after 1.5s
+[03:24:03] Judge completed e2e_nlg/e2e_nlg-test-447 (Full System); errors=0; tokens=778
+[03:24:03] GPT-5.6 Sol 26/50: starting sportsett_basketball/5786 (Full System)
+[03:24:13] Finished GPT-5.6 Sol sportsett_basketball/5786 (Full System) after 9.5s
+[03:24:13] Judge completed sportsett_basketball/5786 (Full System); errors=2; tokens=9746
+[03:24:13] GPT-5.6 Sol 27/50: starting dart/dart-test-1805 (Full System)
+[03:24:15] Finished GPT-5.6 Sol dart/dart-test-1805 (Full System) after 1.9s
+[03:24:15] Judge completed dart/dart-test-1805 (Full System); errors=0; tokens=786
+[03:24:15] GPT-5.6 Sol 28/50: starting dart/dart-test-1805 (Baseline)
+[03:24:16] Finished GPT-5.6 Sol dart/dart-test-1805 (Baseline) after 1.3s
+[03:24:16] Judge completed dart/dart-test-1805 (Baseline); errors=0; tokens=801
+[03:24:16] GPT-5.6 Sol 29/50: starting sportsett_basketball/5955 (Full System)
+[03:24:36] Still running GPT-5.6 Sol sportsett_basketball/5955 (Full System); elapsed=20.0s
+[03:24:37] Finished GPT-5.6 Sol sportsett_basketball/5955 (Full System) after 21.6s
+[03:24:37] Judge completed sportsett_basketball/5955 (Full System); errors=3; tokens=10391
+[03:24:37] GPT-5.6 Sol 30/50: starting dart/dart-test-2278 (Full System)
+[03:24:40] Finished GPT-5.6 Sol dart/dart-test-2278 (Full System) after 2.1s
+[03:24:40] Judge completed dart/dart-test-2278 (Full System); errors=0; tokens=932
+[03:24:40] GPT-5.6 Sol 31/50: starting totto/totto-validation-4467 (Full System)
+[03:24:41] Finished GPT-5.6 Sol totto/totto-validation-4467 (Full System) after 1.2s
+[03:24:41] Judge completed totto/totto-validation-4467 (Full System); errors=0; tokens=1118
+[03:24:41] GPT-5.6 Sol 32/50: starting sportsett_basketball/5372 (Baseline)
+[03:24:46] Finished GPT-5.6 Sol sportsett_basketball/5372 (Baseline) after 5.5s
+[03:24:46] Judge completed sportsett_basketball/5372 (Baseline); errors=1; tokens=9570
+[03:24:46] GPT-5.6 Sol 33/50: starting web_nlg/web_nlg_en-test-1209 (Baseline)
+[03:24:48] Finished GPT-5.6 Sol web_nlg/web_nlg_en-test-1209 (Baseline) after 1.5s
+[03:24:48] Judge completed web_nlg/web_nlg_en-test-1209 (Baseline); errors=0; tokens=870
+[03:24:48] GPT-5.6 Sol 34/50: starting dart/dart-test-4597 (Full System)
+[03:24:50] Finished GPT-5.6 Sol dart/dart-test-4597 (Full System) after 2.4s
+[03:24:50] Judge completed dart/dart-test-4597 (Full System); errors=0; tokens=822
+[03:24:50] GPT-5.6 Sol 35/50: starting web_nlg/web_nlg_en-test-864 (Full System)
+[03:24:52] Finished GPT-5.6 Sol web_nlg/web_nlg_en-test-864 (Full System) after 1.7s
+[03:24:52] Judge completed web_nlg/web_nlg_en-test-864 (Full System); errors=0; tokens=776
+[03:24:52] GPT-5.6 Sol 36/50: starting e2e_nlg/e2e_nlg-test-864 (Baseline)
+[03:24:54] Finished GPT-5.6 Sol e2e_nlg/e2e_nlg-test-864 (Baseline) after 1.7s
+[03:24:54] Judge completed e2e_nlg/e2e_nlg-test-864 (Baseline); errors=0; tokens=761
+[03:24:54] GPT-5.6 Sol 37/50: starting web_nlg/web_nlg_en-test-1330 (Full System)
+[03:24:55] Finished GPT-5.6 Sol web_nlg/web_nlg_en-test-1330 (Full System) after 1.8s
+[03:24:55] Judge completed web_nlg/web_nlg_en-test-1330 (Full System); errors=0; tokens=876
+[03:24:55] GPT-5.6 Sol 38/50: starting e2e_nlg/e2e_nlg-test-209 (Baseline)
+[03:24:57] Finished GPT-5.6 Sol e2e_nlg/e2e_nlg-test-209 (Baseline) after 1.6s
+[03:24:57] Judge completed e2e_nlg/e2e_nlg-test-209 (Baseline); errors=0; tokens=769
+[03:24:57] GPT-5.6 Sol 39/50: starting sportsett_basketball/5130 (Baseline)
+[03:25:02] Finished GPT-5.6 Sol sportsett_basketball/5130 (Baseline) after 4.5s
+[03:25:02] Judge completed sportsett_basketball/5130 (Baseline); errors=1; tokens=9465
+[03:25:02] GPT-5.6 Sol 40/50: starting e2e_nlg/e2e_nlg-test-1330 (Baseline)
+[03:25:03] Finished GPT-5.6 Sol e2e_nlg/e2e_nlg-test-1330 (Baseline) after 1.1s
+[03:25:03] Judge completed e2e_nlg/e2e_nlg-test-1330 (Baseline); errors=0; tokens=808
+[03:25:03] GPT-5.6 Sol 41/50: starting e2e_nlg/e2e_nlg-test-447 (Baseline)
+[03:25:05] Finished GPT-5.6 Sol e2e_nlg/e2e_nlg-test-447 (Baseline) after 1.8s
+[03:25:05] Judge completed e2e_nlg/e2e_nlg-test-447 (Baseline); errors=0; tokens=779
+[03:25:05] GPT-5.6 Sol 42/50: starting e2e_nlg/e2e_nlg-test-476 (Full System)
+[03:25:06] Finished GPT-5.6 Sol e2e_nlg/e2e_nlg-test-476 (Full System) after 1.1s
+[03:25:06] Judge completed e2e_nlg/e2e_nlg-test-476 (Full System); errors=0; tokens=804
+[03:25:06] GPT-5.6 Sol 43/50: starting sportsett_basketball/5955 (Baseline)
+[03:25:11] Finished GPT-5.6 Sol sportsett_basketball/5955 (Baseline) after 5.0s
+[03:25:11] Judge completed sportsett_basketball/5955 (Baseline); errors=1; tokens=9267
+[03:25:11] GPT-5.6 Sol 44/50: starting web_nlg/web_nlg_en-test-859 (Full System)
+[03:25:12] Finished GPT-5.6 Sol web_nlg/web_nlg_en-test-859 (Full System) after 1.2s
+[03:25:12] Judge completed web_nlg/web_nlg_en-test-859 (Full System); errors=0; tokens=745
+[03:25:12] GPT-5.6 Sol 45/50: starting web_nlg/web_nlg_en-test-859 (Baseline)
+[03:25:14] Finished GPT-5.6 Sol web_nlg/web_nlg_en-test-859 (Baseline) after 2.1s
+[03:25:14] Judge completed web_nlg/web_nlg_en-test-859 (Baseline); errors=0; tokens=745
+[03:25:14] GPT-5.6 Sol 46/50: starting totto/totto-validation-912 (Full System)
+[03:25:15] Finished GPT-5.6 Sol totto/totto-validation-912 (Full System) after 1.4s
+[03:25:15] Judge completed totto/totto-validation-912 (Full System); errors=0; tokens=1090
+[03:25:15] GPT-5.6 Sol 47/50: starting totto/totto-validation-6067 (Baseline)
+[03:25:24] Finished GPT-5.6 Sol totto/totto-validation-6067 (Baseline) after 8.8s
+[03:25:24] Judge completed totto/totto-validation-6067 (Baseline); errors=1; tokens=1445
+[03:25:24] GPT-5.6 Sol 48/50: starting web_nlg/web_nlg_en-test-1209 (Full System)
+[03:25:27] Finished GPT-5.6 Sol web_nlg/web_nlg_en-test-1209 (Full System) after 2.4s
+[03:25:27] Judge completed web_nlg/web_nlg_en-test-1209 (Full System); errors=0; tokens=909
+[03:25:27] GPT-5.6 Sol 49/50: starting dart/dart-test-1828 (Full System)
+[03:25:28] Finished GPT-5.6 Sol dart/dart-test-1828 (Full System) after 1.1s
+[03:25:28] Judge completed dart/dart-test-1828 (Full System); errors=0; tokens=817
+[03:25:28] GPT-5.6 Sol 50/50: starting sportsett_basketball/6127 (Full System)
+[03:25:48] Still running GPT-5.6 Sol sportsett_basketball/6127 (Full System); elapsed=20.0s
+[03:25:52] Finished GPT-5.6 Sol sportsett_basketball/6127 (Full System) after 24.1s
+[03:25:52] Judge completed sportsett_basketball/6127 (Full System); errors=4; tokens=10587
+[03:25:52] GPT-5.6 Sol consolidated status: 50/50 scored.

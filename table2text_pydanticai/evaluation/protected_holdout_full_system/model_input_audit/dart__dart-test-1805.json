@@ -1,0 +1,53 @@
+{
+  "__table2text_benchmark_example__": true,
+  "dataset_id": "dart",
+  "example_id": "dart-test-1805",
+  "task_family": "triple_verbalisation",
+  "output_mode": "short_text",
+  "request": "Express all and only the supplied triples as short, coherent natural language. Do not add unsupported facts.",
+  "source_text": "A Severed Wasp | NUMBER_OF_PAGES | \"388\"\nA Severed Wasp | OCLC_NUMBER | 8805735\nA Severed Wasp | MEDIA_TYPE | Hardcover",
+  "source_payload": {
+    "triples": [
+      [
+        "A Severed Wasp",
+        "NUMBER_OF_PAGES",
+        "\"388\""
+      ],
+      [
+        "A Severed Wasp",
+        "OCLC_NUMBER",
+        "8805735"
+      ],
+      [
+        "A Severed Wasp",
+        "MEDIA_TYPE",
+        "Hardcover"
+      ]
+    ],
+    "category": null
+  },
+  "parent_table": [
+    [
+      "A Severed Wasp",
+      "NUMBER_OF_PAGES",
+      "\"388\""
+    ],
+    [
+      "A Severed Wasp",
+      "OCLC_NUMBER",
+      "8805735"
+    ],
+    [
+      "A Severed Wasp",
+      "MEDIA_TYPE",
+      "Hardcover"
+    ]
+  ],
+  "metadata": {
+    "subtree_was_extended": false,
+    "normalizer": "dart",
+    "requested_split": "test",
+    "hub_id": "GEM/dart",
+    "config_name": null
+  }
+}

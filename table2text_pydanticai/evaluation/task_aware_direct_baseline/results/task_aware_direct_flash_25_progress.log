@@ -1,0 +1,146 @@
+[13:15:09] Notebook initialised. Progress log: /Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/task_aware_direct_baseline/results/task_aware_direct_flash_25_progress.log
+[13:15:09] Preflight passed: 25 exactly matched cases across 5 datasets.
+[13:15:09] Extracted existing same-item source metrics: /Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/task_aware_direct_baseline/results/selected_five_existing_full_raw_source_metrics.csv
+[13:20:22] Notebook initialised. Progress log: /Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/task_aware_direct_baseline/results/task_aware_direct_flash_25_progress.log
+[13:20:22] Preflight passed: 25 exactly matched cases across 5 datasets.
+[13:20:22] Extracted existing same-item source metrics: /Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/task_aware_direct_baseline/results/selected_five_existing_full_raw_source_metrics.csv
+[13:20:22] ============================================================================
+[13:20:22] GENERATION 1/25 starting: dart/dart-test-204
+[13:20:24] dart/dart-test-204 generation attempt 1/2: complete after 2.1s
+[13:20:24] GENERATION 1/25 finished: dart/dart-test-204; error=None; elapsed=2.0504923339467496s
+[13:20:24] ============================================================================
+[13:20:24] GENERATION 2/25 starting: dart/dart-test-217
+[13:20:26] dart/dart-test-217 generation attempt 1/2: complete after 2.3s
+[13:20:26] GENERATION 2/25 finished: dart/dart-test-217; error=None; elapsed=2.3379814161453396s
+[13:20:26] ============================================================================
+[13:20:26] GENERATION 3/25 starting: dart/dart-test-244
+[13:20:28] dart/dart-test-244 generation attempt 1/2: complete after 1.5s
+[13:20:28] GENERATION 3/25 finished: dart/dart-test-244; error=None; elapsed=1.4756684999447316s
+[13:20:28] ============================================================================
+[13:20:28] GENERATION 4/25 starting: dart/dart-test-260
+[13:20:29] dart/dart-test-260 generation attempt 1/2: complete after 1.5s
+[13:20:29] GENERATION 4/25 finished: dart/dart-test-260; error=None; elapsed=1.5249495829921216s
+[13:20:29] ============================================================================
+[13:20:29] GENERATION 5/25 starting: dart/dart-test-53
+[13:20:31] dart/dart-test-53 generation attempt 1/2: complete after 1.9s
+[13:20:31] GENERATION 5/25 finished: dart/dart-test-53; error=None; elapsed=1.8545597500633448s
+[13:20:31] ============================================================================
+[13:20:31] GENERATION 6/25 starting: e2e_nlg/e2e_nlg-test-178
+[13:20:32] e2e_nlg/e2e_nlg-test-178 generation attempt 1/2: complete after 1.3s
+[13:20:32] GENERATION 6/25 finished: e2e_nlg/e2e_nlg-test-178; error=None; elapsed=1.259946292033419s
+[13:20:32] ============================================================================
+[13:20:32] GENERATION 7/25 starting: e2e_nlg/e2e_nlg-test-51
+[13:20:34] e2e_nlg/e2e_nlg-test-51 generation attempt 1/2: complete after 1.5s
+[13:20:34] GENERATION 7/25 finished: e2e_nlg/e2e_nlg-test-51; error=None; elapsed=1.5397485829889774s
+[13:20:34] ============================================================================
+[13:20:34] GENERATION 8/25 starting: e2e_nlg/e2e_nlg-test-54
+[13:20:35] e2e_nlg/e2e_nlg-test-54 generation attempt 1/2: complete after 1.3s
+[13:20:35] GENERATION 8/25 finished: e2e_nlg/e2e_nlg-test-54; error=None; elapsed=1.2716234580148011s
+[13:20:35] ============================================================================
+[13:20:35] GENERATION 9/25 starting: e2e_nlg/e2e_nlg-test-61
+[13:20:37] e2e_nlg/e2e_nlg-test-61 generation attempt 1/2: complete after 1.4s
+[13:20:37] GENERATION 9/25 finished: e2e_nlg/e2e_nlg-test-61; error=None; elapsed=1.4353684999514371s
+[13:20:37] ============================================================================
+[13:20:37] GENERATION 10/25 starting: e2e_nlg/e2e_nlg-test-65
+[13:20:38] e2e_nlg/e2e_nlg-test-65 generation attempt 1/2: complete after 1.4s
+[13:20:38] GENERATION 10/25 finished: e2e_nlg/e2e_nlg-test-65; error=None; elapsed=1.3593527090270072s
+[13:20:38] ============================================================================
+[13:20:38] GENERATION 11/25 starting: sportsett_basketball/4934
+[13:20:53] sportsett_basketball/4934 generation attempt 1/2: still running (15.0s elapsed)
+[13:20:53] sportsett_basketball/4934 generation attempt 1/2: complete after 15.6s
+[13:20:53] GENERATION 11/25 finished: sportsett_basketball/4934; error=None; elapsed=15.555068708956242s
+[13:20:53] ============================================================================
+[13:20:53] GENERATION 12/25 starting: sportsett_basketball/4972
+[13:21:07] sportsett_basketball/4972 generation attempt 1/2: complete after 13.7s
+[13:21:07] GENERATION 12/25 finished: sportsett_basketball/4972; error=None; elapsed=13.695453125052154s
+[13:21:07] ============================================================================
+[13:21:07] GENERATION 13/25 starting: sportsett_basketball/4975
+[13:21:22] sportsett_basketball/4975 generation attempt 1/2: still running (15.0s elapsed)
+[13:21:23] sportsett_basketball/4975 generation attempt 1/2: complete after 16.1s
+[13:21:23] GENERATION 13/25 finished: sportsett_basketball/4975; error=None; elapsed=16.10382733400911s
+[13:21:23] ============================================================================
+[13:21:23] GENERATION 14/25 starting: sportsett_basketball/4982
+[13:21:32] sportsett_basketball/4982 generation attempt 1/2: complete after 9.2s
+[13:21:32] GENERATION 14/25 finished: sportsett_basketball/4982; error=None; elapsed=9.168984750052914s
+[13:21:33] ============================================================================
+[13:21:33] GENERATION 15/25 starting: sportsett_basketball/4986
+[13:21:47] sportsett_basketball/4986 generation attempt 1/2: complete after 14.7s
+[13:21:47] GENERATION 15/25 finished: sportsett_basketball/4986; error=None; elapsed=14.672900332836434s
+[13:21:47] ============================================================================
+[13:21:47] GENERATION 16/25 starting: totto/totto-validation-204
+[13:21:50] totto/totto-validation-204 generation attempt 1/2: complete after 3.0s
+[13:21:50] GENERATION 16/25 finished: totto/totto-validation-204; error=None; elapsed=3.02792604197748s
+[13:21:50] ============================================================================
+[13:21:50] GENERATION 17/25 starting: totto/totto-validation-217
+[13:21:55] totto/totto-validation-217 generation attempt 1/2: complete after 4.5s
+[13:21:55] GENERATION 17/25 finished: totto/totto-validation-217; error=None; elapsed=4.465484583051875s
+[13:21:55] ============================================================================
+[13:21:55] GENERATION 18/25 starting: totto/totto-validation-244
+[13:21:56] totto/totto-validation-244 generation attempt 1/2: complete after 1.8s
+[13:21:56] GENERATION 18/25 finished: totto/totto-validation-244; error=None; elapsed=1.7551857500802726s
+[13:21:56] ============================================================================
+[13:21:56] GENERATION 19/25 starting: totto/totto-validation-260
+[13:21:59] totto/totto-validation-260 generation attempt 1/2: complete after 2.9s
+[13:21:59] GENERATION 19/25 finished: totto/totto-validation-260; error=None; elapsed=2.8841721669305116s
+[13:21:59] ============================================================================
+[13:21:59] GENERATION 20/25 starting: totto/totto-validation-712
+[13:22:02] totto/totto-validation-712 generation attempt 1/2: complete after 2.1s
+[13:22:02] GENERATION 20/25 finished: totto/totto-validation-712; error=None; elapsed=2.1342538751196116s
+[13:22:02] ============================================================================
+[13:22:02] GENERATION 21/25 starting: web_nlg/web_nlg_en-test-178
+[13:22:04] web_nlg/web_nlg_en-test-178 generation attempt 1/2: complete after 2.4s
+[13:22:04] GENERATION 21/25 finished: web_nlg/web_nlg_en-test-178; error=None; elapsed=2.3852071249857545s
+[13:22:04] ============================================================================
+[13:22:04] GENERATION 22/25 starting: web_nlg/web_nlg_en-test-51
+[13:22:06] web_nlg/web_nlg_en-test-51 generation attempt 1/2: complete after 1.7s
+[13:22:06] GENERATION 22/25 finished: web_nlg/web_nlg_en-test-51; error=None; elapsed=1.7230857079848647s
+[13:22:06] ============================================================================
+[13:22:06] GENERATION 23/25 starting: web_nlg/web_nlg_en-test-54
+[13:22:09] web_nlg/web_nlg_en-test-54 generation attempt 1/2: complete after 3.2s
+[13:22:09] GENERATION 23/25 finished: web_nlg/web_nlg_en-test-54; error=None; elapsed=3.214606082998216s
+[13:22:09] ============================================================================
+[13:22:09] GENERATION 24/25 starting: web_nlg/web_nlg_en-test-61
+[13:22:10] web_nlg/web_nlg_en-test-61 generation attempt 1/2: complete after 1.1s
+[13:22:10] GENERATION 24/25 finished: web_nlg/web_nlg_en-test-61; error=None; elapsed=1.1269608750008047s
+[13:22:10] ============================================================================
+[13:22:10] GENERATION 25/25 starting: web_nlg/web_nlg_en-test-65
+[13:22:12] web_nlg/web_nlg_en-test-65 generation attempt 1/2: complete after 1.7s
+[13:22:12] GENERATION 25/25 finished: web_nlg/web_nlg_en-test-65; error=None; elapsed=1.7063095418270677s
+[13:22:12] Three-condition artifact validated: Counter({'full_system': 25, 'raw_generic_flash': 25, 'task_aware_direct_flash': 25})
+[13:22:12] Saved: /Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/task_aware_direct_baseline/generations/task_aware_direct_flash_25_three_condition_generations.jsonl
+[13:22:12] Starting reference metrics for all three paired conditions
+[13:22:27] Reference metrics: still running (15.0s elapsed)
+[13:22:42] Reference metrics: still running (30.2s elapsed)
+[13:22:57] Reference metrics: still running (45.3s elapsed)
+[13:23:12] Reference metrics: still running (60.4s elapsed)
+[13:23:28] Reference metrics: still running (75.5s elapsed)
+[13:23:43] Reference metrics: still running (90.6s elapsed)
+[13:23:58] Reference metrics: still running (105.9s elapsed)
+[13:24:13] Reference metrics: still running (120.9s elapsed)
+[13:24:28] Reference metrics: still running (136.0s elapsed)
+[13:24:43] Reference metrics: still running (151.1s elapsed)
+[13:24:58] Reference metrics: still running (166.2s elapsed)
+[13:25:13] Reference metrics: still running (181.4s elapsed)
+[13:25:28] Reference metrics: still running (196.5s elapsed)
+[13:25:39] Reference metrics: complete after 207.1s
+[13:25:39] Reference metric rows: 495
+[13:25:39] Starting source-grounded AlignScore/HHEM for all three paired conditions
+[13:25:54] Source-grounded metrics: still running (15.0s elapsed)
+[13:26:09] Source-grounded metrics: still running (30.0s elapsed)
+[13:26:24] Source-grounded metrics: still running (45.0s elapsed)
+[13:26:39] Source-grounded metrics: still running (60.0s elapsed)
+[13:26:54] Source-grounded metrics: still running (75.0s elapsed)
+[13:27:09] Source-grounded metrics: still running (90.0s elapsed)
+[13:27:24] Source-grounded metrics: still running (105.0s elapsed)
+[13:27:39] Source-grounded metrics: still running (120.1s elapsed)
+[13:27:54] Source-grounded metrics: still running (135.1s elapsed)
+[13:28:09] Source-grounded metrics: still running (150.1s elapsed)
+[13:28:24] Source-grounded metrics: still running (165.1s elapsed)
+[13:28:39] Source-grounded metrics: still running (180.1s elapsed)
+[13:28:54] Source-grounded metrics: still running (195.3s elapsed)
+[13:29:04] Source-grounded metrics: complete after 204.8s
+[13:29:04] Source-grounded metric rows: 300
+[13:29:04] GPT-5.6 structured judging disabled.
+[13:29:04] Blinded human packet generation disabled.
+[13:29:04] Repeated-generation stability experiment disabled.
+[13:29:04] Evaluation notebook complete.

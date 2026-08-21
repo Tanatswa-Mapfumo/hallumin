@@ -1,0 +1,24 @@
+{
+  "__table2text_benchmark_example__": true,
+  "dataset_id": "web_nlg",
+  "example_id": "web_nlg_en-test-864",
+  "task_family": "triple_verbalisation",
+  "output_mode": "short_text",
+  "request": "Express all and only the supplied triples as short, coherent natural language. Do not add unsupported facts.",
+  "source_text": "Akeem_Ayers | debutTeam | Tennessee_Titans\nAkeem_Ayers | activeYearsStartYear | 2011",
+  "source_payload": {
+    "triples": [
+      "Akeem_Ayers | debutTeam | Tennessee_Titans",
+      "Akeem_Ayers | activeYearsStartYear | 2011"
+    ],
+    "category": "Athlete"
+  },
+  "parent_table": null,
+  "metadata": {
+    "category": "Athlete",
+    "normalizer": "webnlg",
+    "requested_split": "test",
+    "hub_id": "GEM/web_nlg",
+    "config_name": "en"
+  }
+}

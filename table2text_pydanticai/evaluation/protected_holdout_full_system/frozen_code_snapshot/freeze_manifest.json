@@ -1,0 +1,351 @@
+{
+  "experiment_id": "protected_holdout_full_system_flash_25",
+  "frozen_at": "2026-08-21T00:28:22.361813+00:00",
+  "freeze_basis": "exact_source_tree_snapshot",
+  "git_commit": "4a333a76702e6c056d8364dc212ce360d3fb1b92",
+  "git_branch": "main",
+  "git_status_porcelain": [
+    "M evaluation.ipynb",
+    " D table2text_pydanticai/evaluation/EVALUATION_CHAPTER_POST_25_EXAMPLE.md",
+    " M table2text_pydanticai/evaluation/config/variants.json",
+    " M table2text_pydanticai/evaluation/notebooks/build_dissertation_visual_evaluations.py",
+    " M table2text_pydanticai/evaluation/notebooks/dissertation_visual_evaluations.ipynb",
+    " M table2text_pydanticai/src/table2text/agents.py",
+    " M table2text_pydanticai/src/table2text/analytics.py",
+    " M table2text_pydanticai/src/table2text/data.py",
+    " M table2text_pydanticai/src/table2text/evaluation/generation.py",
+    " M table2text_pydanticai/src/table2text/evaluation/models.py",
+    " M table2text_pydanticai/src/table2text/schemas.py",
+    " M table2text_pydanticai/src/table2text/workflow.py",
+    " M table2text_pydanticai/tests/test_reference_evaluation.py",
+    " M table2text_pydanticai/tests/test_semantic_event_pipeline.py",
+    "?? .deepeval/",
+    "?? COMPLETE_THREE_CONDITION_EVALUATION_DOSSIER.md",
+    "?? EVALUATION_CHAPTER_POST_25_EXAMPLE.md",
+    "?? figures/",
+    "?? human_annotation.md",
+    "?? table2text_pydanticai/.deepeval/",
+    "?? table2text_pydanticai/.matplotlib/",
+    "?? table2text_pydanticai/evaluation/config/metrics_sportsett_4934_inferred_contract_20260813_200558_reference.json",
+    "?? table2text_pydanticai/evaluation/config/metrics_sportsett_basketball_4934_inferred_contract_deepseek-v4-flash_20260813_203625_reference.json",
+    "?? table2text_pydanticai/evaluation/config/variants_sportsett_4934_inferred_contract_20260813_200558.json",
+    "?? table2text_pydanticai/evaluation/config/variants_sportsett_4934_inferred_contract_flash_20260813_201650.json",
+    "?? table2text_pydanticai/evaluation/config/variants_sportsett_4934_inferred_contract_flash_complete_20260813_202225.json",
+    "?? table2text_pydanticai/evaluation/config/variants_sportsett_4934_inferred_contract_network_20260813_200905.json",
+    "?? table2text_pydanticai/evaluation/config/variants_sportsett_basketball_4934_inferred_contract_deepseek-v4-flash_20260813_203612.json",
+    "?? table2text_pydanticai/evaluation/config/variants_sportsett_basketball_4934_inferred_contract_deepseek-v4-flash_20260813_203625.json",
+    "?? table2text_pydanticai/evaluation/notebooks/build_evaluation_design_flow.py",
+    "?? table2text_pydanticai/evaluation/notebooks/build_gpt56_sol_annotation_figure.py",
+    "?? table2text_pydanticai/evaluation/notebooks/build_interactive_gpt56_annotation_artifacts.py",
+    "?? table2text_pydanticai/evaluation/notebooks/build_protected_holdout_notebook.py",
+    "?? table2text_pydanticai/evaluation/notebooks/build_task_aware_complete_evaluation_dossier.py",
+    "?? table2text_pydanticai/evaluation/notebooks/protected_holdout_full_system_evaluation.ipynb",
+    "?? table2text_pydanticai/evaluation/notebooks/protected_holdout_full_system_evaluation.py",
+    "?? table2text_pydanticai/evaluation/notebooks/task_aware_direct_baseline_evaluation.ipynb",
+    "?? table2text_pydanticai/evaluation/notebooks/task_aware_direct_baseline_evaluation.py",
+    "?? table2text_pydanticai/evaluation/protected_holdout_full_system/",
+    "?? table2text_pydanticai/evaluation/task_aware_direct_baseline/",
+    "?? table2text_pydanticai/src/table2text/task_contracts.py",
+    "?? table2text_pydanticai_experiment/"
+  ],
+  "git_worktree_clean": false,
+  "implementation_sha256": "f525ca0c932819f533eab9229752a055a8e9c1acef8dea420bfa7e1e8b6b91fb",
+  "implementation_files": [
+    {
+      "path": "evaluation/config/datasets.json",
+      "sha256": "d486459481ae41ffc3252034f56fbeab9aeb67e176148f58e5dbd5d1f0c572d0",
+      "bytes": 13891
+    },
+    {
+      "path": "evaluation/notebooks/protected_holdout_full_system_evaluation.py",
+      "sha256": "d1c90873e30a6e203470d0bd0f188f9fe2eba52cd13e9ee6ebcc40a035137c82",
+      "bytes": 63699
+    },
+    {
+      "path": "pyproject.toml",
+      "sha256": "88be1e2bb349accf96bc6e57f18e958e12af6022670518da7286d453d758444f",
+      "bytes": 1766
+    },
+    {
+      "path": "src/table2text/__init__.py",
+      "sha256": "2a6b8db0813173a6a11611995fad0ca35185f0b2225355d5366804527ed6716d",
+      "bytes": 187
+    },
+    {
+      "path": "src/table2text/__main__.py",
+      "sha256": "7795acbcd73fa6b357a0b5fa29c2a1241200724004000f14793d3e16c44fb130",
+      "bytes": 61
+    },
+    {
+      "path": "src/table2text/agents.py",
+      "sha256": "bc20d074c606825b629b0e846a5ad369972e387c62cf196bef0f318a430485ab",
+      "bytes": 171623
+    },
+    {
+      "path": "src/table2text/analytics.py",
+      "sha256": "bbb9fcf8966287d7d1db2c2d8da5c5707fa2199f4bf0686c07f5a9bdb683d131",
+      "bytes": 169485
+    },
+    {
+      "path": "src/table2text/audit.py",
+      "sha256": "ab4ab51124f64c82f5d222cce44420ea6af7753e5cf23f0e1f56a072e88d2ca5",
+      "bytes": 308347
+    },
+    {
+      "path": "src/table2text/capabilities.py",
+      "sha256": "0159920b006c8c958fe03ba367ed76161f8c63d3a80aca5ce437fa299c085e60",
+      "bytes": 183992
+    },
+    {
+      "path": "src/table2text/cli.py",
+      "sha256": "41ea58c70a5b06c2b21c8096028992578f0520ad65afd9da0c79b4aa7e35b565",
+      "bytes": 4567
+    },
+    {
+      "path": "src/table2text/config.py",
+      "sha256": "4ea510380fb963d3f51b4567b4bb64b04eb7e112ec7119109610fa05cb0753ff",
+      "bytes": 14319
+    },
+    {
+      "path": "src/table2text/data.py",
+      "sha256": "4affedf8837ab11702c986469b50033ceef8d9009e46c90473ce275d6a69ada0",
+      "bytes": 30224
+    },
+    {
+      "path": "src/table2text/evaluation/__init__.py",
+      "sha256": "c5194e794faa9dd943315549999ce150123b5705f22c6a86165efd5499615ff9",
+      "bytes": 1548
+    },
+    {
+      "path": "src/table2text/evaluation/alignscore_client.py",
+      "sha256": "80903591e6925ff04cd11bc1e1f0033fe67fefdb8a4547dfabc5c76e24289961",
+      "bytes": 4510
+    },
+    {
+      "path": "src/table2text/evaluation/cli.py",
+      "sha256": "642090cb4c52983d5f7670d1b163726d55164d46d6520e71678996fd2b4c25e5",
+      "bytes": 14191
+    },
+    {
+      "path": "src/table2text/evaluation/datasets.py",
+      "sha256": "dd1c3d63b9db1ed0d6c2500d142cf106e757d3512d5af0e39f217c75c9f3437d",
+      "bytes": 32685
+    },
+    {
+      "path": "src/table2text/evaluation/deepeval_metrics.py",
+      "sha256": "9cc810d592ad8f96611b4dec9990431f6e275c2d4f7c744790cb3ff02b40af43",
+      "bytes": 16741
+    },
+    {
+      "path": "src/table2text/evaluation/diagnostics.py",
+      "sha256": "a986730691babe8d7f281d5a54e5c2e642e8a9ff7426a2bb41b63692e04ef3a5",
+      "bytes": 4365
+    },
+    {
+      "path": "src/table2text/evaluation/external_factuality.py",
+      "sha256": "e6201b4931fde230f035bf66edbe2cec927424ee3dfd96ad74e9c3bb9f79a35b",
+      "bytes": 9911
+    },
+    {
+      "path": "src/table2text/evaluation/generation.py",
+      "sha256": "711b058acb0599b37dbc5575d51135cc85dea6de43e3e5f154df72cead1176af",
+      "bytes": 29882
+    },
+    {
+      "path": "src/table2text/evaluation/human_evaluation.py",
+      "sha256": "9cf54e262f816a945ac95cb7487c412840b56bbccd5706269a23a79d7d07a87e",
+      "bytes": 9225
+    },
+    {
+      "path": "src/table2text/evaluation/llm_judge_annotations.py",
+      "sha256": "95492c2e41ac1b3382872dcd9cce46622e2c9cf02494d25f8cf945673dcb98ed",
+      "bytes": 10510
+    },
+    {
+      "path": "src/table2text/evaluation/models.py",
+      "sha256": "93f37bf0d6b62406ad41f7c779e11d749341dad6b2795553c52e8a1ed5a315de",
+      "bytes": 11924
+    },
+    {
+      "path": "src/table2text/evaluation/notebook.py",
+      "sha256": "7258225d22708a758016b2ce3a13bb22d9f5ba1966a8bd8af1a288f4fdddcc0c",
+      "bytes": 11737
+    },
+    {
+      "path": "src/table2text/evaluation/reference_metrics.py",
+      "sha256": "83d34add9ecfc02740a41d0db28798426d7a09646e31079a9a7511d96ae20316",
+      "bytes": 38416
+    },
+    {
+      "path": "src/table2text/evaluation/statistics.py",
+      "sha256": "a2d9d8c7eea0e33b8408535fb59b82ab8b1d6358abc3c23ef87586c8877f6650",
+      "bytes": 10524
+    },
+    {
+      "path": "src/table2text/evaluation_backends.py",
+      "sha256": "64783bda2b6691fe4af0bc589ef290e21ed1e1842a866970ac3f70050b762162",
+      "bytes": 6414
+    },
+    {
+      "path": "src/table2text/narrative.py",
+      "sha256": "8f164e5555553fcb56bec4e48ee1e0da9f31abe368814e0458bffe9bfd38dea8",
+      "bytes": 12760
+    },
+    {
+      "path": "src/table2text/schemas.py",
+      "sha256": "bfd6618485839fe31e51934e75133fcf957ee0874ae9bcf8ea32f0850121efe8",
+      "bytes": 39414
+    },
+    {
+      "path": "src/table2text/structure.py",
+      "sha256": "afa3fd15a6bd170f9a42c1da5c63b7e8e0d0d6ae48b760324bb55af7f6356305",
+      "bytes": 21318
+    },
+    {
+      "path": "src/table2text/task_contracts.py",
+      "sha256": "bd8143e50fd783fab93b32b0f8a035b12b60406e796bd9721024248b0cb6e3eb",
+      "bytes": 16083
+    },
+    {
+      "path": "src/table2text/workflow.py",
+      "sha256": "42b74be88762bdf1bb9f5d4365c2a8f292b53fe48400aa64aa44637828c5b152",
+      "bytes": 162124
+    }
+  ],
+  "variant_path": "evaluation/protected_holdout_full_system/config/protected_full_system_flash.json",
+  "variant_sha256": "1fe2242bf777f26ada83114301c7c1fc11b6c25f613fa9d42e0b9484e4555d85",
+  "prepared_examples_path": "evaluation/prepared/all_examples.jsonl",
+  "prepared_examples_sha256": "cfb05fb8afed996b13af442af98f296d016b0881a09cec4666ec640156a6a749",
+  "models": {
+    "data_understanding": "deepseek:deepseek-v4-flash",
+    "orchestrator": "deepseek:deepseek-v4-flash",
+    "evidence": "deepseek:deepseek-v4-flash",
+    "verifier": "deepseek:deepseek-v4-flash",
+    "writer": "deepseek:deepseek-v4-flash",
+    "auditor": "deepseek:deepseek-v4-flash"
+  },
+  "generation_seed": 42,
+  "resolved_settings": {
+    "use_llm": true,
+    "max_revision_rounds": 2,
+    "max_agent_requests": 8,
+    "max_total_tokens": 300000,
+    "max_analysis_rows": 50000,
+    "structured_output_mode": "prompted",
+    "full_data_correlation_limit": 250000,
+    "min_abs_correlation": 0.2,
+    "max_correlation_findings": 6,
+    "max_group_findings": 8,
+    "target_proxy_correlation": 0.98,
+    "allow_experimental_targets": false,
+    "forecast_folds": 3,
+    "max_forecast_test_points": 2000,
+    "writer_target_words": 650,
+    "writer_max_words": null,
+    "writer_max_main_findings": null,
+    "repair_candidates_per_sentence": 3,
+    "writer_quality_revision_rounds": 1,
+    "writer_priority_fact_limit": null,
+    "writer_supporting_fact_limit": null,
+    "force_llm_short_form_writer": false,
+    "enable_insight_synthesis": true,
+    "max_insight_candidates": null,
+    "max_verified_main_insights": null,
+    "min_insight_confidence": 0.75,
+    "min_insight_salience": 0.65,
+    "min_facts_per_bounded_insight": 2,
+    "allow_hypotheses_in_report": false,
+    "minimum_writer_ready_fact_count": 6,
+    "minimum_overview_fact_count": 1,
+    "minimum_data_quality_fact_count": 1,
+    "minimum_relationship_fact_count": 2,
+    "maximum_recovered_overview_facts": 2,
+    "maximum_recovered_data_quality_facts": 3,
+    "maximum_recovered_correlation_facts": 3,
+    "maximum_recovered_group_comparison_facts": 2,
+    "maximum_recovered_modelling_facts": 1,
+    "minimum_main_finding_score": 0.65,
+    "minimum_main_effect_strength": "moderate",
+    "minimum_report_word_ratio": 0.45,
+    "minimum_report_word_floor": 160,
+    "maximum_repeated_caveat_mentions": 4,
+    "zero_unusual_rate_threshold": 0.05,
+    "ollama_base_url": "http://localhost:11434/v1",
+    "data_understanding_model": "deepseek:deepseek-v4-flash",
+    "orchestrator_model": "deepseek:deepseek-v4-flash",
+    "evidence_model": "deepseek:deepseek-v4-flash",
+    "verifier_model": "deepseek:deepseek-v4-flash",
+    "writer_model": "deepseek:deepseek-v4-flash",
+    "auditor_model": "deepseek:deepseek-v4-flash"
+  },
+  "agent_model_parameters": [
+    {
+      "builder": "build_data_understanding_agent",
+      "role": "data_understanding",
+      "temperature": 0.0,
+      "max_tokens": 7000,
+      "source_line": 286
+    },
+    {
+      "builder": "build_orchestrator_agent",
+      "role": "orchestrator",
+      "temperature": 0.1,
+      "max_tokens": 8000,
+      "source_line": 488
+    },
+    {
+      "builder": "build_evidence_agent",
+      "role": "evidence",
+      "temperature": 0.0,
+      "max_tokens": 9000,
+      "source_line": 883
+    },
+    {
+      "builder": "build_verifier_agent",
+      "role": "verifier",
+      "temperature": 0.0,
+      "max_tokens": 8000,
+      "source_line": 1002
+    },
+    {
+      "builder": "build_insight_synthesis_agent",
+      "role": "evidence",
+      "temperature": 0.0,
+      "max_tokens": 8000,
+      "source_line": 1939
+    },
+    {
+      "builder": "build_insight_verifier_agent",
+      "role": "verifier",
+      "temperature": 0.0,
+      "max_tokens": 8000,
+      "source_line": 2145
+    },
+    {
+      "builder": "build_writer_agent",
+      "role": "writer",
+      "temperature": 0.15,
+      "max_tokens": 11000,
+      "source_line": 2968
+    },
+    {
+      "builder": "build_auditor_agent",
+      "role": "auditor",
+      "temperature": 0.1,
+      "max_tokens": 12000,
+      "source_line": 3522
+    }
+  ],
+  "provider_seed_forwarded_to_deepseek": false,
+  "deepseek_base_url": "provider default",
+  "runtime": {
+    "python": "3.11.15 (main, Jun 23 2026, 15:46:51) [Clang 22.1.3 ]",
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "table2text_package_source": "/Users/realgobs/Documents/MScproject/table2text_pydanticai/src/table2text",
+    "pydantic": "2.13.4",
+    "pydantic_ai": null,
+    "openai": "2.45.0",
+    "pandas": "2.3.3"
+  },
+  "secrets_recorded": false
+}

@@ -1,0 +1,945 @@
+{
+  "__table2text_benchmark_example__": true,
+  "dataset_id": "totto",
+  "example_id": "totto-validation-1828",
+  "task_family": "highlighted_table_description",
+  "output_mode": "one_sentence",
+  "request": "Write exactly one concise sentence describing the highlighted table cells. Do not discuss unrelated cells and do not add headings.",
+  "source_text": "Page: Lasse Staw\nSection: Career statistics\nTable:\nClub | Season | Division | League | Cup | Total\nApps | Goals | Apps | Goals | Apps | Goals\n2004 | Fredrikstad | Tippeligaen | 1 | 0 | 0 | 0 | 1 | 0\n2005 | 0 | 0 | 0 | 0 | 0 | 0\n2006 | 4 | 0 | 0 | 0 | 3 | 0\n2007 | 4 | 0 | 1 | 0 | 5 | 0\n2008 | 11 | 0 | 1 | 0 | 12 | 0\n2009 | 15 | 0 | 2 | 0 | 17 | 0\n2010 | Adeccoligaen | 18 | 0 | 2 | 0 | 20 | 0\n2011 | Tippeligaen | 22 | 0 | 1 | 0 | 23 | 0\n*2012* | *Syrianska* | *Allsvenskan* | 8 | 0 | 0 | 0 | 8 | 0\n2012 | Lillestrøm | Tippeligaen | 2 | 0 | 0 | 0 | 2 | 0\n2013 | Aalesund | 0 | 0 | 2 | 0 | 2 | 0\n2014 | Bodø/Glimt | 14 | 0 | 4 | 0 | 18 | 0\n2015 | 9 | 0 | 1 | 0 | 10 | 0\nCareer Total | 108 | 0 | 14 | 0 | 122 | 0\nCells surrounded by * are highlighted.",
+  "source_payload": {
+    "table_page_title": "Lasse Staw",
+    "table_section_title": "Career statistics",
+    "table_section_text": "",
+    "table": [
+      [
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 2,
+          "value": "Club"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 2,
+          "value": "Season"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 2,
+          "value": "Division"
+        },
+        {
+          "column_span": 2,
+          "is_header": true,
+          "row_span": 1,
+          "value": "League"
+        },
+        {
+          "column_span": 2,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Cup"
+        },
+        {
+          "column_span": 2,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Total"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Apps"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Goals"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Apps"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Goals"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Apps"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Goals"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2004"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 8,
+          "value": "Fredrikstad"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 6,
+          "value": "Tippeligaen"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "1"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "1"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2005"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2006"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "4"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "3"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2007"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "4"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "1"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "5"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2008"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "11"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "1"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "12"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2009"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "15"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "17"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2010"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "Adeccoligaen"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "18"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "20"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2011"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "Tippeligaen"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "22"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "1"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "23"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2012"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "Syrianska"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "Allsvenskan"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "8"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "8"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2012"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "Lillestrøm"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 4,
+          "value": "Tippeligaen"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2013"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "Aalesund"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2014"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 2,
+          "value": "Bodø/Glimt"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "14"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "4"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "18"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2015"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "9"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "1"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "10"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 3,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Career Total"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "108"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "14"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "122"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "0"
+        }
+      ]
+    ],
+    "highlighted_cells": [
+      [
+        10,
+        0
+      ],
+      [
+        10,
+        1
+      ],
+      [
+        10,
+        2
+      ]
+    ]
+  },
+  "parent_table": [
+    [
+      "Club",
+      "Season",
+      "Division",
+      "League",
+      "Cup",
+      "Total"
+    ],
+    [
+      "Apps",
+      "Goals",
+      "Apps",
+      "Goals",
+      "Apps",
+      "Goals"
+    ],
+    [
+      "2004",
+      "Fredrikstad",
+      "Tippeligaen",
+      "1",
+      "0",
+      "0",
+      "0",
+      "1",
+      "0"
+    ],
+    [
+      "2005",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0"
+    ],
+    [
+      "2006",
+      "4",
+      "0",
+      "0",
+      "0",
+      "3",
+      "0"
+    ],
+    [
+      "2007",
+      "4",
+      "0",
+      "1",
+      "0",
+      "5",
+      "0"
+    ],
+    [
+      "2008",
+      "11",
+      "0",
+      "1",
+      "0",
+      "12",
+      "0"
+    ],
+    [
+      "2009",
+      "15",
+      "0",
+      "2",
+      "0",
+      "17",
+      "0"
+    ],
+    [
+      "2010",
+      "Adeccoligaen",
+      "18",
+      "0",
+      "2",
+      "0",
+      "20",
+      "0"
+    ],
+    [
+      "2011",
+      "Tippeligaen",
+      "22",
+      "0",
+      "1",
+      "0",
+      "23",
+      "0"
+    ],
+    [
+      "2012",
+      "Syrianska",
+      "Allsvenskan",
+      "8",
+      "0",
+      "0",
+      "0",
+      "8",
+      "0"
+    ],
+    [
+      "2012",
+      "Lillestrøm",
+      "Tippeligaen",
+      "2",
+      "0",
+      "0",
+      "0",
+      "2",
+      "0"
+    ],
+    [
+      "2013",
+      "Aalesund",
+      "0",
+      "0",
+      "2",
+      "0",
+      "2",
+      "0"
+    ],
+    [
+      "2014",
+      "Bodø/Glimt",
+      "14",
+      "0",
+      "4",
+      "0",
+      "18",
+      "0"
+    ],
+    [
+      "2015",
+      "9",
+      "0",
+      "1",
+      "0",
+      "10",
+      "0"
+    ],
+    [
+      "Career Total",
+      "108",
+      "0",
+      "14",
+      "0",
+      "122",
+      "0"
+    ]
+  ],
+  "metadata": {
+    "overlap_subset": "False",
+    "table_page_title": "Lasse Staw",
+    "table_section_title": "Career statistics",
+    "normalizer": "totto",
+    "requested_split": "validation",
+    "hub_id": "GEM/totto",
+    "config_name": null
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "created_at": "2026-08-20T12:52:09.516241+00:00",
+  "output_path": "/Users/realgobs/Documents/MScproject/table2text_pydanticai/evaluation/task_aware_direct_baseline/COMPLETE_THREE_CONDITION_EVALUATION_DOSSIER.md",
+  "population": {
+    "datasets": 5,
+    "examples": 25,
+    "conditions": 3,
+    "generations": 75,
+    "reference_metric_records": 495,
+    "source_metric_records": 300,
+    "annotation_records": 75
+  },
+  "condition_counts": {
+    "full_system": 25,
+    "raw_generic_flash": 25,
+    "task_aware_direct_flash": 25
+  },
+  "dataset_counts": {
+    "dart": 15,
+    "e2e_nlg": 15,
+    "sportsett_basketball": 15,
+    "totto": 15,
+    "web_nlg": 15
+  },
+  "full_system_models": {
+    "auditor": "deepseek:deepseek-v4-flash",
+    "data_understanding": "deepseek:deepseek-v4-flash",
+    "evidence": "deepseek:deepseek-v4-flash",
+    "orchestrator": "deepseek:deepseek-v4-flash",
+    "verifier": "deepseek:deepseek-v4-flash",
+    "writer": "deepseek:deepseek-v4-flash"
+  },
+  "artifact_sha256": {
+    "evaluation/task_aware_direct_baseline/generations/task_aware_direct_flash_25_three_condition_generations.jsonl": "257c1882706bbf3a8973fece1fb2fa1b0d8e516bdb16f8cf557c926d83ba718f",
+    "evaluation/task_aware_direct_baseline/prepared/task_aware_direct_flash_25_examples.jsonl": "e835ee853ad4cb0a8f34f3f84963b7859571ca2db7499ea62ceb4c69708a238b",
+    "evaluation/task_aware_direct_baseline/results/task_aware_direct_flash_25_reference_metrics.jsonl": "6500471c7e1d9dda7cfb7fdf45917f6b78c5057573c672355918b203692be2f3",
+    "evaluation/task_aware_direct_baseline/results/task_aware_direct_flash_25_source_grounded_metrics.jsonl": "bb02c524e6c3caa5cca5f99ac87377a71d6a46d8a4faf63f0c82d5c0d935af9f",
+    "evaluation/task_aware_direct_baseline/results/gpt56_all_75_annotations_with_provenance.jsonl": "3f681ae7f0711b62ef3b5854ea9a8e550dd6e277a8f2b8de629433b52379f4dc",
+    "evaluation/task_aware_direct_baseline/results/task_aware_direct_flash_25_reference_macro.csv": "6f07a8594d45db410d005e24d1ae7495ca25101f2632f0b99c4281282b8dba0c",
+    "evaluation/task_aware_direct_baseline/results/task_aware_direct_flash_25_source_macro.csv": "29ad862f023727b90f097190f42ba5d56decfe6c69979bfbe5e1c8ac9ca223aa",
+    "evaluation/task_aware_direct_baseline/results/task_aware_direct_flash_25_reference_by_dataset.csv": "2476c02f83f964bd01edd8ed5928b48617c1fd3249d7151d0ae6ccd5ea221eab",
+    "evaluation/task_aware_direct_baseline/results/task_aware_direct_flash_25_source_by_dataset.csv": "525a9568f3106956015cc39934c1c6f993baeaa9640930b71bd2c6bd26d6640c",
+    "evaluation/task_aware_direct_baseline/results/task_aware_direct_flash_25_direction_adjusted_wins.csv": "6d2bd3a137ba4c8f1c9c42d183ce50b355f5d360f3ab3dae30e5736388e6ee24",
+    "evaluation/task_aware_direct_baseline/results/selected_five_three_condition_source_metrics.csv": "53e332f74a7aeb0e9d29cec89b5044c7781d258ece8db16f2a93bb0d56bb2e58",
+    "evaluation/task_aware_direct_baseline/results/task_aware_direct_flash_25_manifest.json": "6deb1bea431cb69396637446a258d2d8aa8111438a125416da24bcd27399001a",
+    "evaluation/task_aware_direct_baseline/results/interactive_gpt56_annotation_provenance.json": "5056fd45f9f76d7d5198512ea1604abfa7e6aafd6347bd21db82bd41bce60d5a",
+    "evaluation/task_aware_direct_baseline/results/task_aware_direct_flash_25_progress.log": "eddeb00471befe9cc301daf284f7c26c331fe71113a914a43babcffe2cd7eb8a",
+    "evaluation/task_aware_direct_baseline/config/variants_task_aware_direct_flash_25.json": "43bb29f21cfca34b5cb23418e17f876c00b148722149b869a2dc67e8bf96eba4",
+    "evaluation/task_aware_direct_baseline/config/metrics_task_aware_direct_flash_25_reference.json": "993f52df90cd6402dcf564cc5ee33af8caa4f2817d59a1680b3e4c5a7e3df278",
+    "evaluation/task_aware_direct_baseline/config/metrics_task_aware_direct_flash_25_source_grounded.json": "3940a57d4d4bf2e427a9dbaf07691e53a616d725b2be47c2c552043ad55363e2",
+    "evaluation/notebooks/task_aware_direct_baseline_evaluation.ipynb": "e58ed6babaec7a30bd34d682e5a2aa72143d0b45895fb1580ad83bc3ddfc8053",
+    "evaluation/notebooks/task_aware_direct_baseline_evaluation.py": "a7605341fcfd3463b17f22bc8065efa7cab356040dcf5b1d3030294f9262d03e",
+    "evaluation/notebooks/build_interactive_gpt56_annotation_artifacts.py": "ffcdc7cb94b2fa8289f215ddcd6716b96f922f8fa0cfeac8012bfb5b3cf136a4",
+    "evaluation/notebooks/build_task_aware_complete_evaluation_dossier.py": "17505078b60a324b2620a1fa54dda6e541e58d82b951016c8ecb06372331a0e7"
+  }
+}

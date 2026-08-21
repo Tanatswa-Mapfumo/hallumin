@@ -1,0 +1,29 @@
+{
+  "variants": [
+    {
+      "variant_id": "full_inferred_contract",
+      "enabled": true,
+      "backend": "table2text",
+      "description": "Full multi-agent system with a generic request and a task contract inferred only from operational source structure.",
+      "settings_overrides": {
+        "data_understanding_model": "deepseek:deepseek-v4-flash",
+        "orchestrator_model": "deepseek:deepseek-v4-flash",
+        "evidence_model": "deepseek:deepseek-v4-flash",
+        "verifier_model": "deepseek:deepseek-v4-flash",
+        "writer_model": "deepseek:deepseek-v4-flash",
+        "auditor_model": "deepseek:deepseek-v4-flash",
+        "max_total_tokens": 300000,
+        "max_agent_requests": 8
+      },
+      "task_contract_mode": "inferred",
+      "request_override": "Understand the supplied data and report its strongest supported findings.",
+      "callable_path": null,
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [
+        42
+      ]
+    }
+  ]
+}

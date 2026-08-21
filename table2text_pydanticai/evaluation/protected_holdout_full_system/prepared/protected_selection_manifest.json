@@ -1,0 +1,270 @@
+{
+  "experiment_id": "protected_holdout_full_system_flash_25",
+  "selected_at": "2026-08-21T00:28:22.944030+00:00",
+  "protected": true,
+  "selection_seed": 20260820,
+  "selection_algorithm": "Dataset-stratified random sample after historical-generation exclusion; source and reference fields were not used.",
+  "examples_per_dataset": 5,
+  "dataset_order": [
+    "e2e_nlg",
+    "web_nlg",
+    "dart",
+    "totto",
+    "sportsett_basketball"
+  ],
+  "run_order": [
+    {
+      "position": 1,
+      "dataset_id": "e2e_nlg",
+      "example_id": "e2e_nlg-test-1330",
+      "source_sha256": "9e8fb57080429c1e645ec58eeb3803675a8038d04638e3801c08fece45ea4cfc",
+      "reference_sha256": "bf634ba957a0a8228c44057960a6512c941e7510853f54028f6e436b4c50b29f",
+      "task_family": "attribute_verbalisation",
+      "output_mode": "short_text",
+      "language": "en"
+    },
+    {
+      "position": 2,
+      "dataset_id": "web_nlg",
+      "example_id": "web_nlg_en-test-1209",
+      "source_sha256": "a413a081e355b67874e04f93ab59ee7b33bd20c885e0574a724090f7fe1a163b",
+      "reference_sha256": "2c8538c423f63fce8e472bfb22f4b2c28bc8595bb9c2016f9d0728cde2b8995e",
+      "task_family": "triple_verbalisation",
+      "output_mode": "short_text",
+      "language": "en"
+    },
+    {
+      "position": 3,
+      "dataset_id": "dart",
+      "example_id": "dart-test-1791",
+      "source_sha256": "20a5eccd67eb73bbf6f37ec51941e57ad416c4faa691d2cc277daf07d08e88d4",
+      "reference_sha256": "af602b3a77c5ee0df21a0b25b33a21eac28b98a21cd8922ee4fd59c0c260ee96",
+      "task_family": "triple_verbalisation",
+      "output_mode": "short_text",
+      "language": "en"
+    },
+    {
+      "position": 4,
+      "dataset_id": "totto",
+      "example_id": "totto-validation-1828",
+      "source_sha256": "4f01b0f2d1a2e944dc9c88cbc4ea7035f7f57569055cd98fd963a9f717fd3a40",
+      "reference_sha256": "13f4d6ba14f2d8846ae5d47990ba0abea068972dc688c623d49d9dd967b01b34",
+      "task_family": "highlighted_table_description",
+      "output_mode": "one_sentence",
+      "language": "en"
+    },
+    {
+      "position": 5,
+      "dataset_id": "sportsett_basketball",
+      "example_id": "5130",
+      "source_sha256": "432bc48818396a9345adffd433b22b1710c709c30e18a4f6935c3464b65c8e2f",
+      "reference_sha256": "2c74673beb1cb0b6c4b079762408b342913c08ad6f7271c4c7229717fcc6eb27",
+      "task_family": "event_report",
+      "output_mode": "multi_paragraph_report",
+      "language": "en"
+    },
+    {
+      "position": 6,
+      "dataset_id": "e2e_nlg",
+      "example_id": "e2e_nlg-test-209",
+      "source_sha256": "7de0ca441f2fb833ff0197f110c66c54c545fc71f7264a1a1c4dfb337b21c277",
+      "reference_sha256": "f5b104892617f5bd1d9bf95d2252a6ff0fea0dd279e574255231c301381504c4",
+      "task_family": "attribute_verbalisation",
+      "output_mode": "short_text",
+      "language": "en"
+    },
+    {
+      "position": 7,
+      "dataset_id": "web_nlg",
+      "example_id": "web_nlg_en-test-1330",
+      "source_sha256": "0dc9960da718f111cf6eb450519a016a22ee640015ee8bec715c72ba8d05a6b8",
+      "reference_sha256": "df9c74f2b730dd5fa43fcdd32b773b9f320e7a007f1424599601776a78857ab8",
+      "task_family": "triple_verbalisation",
+      "output_mode": "short_text",
+      "language": "en"
+    },
+    {
+      "position": 8,
+      "dataset_id": "dart",
+      "example_id": "dart-test-1805",
+      "source_sha256": "6b2447749b4569aa9ccd293353536c1e5de45907abab23a3d17be3202be8f9f9",
+      "reference_sha256": "3a25a85473ab0357b86dd5806e5dce9a5073145299aceb30558b56d66fa6dfe6",
+      "task_family": "triple_verbalisation",
+      "output_mode": "short_text",
+      "language": "en"
+    },
+    {
+      "position": 9,
+      "dataset_id": "totto",
+      "example_id": "totto-validation-4467",
+      "source_sha256": "aa436856c0ebc8aea944693e765472828cbdc6aafb670970a5c15a03f8df6d1d",
+      "reference_sha256": "b41d8e37a0c759b92fd4173207ba1c235bdd583b30f969d564167dfe6e23b13d",
+      "task_family": "highlighted_table_description",
+      "output_mode": "one_sentence",
+      "language": "en"
+    },
+    {
+      "position": 10,
+      "dataset_id": "sportsett_basketball",
+      "example_id": "5372",
+      "source_sha256": "d0793e0e6623f60983f0cc365fa6269099446399d87b82f687382512d9bde29a",
+      "reference_sha256": "087382c8eb93adfbe153771f92bcac63ce11fe957c30e23620526c9e93103113",
+      "task_family": "event_report",
+      "output_mode": "multi_paragraph_report",
+      "language": "en"
+    },
+    {
+      "position": 11,
+      "dataset_id": "e2e_nlg",
+      "example_id": "e2e_nlg-test-447",
+      "source_sha256": "ee20f1488f496eb0fa489b07f5fb0d6f77c740eb5148166dae377bca9b9ff4ca",
+      "reference_sha256": "94a4d50214686760602a9c1c5c903df9ffc684adbed2fc0b1d14c37cdbb91e06",
+      "task_family": "attribute_verbalisation",
+      "output_mode": "short_text",
+      "language": "en"
+    },
+    {
+      "position": 12,
+      "dataset_id": "web_nlg",
+      "example_id": "web_nlg_en-test-1466",
+      "source_sha256": "ceda5e34141ed6d3857c4ea8e2e05f21e7098cf4f2c6fe0eb35471edeeaf60ee",
+      "reference_sha256": "0944315b3912e63a7949969411805989726f2e28d27211c704460c9fd1606042",
+      "task_family": "triple_verbalisation",
+      "output_mode": "short_text",
+      "language": "en"
+    },
+    {
+      "position": 13,
+      "dataset_id": "dart",
+      "example_id": "dart-test-1828",
+      "source_sha256": "943f0cf7a385a91bb9ae4340fc1c3f852658d553173f9aacb7b19e5c8036e1c0",
+      "reference_sha256": "0d539c5af7762ac1859ecb654efbff4c76292ab5629b138b455834c2a2d98c92",
+      "task_family": "triple_verbalisation",
+      "output_mode": "short_text",
+      "language": "en"
+    },
+    {
+      "position": 14,
+      "dataset_id": "totto",
+      "example_id": "totto-validation-6067",
+      "source_sha256": "93ea1c14d25c908009aadf5d17515d948625a4673384762f1e058b9319db1c05",
+      "reference_sha256": "bddc524b00580d101af2646170f1309589439cffb40ef1626fc3a61fb14e3f83",
+      "task_family": "highlighted_table_description",
+      "output_mode": "one_sentence",
+      "language": "en"
+    },
+    {
+      "position": 15,
+      "dataset_id": "sportsett_basketball",
+      "example_id": "5786",
+      "source_sha256": "2d380f4702e071a20f97f90c6d2771c5357144f5f890c974fe06cab042aaf70d",
+      "reference_sha256": "bb95fec76d8be49f9311a03c0fbf3396fdab22b489d16729eec104139375f72e",
+      "task_family": "event_report",
+      "output_mode": "multi_paragraph_report",
+      "language": "en"
+    },
+    {
+      "position": 16,
+      "dataset_id": "e2e_nlg",
+      "example_id": "e2e_nlg-test-476",
+      "source_sha256": "dc16cc8d4dfa17c95af826014892da10e7adc35b3dfec6455e3e14a60dd75116",
+      "reference_sha256": "6d7229dffa4ca4a672bc73b14e4bd031d67f9a879f4a2cfeee3dddadb677541b",
+      "task_family": "attribute_verbalisation",
+      "output_mode": "short_text",
+      "language": "en"
+    },
+    {
+      "position": 17,
+      "dataset_id": "web_nlg",
+      "example_id": "web_nlg_en-test-859",
+      "source_sha256": "850b090ceaacbc5f7faf4782b25926cf343176e102230332065c2f88daff7e34",
+      "reference_sha256": "8d32ebce4aaf2ab161d1495559f07b3f74fa982abc751bf28c8bb264c8d0c9aa",
+      "task_family": "triple_verbalisation",
+      "output_mode": "short_text",
+      "language": "en"
+    },
+    {
+      "position": 18,
+      "dataset_id": "dart",
+      "example_id": "dart-test-2278",
+      "source_sha256": "83a08c4f27a66f1a6306ae6360a6ed977011c4ca6ded4a7b1df2f31b72c49479",
+      "reference_sha256": "dce109bd22e76fd1ea233f5c335019f0b17608be71f544d9f143331402310cf6",
+      "task_family": "triple_verbalisation",
+      "output_mode": "short_text",
+      "language": "en"
+    },
+    {
+      "position": 19,
+      "dataset_id": "totto",
+      "example_id": "totto-validation-839",
+      "source_sha256": "09a9a840e0ecbe6e8cc23300cef1fc925e8577e9d8c77bced996240dff713676",
+      "reference_sha256": "4bc3fecf5a648f242388bf1ed91ce31c75f2b90e15263b2e563f0f18efb5cbf1",
+      "task_family": "highlighted_table_description",
+      "output_mode": "one_sentence",
+      "language": "en"
+    },
+    {
+      "position": 20,
+      "dataset_id": "sportsett_basketball",
+      "example_id": "5955",
+      "source_sha256": "86491264c5dd17cd78b7120bb3f179565618a1c2778e388ea25b41e288ef6199",
+      "reference_sha256": "833109f0de34b3c6c88341b8443b6db76e62efa6cd0eacea3e3a9b99a3995d5f",
+      "task_family": "event_report",
+      "output_mode": "multi_paragraph_report",
+      "language": "en"
+    },
+    {
+      "position": 21,
+      "dataset_id": "e2e_nlg",
+      "example_id": "e2e_nlg-test-864",
+      "source_sha256": "772650e2992ed07ecfb68cae7171298479d3d2d9bd6216b563c4fdc4e4f5c712",
+      "reference_sha256": "5ef157458d3427cf0014a21463a855d8194f2045332afb43eded6fd3cb096645",
+      "task_family": "attribute_verbalisation",
+      "output_mode": "short_text",
+      "language": "en"
+    },
+    {
+      "position": 22,
+      "dataset_id": "web_nlg",
+      "example_id": "web_nlg_en-test-864",
+      "source_sha256": "3d589eb09ad48805c2de71a9c53f355e9c0dd090d7ad7330a531db2dd1163f66",
+      "reference_sha256": "94f9b0173d9ce29a5afa00e4d7523b95eb7a3b8e9981398b9cd1b2f0c2a36b74",
+      "task_family": "triple_verbalisation",
+      "output_mode": "short_text",
+      "language": "en"
+    },
+    {
+      "position": 23,
+      "dataset_id": "dart",
+      "example_id": "dart-test-4597",
+      "source_sha256": "652f9936ba6424bb0f260c603db3501d3047181a928e2fdb4eec3ca81f2829e5",
+      "reference_sha256": "4bd00c10ae67936e233cbc1a60c47d4265f1871969876cbfb8a66c8fbcba1669",
+      "task_family": "triple_verbalisation",
+      "output_mode": "short_text",
+      "language": "en"
+    },
+    {
+      "position": 24,
+      "dataset_id": "totto",
+      "example_id": "totto-validation-912",
+      "source_sha256": "02076943868e187e53172594cfe40e876163ca4a1385a814147a0a1655d4b5aa",
+      "reference_sha256": "85e3d857aa14ca068b9257722fc7a85a211536410554c00103c0b93772d8aaae",
+      "task_family": "highlighted_table_description",
+      "output_mode": "one_sentence",
+      "language": "en"
+    },
+    {
+      "position": 25,
+      "dataset_id": "sportsett_basketball",
+      "example_id": "6127",
+      "source_sha256": "532b36909f92f9f2d8e8c7faf6b1f5643fde5ecac64a97df32804fc816cd53df",
+      "reference_sha256": "b35653aa64d112e412a5fd2d9f6320a37fe2b9791b2854ce11248a82c31ef183",
+      "task_family": "event_report",
+      "output_mode": "multi_paragraph_report",
+      "language": "en"
+    }
+  ],
+  "historical_overlap_count_at_selection": 0,
+  "researcher_declared_no_prior_manual_inspection": true,
+  "freeze_manifest_sha256": "4f0c8f3df878f37eecf83e741b431b342a5bb3dbc56a26b99edc804b5561d989"
+}

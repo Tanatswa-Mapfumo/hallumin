@@ -1,0 +1,895 @@
+{
+  "created_at": "2026-08-21T00:28:22.944030+00:00",
+  "selection_rule": "Exclude every prior GenerationRecord found outside this protected experiment; sample by identity only.",
+  "historical_generation_files": [
+    {
+      "path": "evaluation/generations/ablation_sportsett_4934_20260805_021058_ablation_only_generations.jsonl",
+      "sha256": "6c1321868fe616fafe7f39148e8065e382f68760010ee4bf41d12441ac5bf809",
+      "matching_generation_rows": 3
+    },
+    {
+      "path": "evaluation/generations/ablation_sportsett_4934_20260805_021058_combined_generations.jsonl",
+      "sha256": "758969d146de35b36b41b7985a979ce9c2a31b5d31b17706095e97ef605f5a70",
+      "matching_generation_rows": 5
+    },
+    {
+      "path": "evaluation/generations/basketball_one_generations.jsonl",
+      "sha256": "e48e7c5ee8dd642cb23b7ed2309685b451a07f5655ae6457a761d7affa617659",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/codex_totto_fix_llm_smoke_finalcheck_generations.jsonl",
+      "sha256": "126f2c0a1d8c02cac665223b173ca096533fc3d1cb87c167c44aa23c04b8009d",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/codex_totto_fix_llm_smoke_generations.jsonl",
+      "sha256": "cf93c91f03916f5c5045a8a4677b3c8ae999e05825177a5e8478ac4cc7c73291",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/codex_totto_fix_llm_smoke_postfix_generations.jsonl",
+      "sha256": "4d2030458c3f4a96fb1781d6a85f28861dd5e9053282abfe44ec5c84a9b0f2c7",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/codex_totto_fix_llm_smoke_realisation_policy_generations.jsonl",
+      "sha256": "9cf60bdfcf9cac397de80df16e0f70f30029ed3c588109c8b9995a4b6a1dd72e",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/codex_webnlg_fix_llm_smoke_finalcheck_generations.jsonl",
+      "sha256": "8d490219f7cafffd883a98180c23359f2c18d6810eeaed922620f58d041a0027",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/codex_webnlg_fix_llm_smoke_generations.jsonl",
+      "sha256": "c1f026dfcc06c3ee75eec0ca3f2b4642ed615402a9595101972271b33295c993",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/codex_webnlg_fix_llm_smoke_postfix_generations.jsonl",
+      "sha256": "56e92c7e696ef256b77bad582e9ad086ba81fe1b532b0dba44b1a9f9f21ee480",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/codex_webnlg_fix_llm_smoke_realisation_policy_generations.jsonl",
+      "sha256": "aa4dbdca2af76546fc2ce3905a0d0d514cea6d64741a0860a4879b88f1198020",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/codex_webnlg_fix_smoke_generations.jsonl",
+      "sha256": "29d273fb785b312e9e39a69f79a44234d5ffeba2690ad93fbedad87453377725",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/e2e_nlg_example_1_generations.jsonl",
+      "sha256": "5d2681231c6503192e98f5f9c47be93da600c09dea74983d65154134b0f60c6e",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/e2e_nlg_example_2_generations.jsonl",
+      "sha256": "3b337ed04d46be2373570f1bd33eabc50b31f1e985dbeb02cbd05bb5ae3dda8c",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/e2e_nlg_example_3_generations.jsonl",
+      "sha256": "b4e63e4fe421f6a9505c6129e4863130c81e143e4c7dd7d2ceb570ecf745f3fc",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/e2e_nlg_example_5_generations.jsonl",
+      "sha256": "cf7845f1550f780df7c0639015e5b5fff5bbb0803b13de108ff022fc95f81f26",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/e2e_nlg_one_generations.jsonl",
+      "sha256": "210ca4bfb4caeab1cfdc2bb697ead5feeda523e8ceecf1c55ea338ab2cfcb61b",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/e2e_nlg_test_generations.jsonl",
+      "sha256": "c8820b03a7b90f7cbed2caf31fbe3e89e5bfc7d0c7d56b17c3b75c7ed044c713",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_comparison_20260804_205019_sportsett_basketball_combined_generations.jsonl",
+      "sha256": "d4d808d534e825f4ebe29c74f3e7e3f3794e92fd14ab0484a27f04e094d50afd",
+      "matching_generation_rows": 10
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_comparison_20260804_205019_sportsett_basketball_full_system_generations.jsonl",
+      "sha256": "7f9b1060862ab9e6953f7f6c38b44ee504659e144fa34b6e7d81d806890e4a64",
+      "matching_generation_rows": 5
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_comparison_20260804_205019_sportsett_basketball_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "ebe2e869e394197dcf5e1133aa7eba2e39519727a182b0dcd71506b474dee5bf",
+      "matching_generation_rows": 5
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_comparison_20260804_230117_e2e_nlg_combined_generations.jsonl",
+      "sha256": "ecae767c79da672c13a9373513ca83a600af8c2ef70a04fd9c171f3678e6408e",
+      "matching_generation_rows": 10
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_comparison_20260804_230117_e2e_nlg_full_system_generations.jsonl",
+      "sha256": "ed086bc61b80f07c772c5fdb34fd18acd60120352d598eff3b0f4bca7fdb60ca",
+      "matching_generation_rows": 5
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_comparison_20260804_230117_e2e_nlg_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "2496bec1d9e4b256a0dcd1486238baaccb3f3d271a193d821ed94a334c9cbd2e",
+      "matching_generation_rows": 5
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_comparison_20260804_231315_totto_combined_generations.jsonl",
+      "sha256": "73c8d7a4790dca3c8ce69a48ceda4ec5589e0c112ca265b0412a083104c59702",
+      "matching_generation_rows": 10
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_comparison_20260804_231315_totto_full_system_generations.jsonl",
+      "sha256": "414bda0a4a1d457a4092ccbf91ca84d1c409486895c8a464bd94ce2d65e4dc8a",
+      "matching_generation_rows": 5
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_comparison_20260804_231315_totto_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "fbba75de81beb6e66d8ed95a772718eb78268763171a086189c8a51bee5a22d0",
+      "matching_generation_rows": 5
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_comparison_20260804_232653_web_nlg_combined_generations.jsonl",
+      "sha256": "23658472c3e24b46cf3743466bdac9763704cbee3e51c0e800cfbb3d9d2fa38f",
+      "matching_generation_rows": 10
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_comparison_20260804_232653_web_nlg_full_system_generations.jsonl",
+      "sha256": "9e79468801463aa78a0f75c99be98adf8efd220249929f4d0cfd8387104247b6",
+      "matching_generation_rows": 5
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_comparison_20260804_232653_web_nlg_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "04b526aab4de327c4b8c897273427b7bf6b1aecf976523f9504585ffb3948c93",
+      "matching_generation_rows": 5
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_comparison_20260804_233348_dart_combined_generations.jsonl",
+      "sha256": "ce5b23d46318773396f4672a9ed3b62684c434f4b49e1eabdeceb6ed93650d4a",
+      "matching_generation_rows": 10
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_comparison_20260804_233348_dart_full_system_generations.jsonl",
+      "sha256": "de5222989d5f0c45d34371b272be3020ca4834c904da768ccbb56b9ca8a0f1aa",
+      "matching_generation_rows": 5
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_comparison_20260804_233348_dart_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "78d5dea6f97012c0d03e8da9569836c7e28f4d76557c7a3a6686c9b8006e8ae4",
+      "matching_generation_rows": 5
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_raw_generic_flash_20260805_181001_combined_generations.jsonl",
+      "sha256": "b6d91c102466ef624ddd1c60a0bf8ca35e352efe16f46da97e8d104ae53723d8",
+      "matching_generation_rows": 50
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_raw_generic_flash_20260805_181001_missing_raw_generic_generations.jsonl",
+      "sha256": "6219f6d3967de1375b69b406d3c4e9728f0e9ff339c4154af4935d6e8dbe1b47",
+      "matching_generation_rows": 20
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_raw_generic_flash_20260805_181001_raw_generic_25_generations.jsonl",
+      "sha256": "34e3655e66e6d66cc7b1ae1b07ce1a9ac89702d1a0ea5078470695f1bd362cd5",
+      "matching_generation_rows": 25
+    },
+    {
+      "path": "evaluation/generations/five_dataset_five_each_raw_generic_flash_20260805_181001_rerun_totto_244.jsonl",
+      "sha256": "ca490140fe0617b3eb1af1416452c299ab1dce5303950f8361bb28e91e4b86af",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/five_dataset_flash_pipeline_gpt55_writer_generations.jsonl",
+      "sha256": "55bb87c0540fbd103b2c2953b0be650564b3737509d792e3d1ea66a3ad0a29c9",
+      "matching_generation_rows": 5
+    },
+    {
+      "path": "evaluation/generations/five_dataset_full_system_openai_gpt55_same_as_pro_generations.jsonl",
+      "sha256": "fbcd6eb149219c86eedbe09c6bead2d04b20075012f62d0bb206bbf3c8f83b32",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/five_dataset_pro_comparison_for_openai_judge_generations.jsonl",
+      "sha256": "f038f895f019d06293b8fdf850740549741106c3c0ac6f6db62c002a98b1cae1",
+      "matching_generation_rows": 10
+    },
+    {
+      "path": "evaluation/generations/five_dataset_raw_generic_flash_20260805_173619_generations.jsonl",
+      "sha256": "903534a7bbbeeee19370b7917aadc756e706d95c51dac27d8496002b061ec78d",
+      "matching_generation_rows": 5
+    },
+    {
+      "path": "evaluation/generations/five_dataset_raw_generic_flash_20260805_173701_combined_generations.jsonl",
+      "sha256": "d08238779d8aeffa5c91a63b34ab7e73992b11d83e2034b1f2c1618c48a214d1",
+      "matching_generation_rows": 10
+    },
+    {
+      "path": "evaluation/generations/five_dataset_raw_generic_flash_20260805_173701_generations.jsonl",
+      "sha256": "9e42b3582c4192ef0dd4b4ee247d01cca9c46a87e22f399e48409ef10a23beee",
+      "matching_generation_rows": 5
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_013629_ALL_generations.jsonl",
+      "sha256": "c7734fd8a60d6e6a2dac580c2de43ccb4ebf899955e8c8e43e078c1dbc8015da",
+      "matching_generation_rows": 8
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_013629_dart_combined_generations.jsonl",
+      "sha256": "150437f172e3aca16f5420ed7dd0760b8a57594018c30ee966ca65525dfbe0eb",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_013629_dart_full_system_generations.jsonl",
+      "sha256": "ed94f38f072aa3091e3e7cd3154b4d920957b131c4bdb45dbb12d25aca1d63b1",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_013629_dart_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "a424591b89fe82abf1915769b18b94af41c0b382b50fdc24171dec6673cc3e5c",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_013629_e2e_nlg_combined_generations.jsonl",
+      "sha256": "9b567c8355555da5b0e74da098e300ef7a3d8ce8acac24486efc7a030e55b2d0",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_013629_e2e_nlg_full_system_generations.jsonl",
+      "sha256": "c7996e3d4aa7c9149dae9120828f14028e9dc6a8c3363442201aae52b3b3f3c2",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_013629_e2e_nlg_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "77a4bf3522a222fec1e21ec50def1242448e2b4611d74a151724aa9c1fe76f7f",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_013629_totto_combined_generations.jsonl",
+      "sha256": "f1356beafae1925aa134cc86d001bc372787bbd70fcc17eb2571d9a4d40d5944",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_013629_totto_full_system_generations.jsonl",
+      "sha256": "ae4b08221d7a105f8b75fc714248934b06fc2ad37bf2c32b936ae22ad75be3dc",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_013629_totto_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "6c57e0462e9591c2409893406a6e5d084ea724e2c0c6917ab4f98129996bcdd7",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_013629_web_nlg_combined_generations.jsonl",
+      "sha256": "c8a49416b69ac528df402dd8f20f4cd311dbaa8a0837fdd51b70549022da4555",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_013629_web_nlg_full_system_generations.jsonl",
+      "sha256": "be29122d52ae5a3ea27a78df179034d163d87c28cf93d37e48bea8bb061ea3b5",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_013629_web_nlg_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "de9e987dc4681d9cbae5d5be95ef3224ccc97cd6caf4bb3e7fd995c9fb89ff98",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_033708_ALL_generations.jsonl",
+      "sha256": "0e28dd019679243310cd3359b1127c3b8f125972170a1e93fbc40a8e45f88506",
+      "matching_generation_rows": 8
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_033708_dart_combined_generations.jsonl",
+      "sha256": "019e6bff0600c99f4131b5e614c298ed74503c14fd262c8542c244860465e4d8",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_033708_dart_full_system_generations.jsonl",
+      "sha256": "311cbdcc71d0aaa3e63b07bdeff3e03a0a2dcd7ad0c59bc35649fc839f2d34d5",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_033708_dart_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "1482d18a6be52dd95a6744930731c7d816945b7e1cc3de2dd26fad8eef6f688f",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_033708_e2e_nlg_combined_generations.jsonl",
+      "sha256": "733395bf38a288da70653c03d6f283331df1fbd099924abd8cc9ab985ca38835",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_033708_e2e_nlg_full_system_generations.jsonl",
+      "sha256": "65c2b33a976ac295bdfb1c0933924ff2e55b367ce42bb41550fcd5b039591332",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_033708_e2e_nlg_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "dd886b9a084d013297da2141a464fefc40756cdbfaec8f3826e558515af69861",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_033708_totto_combined_generations.jsonl",
+      "sha256": "7059f77e43505e24a33b6082c1044fcfc4f4acf33cb3195fc50299362ea837ab",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_033708_totto_full_system_generations.jsonl",
+      "sha256": "8a8dc9b96668ac4007b56579cc950246a922e82c77350cb041c0850257effc4a",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_033708_totto_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "afe471d77801c64c650cfd9fed25498d5fc6f5532cc1343a62bd66fe486357dc",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_033708_web_nlg_combined_generations.jsonl",
+      "sha256": "ef3c5592ae756cc11739f38efccca0137c2f047de32a675ee9f0abd77d399d85",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_033708_web_nlg_full_system_generations.jsonl",
+      "sha256": "2e4cd4b7e2195c9539c3d1fc37ed6ce4eeec7856d6495d29554efd50c6c26241",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260803_033708_web_nlg_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "7c8aa0a33bb33689893abde56733a63e7ac22475dfdb30c0140635b405086110",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_124519_ALL_generations.jsonl",
+      "sha256": "75562228b924b5e99e02beae0719346cfbe55c2b8a1d25b6342d26b07f0dbec4",
+      "matching_generation_rows": 8
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_124519_dart_combined_generations.jsonl",
+      "sha256": "7b2669716ba63db9924f0a45acb2c45cff795330e178266b39f112154a5f0417",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_124519_dart_full_system_generations.jsonl",
+      "sha256": "f5d96e51fc3b4ea83cdc2cbea2ed68a42b43144750e455a437df8be3036f5827",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_124519_dart_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "2dbfedf3d4668ecb9294513831d1172da5e97a6ac6f38b4982c90219cb56900d",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_124519_e2e_nlg_combined_generations.jsonl",
+      "sha256": "6f6528664238dcf4c920117a2465d2e1aad80be75dd1591ffe19fa78ed71a744",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_124519_e2e_nlg_full_system_generations.jsonl",
+      "sha256": "7fbc1389b13ac742f035b9554e27e1daca217b2f39c09e0c09e5f17ad0e16494",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_124519_e2e_nlg_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "9ada58935f4eae19dade9cca73c2d5eaaec7831dd442678af03a54cd1b7ab05b",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_124519_totto_combined_generations.jsonl",
+      "sha256": "0e3fe37fb7afa09caefafd5580d070ea7192c1f5d396f0ae9b2f1b4d8032ba82",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_124519_totto_full_system_generations.jsonl",
+      "sha256": "5e7cff37621c13eb0b3fe257f2959409f51d13896a2d525049c99d5794a8df70",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_124519_totto_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "12645a8d4ab28f2bcc6f8fa4e7818585fabc415130c6d0d8eabb5bc66ef29b0c",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_124519_web_nlg_combined_generations.jsonl",
+      "sha256": "cbbe8262891b32e1d3ab29907db5360a82b7ea1f234658160ff00309384c171c",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_124519_web_nlg_full_system_generations.jsonl",
+      "sha256": "3a5fb1f1e342db24796206c65990cc1c738daded063f78e982cf5b810af5fb94",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_124519_web_nlg_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "b0899d29dc48aac7dcccb49e798d10af9860a58e968cc151151ab578f30250b1",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_195116_e2e_nlg_combined_generations.jsonl",
+      "sha256": "756975a362ec8b59b95ca7d49b7583532d329078a2e93345a22d78ade81edd09",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_195116_e2e_nlg_full_system_generations.jsonl",
+      "sha256": "5498e39e87718a94b7679a11af2af09e4f33bf1aa725e6598a9941354e28aa3f",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_195116_e2e_nlg_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "89ea5f6670fe7803c901ee4dca1597e097365cea1d7f5f30b180799d773174ab",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_195549_ALL_generations.jsonl",
+      "sha256": "c232f94e7a5ec431ba2a275058cf444ab7dfccc433be286a8344567bc055068f",
+      "matching_generation_rows": 8
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_195549_dart_combined_generations.jsonl",
+      "sha256": "66e005df7b67eae9cbf4edbc20a82999565917a9958c7dcbc43fa78be77b49c2",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_195549_dart_full_system_generations.jsonl",
+      "sha256": "929dec99ea785cdc7a5269e3a45fc0ae4fe83899b86ba3d3d107fa8f84a8215c",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_195549_dart_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "a6d1be981e977c8adc16c07cf88c4ae2ebd85aa9208194b0dd23fe4b157cf58e",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_195549_e2e_nlg_combined_generations.jsonl",
+      "sha256": "717ea8b02a523b18086b68c5676fc06d74c1b5013da9394ba061ce656ceca9f3",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_195549_e2e_nlg_full_system_generations.jsonl",
+      "sha256": "bd640fbbe78cceb6a6482f2138315ac68d928709235323c7cd5c8bc97cd3ba27",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_195549_e2e_nlg_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "b1ee2e21a3567a447978e7a11a12ea2ecb03cfc380994bc1797d106c6fcd92e1",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_195549_totto_combined_generations.jsonl",
+      "sha256": "46923c2521401b69cb1e85aad3d6bc4e2cdb1bf782bc872b69e08bdf776037e9",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_195549_totto_full_system_generations.jsonl",
+      "sha256": "b8c2f29984e6a8f06d6e67d59735612a5f56a4c2b96fca3bdca6490d3700c976",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_195549_totto_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "1e5e361bc595e609275397c598033536d6097035f54f51bba4188629b168e32a",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_195549_web_nlg_combined_generations.jsonl",
+      "sha256": "ce3e5db2b31c0888dab4428af103a57768e579e5e89e14202363d4caff10ff89",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_195549_web_nlg_full_system_generations.jsonl",
+      "sha256": "93a075b3da479bb69e5685584205d69748b11f1226a2ae976477482d8c4a2971",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_195549_web_nlg_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "c096b2bee74bf63543fd7267ee0c326440dc87bf0721fa42e4dae252ab6fdeb4",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_202014_ALL_generations.jsonl",
+      "sha256": "365416c68afda2836041dde4ee7b537988453ec02001add5d1408b4d785b5a8e",
+      "matching_generation_rows": 8
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_202014_dart_combined_generations.jsonl",
+      "sha256": "0a7e8720ee7a52429ab6e77b445db844195397c76339eab7014c6b9c5c232423",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_202014_dart_full_system_generations.jsonl",
+      "sha256": "979b9f714ee47ecfaafa4e99cfdbf537a9ab37a7c0c69962e29d270dc2354513",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_202014_dart_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "31d0c3072eb423504b54e390d39017693c7fcf62b7db86a0dc0847fc84175568",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_202014_e2e_nlg_combined_generations.jsonl",
+      "sha256": "2556d2f9d7af6f365e86ae45ec959bf77036784c1e3e02aed2284e8c9e707a3c",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_202014_e2e_nlg_full_system_generations.jsonl",
+      "sha256": "9034e49fea3b3b2f0053d3092024257996e805bf6225ae3dd2b3c71ff55b5bea",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_202014_e2e_nlg_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "9a7b9b57b278011421384072efc0755b63d3b0f3eba4e1864683010a135d4536",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_202014_totto_combined_generations.jsonl",
+      "sha256": "c1dd95226fd98fb875621a7e4915b09fd969866c014e77330f552d5f99bc22dc",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_202014_totto_full_system_generations.jsonl",
+      "sha256": "a3aedeb558ed646df5864a1d891e1525de38baac5110e83f55b6b73241b01db3",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_202014_totto_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "db671d2f0f89be0cf7ed327bdad31ea86826079b6f33925f4783a3c91bc16091",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_202014_web_nlg_combined_generations.jsonl",
+      "sha256": "ba1b21a8446cde5987cd5cbdc225f04bfb86b3ff3e389ea3d0524456beb5e286",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_202014_web_nlg_full_system_generations.jsonl",
+      "sha256": "5260c218a2598e2431926e2ccb567e2d3ccd71a52c5e56a1e661c310cca44f22",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_logged_comparison_20260804_202014_web_nlg_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "c3b63b42c5a13fced3dfcd62b6223883fc2fd46cf57660706399827fe4d9854f",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/four_dataset_pro_comparison_20260812_215239_combined_generations.jsonl",
+      "sha256": "845e7ecf61cc7a264e509c4d94f6d751dfa544da45353ed58a5662e3ccb2ea2d",
+      "matching_generation_rows": 8
+    },
+    {
+      "path": "evaluation/generations/four_dataset_pro_comparison_20260812_215239_dart_generations.jsonl",
+      "sha256": "eca0c5e35db98424f9ef380a48f0cfce8a96103668a8c6e098643f2e95522475",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_pro_comparison_20260812_215239_e2e_nlg_generations.jsonl",
+      "sha256": "1394f369c46fe9211fcdebcc01d61b7bbbdf98e39e6ffb3676c206dd98cd1eca",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_pro_comparison_20260812_215239_totto_generations.jsonl",
+      "sha256": "79b1e91c9a5ba6985079dcb15229c23f5824c72a3227a0d57245bf059632b88b",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/four_dataset_pro_comparison_20260812_215239_web_nlg_generations.jsonl",
+      "sha256": "f9f779af1d348128148b4b969a4c8612c9f27778444cde7c9f96a9c0f55dbdad",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/generic_only_sportsett_basketball_4934_20260805_131536_generations.jsonl",
+      "sha256": "7b1feb1f9538fde1207e9d40796e91a883d4c1c0fd6da286bf2dac307f0392cc",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/generic_only_sportsett_basketball_4934_20260805_162215_generations.jsonl",
+      "sha256": "ec7cd23f6c51c4f4eb627d874f5ebb2cd7b43706772377bb3cad88a570619b5e",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/smoke_five_generations.jsonl",
+      "sha256": "b3e07b8b3f40560468db943ff826be0ab1fbadd3430a087f7bd82efdcf41ce59",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/source_grounded_generated_and_references.jsonl",
+      "sha256": "0112d248b36cc9251332c501325e0520679eee0f5692bee06c6311324664a149",
+      "matching_generation_rows": 3
+    },
+    {
+      "path": "evaluation/generations/sportsett_4934_inferred_contract_20260813_200558_generations.jsonl",
+      "sha256": "c8f890010d1dc6f7f698653ef5f8f81707423df6142f6bacf6cd4d0a731a29ff",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/sportsett_4934_inferred_contract_20260813_200558_vs_saved_generations.jsonl",
+      "sha256": "0344388e652fee23910d8f7242611084dd082e09e277a3d6b333e132a86f3738",
+      "matching_generation_rows": 3
+    },
+    {
+      "path": "evaluation/generations/sportsett_4934_latest_generations.jsonl",
+      "sha256": "6a8033a90d8a1c9f04828bd68446628f027d7836a5e0061ae028ee72202c0213",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/sportsett_4934_latest_vs_raw_baseline.jsonl",
+      "sha256": "50245d8e260090f2fce15b9531b0ce12a43f02a3ee222e52ac1fac8a4654905c",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/sportsett_4934_new_run_vs_raw_baseline.jsonl",
+      "sha256": "f3ad0dcd71787fb5062c7ae6a7d940f6dcb3fe50958bb4a6d94f9bbb711f8609",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/sportsett_4934_new_run_vs_raw_flash_baseline.jsonl",
+      "sha256": "ca9cec47a5e3e76e2410b4fdd99cae08a8b99fc3c7098ad9f1c3a0a015ab2a46",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/sportsett_4934_reference_similarity_candidates.jsonl",
+      "sha256": "486f7f02b335be2d8b1dbe9d03b8860c697dacf341b0d1bfaf32cb5e5f545b8b",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/sportsett_4934_source_grounded_comparison.jsonl",
+      "sha256": "2eb8ae6e95575039f553bc9791457d3222cb9764e69cebed29909a74c4b07b9f",
+      "matching_generation_rows": 4
+    },
+    {
+      "path": "evaluation/generations/sportsett_basketball_1_generations.jsonl",
+      "sha256": "956c9daa3ddf8c5158aaccc0c9b2ea5e7ba098f85b138d8fe54e67abdc3f88e5",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/sportsett_basketball_4934_fast_compare_generations.jsonl",
+      "sha256": "97a16cc110b1fbbccc9ff13d27997e2abee2940bdfbb36a5b9914268a12f1404",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/sportsett_basketball_4934_fast_vs_raw_generations.jsonl",
+      "sha256": "5062fb5f4db5f93e31dbe5ed7044491141f8efdae996be8ce7f561a3e7b4bc98",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/sportsett_basketball_4934_full_system_single_for_openai_judge.jsonl",
+      "sha256": "fe32defa8a9b18cd37a880355f21d668269ec9a6e1ca4a3b713bab937953ffe7",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/sportsett_basketball_4934_generations.jsonl",
+      "sha256": "064cfb22375f6995b5971182a412b6e732d0a1949caaa9ed188db86fd0ec25b3",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/sportsett_basketball_4934_inferred_contract_deepseek-v4-flash_20260813_203625_generations.jsonl",
+      "sha256": "690ca5f9b2b3c57cd14ebbe7d857dd77d0dbefce10342df8c86dbcf24d055b34",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/sportsett_basketball_4934_inferred_contract_deepseek-v4-flash_20260813_203625_vs_saved_generations.jsonl",
+      "sha256": "33a985d1f7267b129c5cbc2d2543ad1b4901a61dce6a45ca27469c56a94021ad",
+      "matching_generation_rows": 3
+    },
+    {
+      "path": "evaluation/generations/sportsett_basketball_4934_post_fix_generations.jsonl",
+      "sha256": "8c4a8cc9c89197c1adc8810d234d15b649d3d7adc78119abdc73c115869072be",
+      "matching_generation_rows": 2
+    },
+    {
+      "path": "evaluation/generations/sportsett_basketball_4934_raw_only_generations.jsonl",
+      "sha256": "5550eaac8ac65c625dc2af2a6df9a75c9fae240b1351d180294b91fa4bc3973e",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/sportsett_basketball_4975_full_system_missing_judge_input.jsonl",
+      "sha256": "c8cb2ebb937cc070fea708162dfd0916af2260d6dc8178aa0aa8a1224777a689",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/sportsett_raw_deepseek_v4_flash_generations.jsonl",
+      "sha256": "f0dbfe8214c417abdb1a715d8ab7f3be6222f8c6cd20c7d01207fca5cdf099ae",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/sportsett_raw_deepseek_v4_pro_generations.jsonl",
+      "sha256": "6597880312869f9d03b9fc00fc5c8e583c8b23c86350c5cb979ebe52333035ce",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/totto_204_latest_generations.jsonl",
+      "sha256": "ca55fe8f94d672ff08bb2a9d6096b99424477c523314f9090f2d0ba23151fe32",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/totto_one_test_generations.jsonl",
+      "sha256": "671977cfff02c55ae3faa15d86721be52361573ec8fc76ad26eafea282149ee6",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/generations/totto_smoke_generations.jsonl",
+      "sha256": "b73b970d89bd16abc58fe65064460c6365de37ab1246c319b7e11dc0b1d898f5",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/dart__dart-test-204.jsonl",
+      "sha256": "963e04eb4fd1818dc548eb4a8170531c5e47d5b49bea7577c46acd99a9cfa61f",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/dart__dart-test-217.jsonl",
+      "sha256": "efb57c232cdfe5930a3a2b0a01d1f6e13668794bb35eaeae35120d4e6290068d",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/dart__dart-test-244.jsonl",
+      "sha256": "c368d4458741739de2b8352ac08f25b4f6c98df93552dc9bb88be7c27947e950",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/dart__dart-test-260.jsonl",
+      "sha256": "14da0e3cca0d0d2192aadaf656a6c87cd5f2cdf85f60cc5dd543300a00eaa58f",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/dart__dart-test-53.jsonl",
+      "sha256": "48f0556415dadc613d1660673722f65b16e4d4e7b1c71db31329aeebdb4b35a6",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/e2e_nlg__e2e_nlg-test-178.jsonl",
+      "sha256": "5b9c65745daba91913f9392ca4d8057630c086b79e89b189f8ceeb5453e62349",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/e2e_nlg__e2e_nlg-test-51.jsonl",
+      "sha256": "0afe5216d35cac597fb746ef856ab50d7c1700a5b954878c9c3f6981ab0148eb",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/e2e_nlg__e2e_nlg-test-54.jsonl",
+      "sha256": "1214d89e7685d23138b04479a4ef0b6ed7b3847d576678c0c410c969596dcd65",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/e2e_nlg__e2e_nlg-test-61.jsonl",
+      "sha256": "a41ca1de9bc5979aa14a151ac9c1c7f7b77465fb800149b68b3d9f5f7f9931ed",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/e2e_nlg__e2e_nlg-test-65.jsonl",
+      "sha256": "218013baf65039d3a18229618138a9849b03456d648bab86451d80dcd3a57016",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/sportsett_basketball__4934.jsonl",
+      "sha256": "2e953279b10e03d1cd4318afaa900d636fcdb3e1010047dd4dd8921891ecab21",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/sportsett_basketball__4972.jsonl",
+      "sha256": "790af0975a15be036addba8baa0365c1343d7fbf47afa67a7fa7b7490dec28b0",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/sportsett_basketball__4975.jsonl",
+      "sha256": "02540906a8121af7574e90fc606f83ac2dd74b286a0b24e48b1f76fb0a2be53e",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/sportsett_basketball__4982.jsonl",
+      "sha256": "521089b08f5a47fec5229ee90392753ad97d0cf247360ba71fdf120e3674420f",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/sportsett_basketball__4986.jsonl",
+      "sha256": "c56349e648114345cfe6c2cef1f6cecc522cce198dc0df2276332ab758e4de00",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/totto__totto-validation-204.jsonl",
+      "sha256": "6127846f7a2d139b439357e41eef6eb559eb0b834aef2a38c9aa785001de4cc6",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/totto__totto-validation-217.jsonl",
+      "sha256": "4af971ffc7e8726199bb6d76afe347355ff9ca1abd658c2e594466c6866b2790",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/totto__totto-validation-244.jsonl",
+      "sha256": "0f97e67d6f7a916f09de99cc80b2e0efb2845a354696fbe3e6ac21faaa65dea9",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/totto__totto-validation-260.jsonl",
+      "sha256": "90f32fe6fca7e1322de854a455b3827cb15085c1c65418826623c6ef6bb7e593",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/totto__totto-validation-712.jsonl",
+      "sha256": "3c6add6c9ff70ea31a6e895d02bad1dd4a6d8647e8b33f889e803413b98134f5",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/web_nlg__web_nlg_en-test-178.jsonl",
+      "sha256": "b25c6d1fd7a42d5cc744a89779d2ced1e94bf337e371f608d179b4db3452a28a",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/web_nlg__web_nlg_en-test-51.jsonl",
+      "sha256": "576290bdfa45a57dac7613e573629d33362eea2606f55eb9ab6bcc79dd1a4378",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/web_nlg__web_nlg_en-test-54.jsonl",
+      "sha256": "fb68aa1f4458c50059a05bacde6c4d1afc11f512be114834641d98c4ba54901f",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/web_nlg__web_nlg_en-test-61.jsonl",
+      "sha256": "8d24173102ff71d5f8c72d9f19a92818b9f89256db83f4d147c832b8a118d6c6",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/shards/web_nlg__web_nlg_en-test-65.jsonl",
+      "sha256": "bbbf7f0d2fe554bca465aa6acf84add77eaf740579df9aad5b676837739fe297",
+      "matching_generation_rows": 1
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/task_aware_direct_flash_25_generations.jsonl",
+      "sha256": "015b988985e8a8d3cd21c2aecf4b938d95ba9f70f616ea6575ce416d4151b0a0",
+      "matching_generation_rows": 25
+    },
+    {
+      "path": "evaluation/task_aware_direct_baseline/generations/task_aware_direct_flash_25_three_condition_generations.jsonl",
+      "sha256": "257c1882706bbf3a8973fece1fb2fa1b0d8e516bdb16f8cf557c926d83ba718f",
+      "matching_generation_rows": 75
+    }
+  ],
+  "excluded_example_ids": {
+    "e2e_nlg": [
+      "e2e_nlg-test-178",
+      "e2e_nlg-test-191",
+      "e2e_nlg-test-51",
+      "e2e_nlg-test-54",
+      "e2e_nlg-test-61",
+      "e2e_nlg-test-65"
+    ],
+    "web_nlg": [
+      "web_nlg_en-test-178",
+      "web_nlg_en-test-51",
+      "web_nlg_en-test-54",
+      "web_nlg_en-test-61",
+      "web_nlg_en-test-65"
+    ],
+    "dart": [
+      "dart-test-204",
+      "dart-test-217",
+      "dart-test-244",
+      "dart-test-260",
+      "dart-test-53"
+    ],
+    "totto": [
+      "totto-validation-1791",
+      "totto-validation-204",
+      "totto-validation-217",
+      "totto-validation-244",
+      "totto-validation-260",
+      "totto-validation-712"
+    ],
+    "sportsett_basketball": [
+      "4934",
+      "4972",
+      "4975",
+      "4982",
+      "4986"
+    ]
+  }
+}

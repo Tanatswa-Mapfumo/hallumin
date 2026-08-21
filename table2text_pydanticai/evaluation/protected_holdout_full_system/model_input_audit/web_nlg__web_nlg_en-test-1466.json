@@ -1,0 +1,23 @@
+{
+  "__table2text_benchmark_example__": true,
+  "dataset_id": "web_nlg",
+  "example_id": "web_nlg_en-test-1466",
+  "task_family": "triple_verbalisation",
+  "output_mode": "short_text",
+  "request": "Express all and only the supplied triples as short, coherent natural language. Do not add unsupported facts.",
+  "source_text": "Ciudad_Ayala | timeZone | Pacific_Daylight_Time",
+  "source_payload": {
+    "triples": [
+      "Ciudad_Ayala | timeZone | Pacific_Daylight_Time"
+    ],
+    "category": "City"
+  },
+  "parent_table": null,
+  "metadata": {
+    "category": "City",
+    "normalizer": "webnlg",
+    "requested_split": "test",
+    "hub_id": "GEM/web_nlg",
+    "config_name": "en"
+  }
+}

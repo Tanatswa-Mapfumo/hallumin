@@ -1,0 +1,53 @@
+{
+  "__table2text_benchmark_example__": true,
+  "dataset_id": "dart",
+  "example_id": "dart-test-1791",
+  "task_family": "triple_verbalisation",
+  "output_mode": "short_text",
+  "request": "Express all and only the supplied triples as short, coherent natural language. Do not add unsupported facts.",
+  "source_text": "Elliot See | ALMA_MATER | University of Texas at Austin\nElliot See | DEATH_PLACE | St. Louis\nElliot See | WAS_SELECTED_BY_NASA | 1962",
+  "source_payload": {
+    "triples": [
+      [
+        "Elliot See",
+        "ALMA_MATER",
+        "University of Texas at Austin"
+      ],
+      [
+        "Elliot See",
+        "DEATH_PLACE",
+        "St. Louis"
+      ],
+      [
+        "Elliot See",
+        "WAS_SELECTED_BY_NASA",
+        "1962"
+      ]
+    ],
+    "category": null
+  },
+  "parent_table": [
+    [
+      "Elliot See",
+      "ALMA_MATER",
+      "University of Texas at Austin"
+    ],
+    [
+      "Elliot See",
+      "DEATH_PLACE",
+      "St. Louis"
+    ],
+    [
+      "Elliot See",
+      "WAS_SELECTED_BY_NASA",
+      "1962"
+    ]
+  ],
+  "metadata": {
+    "subtree_was_extended": false,
+    "normalizer": "dart",
+    "requested_split": "test",
+    "hub_id": "GEM/dart",
+    "config_name": null
+  }
+}

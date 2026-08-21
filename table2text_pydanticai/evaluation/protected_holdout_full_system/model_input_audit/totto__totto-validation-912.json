@@ -1,0 +1,771 @@
+{
+  "__table2text_benchmark_example__": true,
+  "dataset_id": "totto",
+  "example_id": "totto-validation-912",
+  "task_family": "highlighted_table_description",
+  "output_mode": "one_sentence",
+  "request": "Write exactly one concise sentence describing the highlighted table cells. Do not discuss unrelated cells and do not add headings.",
+  "source_text": "Page: Tyrell Sutton\nSection: CFL Statistics\nTable:\nYear | Team | GP | Carries | Yards | TDs | Avg | Long |  | Rec | Yards | TDs\n2013 | MTL | 12 | 55 | 342 | 3 | 6.2 | 20 | 14 | 156 | 0\n2014 | MTL | 12 | 96 | 500 | 1 | 5.2 | 24 | 15 | 190 | 0\n2015 | MTL | 15 | 180 | 1,059 | 5 | 5.9 | 54 | 43 | 334 | 2\n*2016* | MTL | *7* | *74* | *412* | 0 | *5.6* | 27 | 27 | 206 | 0\n2017 | MTL | 14 | 152 | 843 | 5 | 5.5 | 43 | 44 | 312 | 1\n2018 | MTL | 9 | 86 | 417 | 1 | 4.8 | 44 | 30 | 309 | 0\nBC | 4 | 55 | 268 | 2 | 4.9 | 31 | 5 | 32 | 0\nTotal | 73 | 698 | 3,841 | 17 | 5.5 | 54 | 178 | 1,539 | 3\nCells surrounded by * are highlighted.",
+  "source_payload": {
+    "table_page_title": "Tyrell Sutton",
+    "table_section_title": "CFL Statistics",
+    "table_section_text": "",
+    "table": [
+      [
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Year"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Team"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "GP"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Carries"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Yards"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "TDs"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Avg"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Long"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 9,
+          "value": ""
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Rec"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Yards"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "TDs"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2013"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "MTL"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "12"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "55"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "342"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "3"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "6.2"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "20"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "14"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "156"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2014"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "MTL"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "12"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "96"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "500"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "1"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "5.2"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "24"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "15"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "190"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2015"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "MTL"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "15"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "180"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "1,059"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "5"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "5.9"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "54"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "43"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "334"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2016"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "MTL"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "7"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "74"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "412"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "5.6"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "27"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "27"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "206"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2017"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "MTL"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "14"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "152"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "843"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "5"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "5.5"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "43"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "44"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "312"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "1"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 2,
+          "value": "2018"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "MTL"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "9"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "86"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "417"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "1"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "4.8"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "44"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "30"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "309"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "BC"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "4"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "55"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "268"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "2"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "4.9"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "31"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "5"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "32"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "0"
+        }
+      ],
+      [
+        {
+          "column_span": 2,
+          "is_header": false,
+          "row_span": 1,
+          "value": "Total"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "73"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "698"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "3,841"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "17"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "5.5"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "54"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "178"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "1,539"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "3"
+        }
+      ]
+    ],
+    "highlighted_cells": [
+      [
+        4,
+        0
+      ],
+      [
+        4,
+        2
+      ],
+      [
+        4,
+        3
+      ],
+      [
+        4,
+        4
+      ],
+      [
+        4,
+        6
+      ]
+    ]
+  },
+  "parent_table": [
+    [
+      "Year",
+      "Team",
+      "GP",
+      "Carries",
+      "Yards",
+      "TDs",
+      "Avg",
+      "Long",
+      "",
+      "Rec",
+      "Yards",
+      "TDs"
+    ],
+    [
+      "2013",
+      "MTL",
+      "12",
+      "55",
+      "342",
+      "3",
+      "6.2",
+      "20",
+      "14",
+      "156",
+      "0"
+    ],
+    [
+      "2014",
+      "MTL",
+      "12",
+      "96",
+      "500",
+      "1",
+      "5.2",
+      "24",
+      "15",
+      "190",
+      "0"
+    ],
+    [
+      "2015",
+      "MTL",
+      "15",
+      "180",
+      "1,059",
+      "5",
+      "5.9",
+      "54",
+      "43",
+      "334",
+      "2"
+    ],
+    [
+      "2016",
+      "MTL",
+      "7",
+      "74",
+      "412",
+      "0",
+      "5.6",
+      "27",
+      "27",
+      "206",
+      "0"
+    ],
+    [
+      "2017",
+      "MTL",
+      "14",
+      "152",
+      "843",
+      "5",
+      "5.5",
+      "43",
+      "44",
+      "312",
+      "1"
+    ],
+    [
+      "2018",
+      "MTL",
+      "9",
+      "86",
+      "417",
+      "1",
+      "4.8",
+      "44",
+      "30",
+      "309",
+      "0"
+    ],
+    [
+      "BC",
+      "4",
+      "55",
+      "268",
+      "2",
+      "4.9",
+      "31",
+      "5",
+      "32",
+      "0"
+    ],
+    [
+      "Total",
+      "73",
+      "698",
+      "3,841",
+      "17",
+      "5.5",
+      "54",
+      "178",
+      "1,539",
+      "3"
+    ]
+  ],
+  "metadata": {
+    "overlap_subset": "False",
+    "table_page_title": "Tyrell Sutton",
+    "table_section_title": "CFL Statistics",
+    "normalizer": "totto",
+    "requested_split": "validation",
+    "hub_id": "GEM/totto",
+    "config_name": null
+  }
+}

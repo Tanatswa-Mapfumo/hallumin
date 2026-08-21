@@ -1,0 +1,197 @@
+{
+  "__table2text_benchmark_example__": true,
+  "dataset_id": "totto",
+  "example_id": "totto-validation-839",
+  "task_family": "highlighted_table_description",
+  "output_mode": "one_sentence",
+  "request": "Write exactly one concise sentence describing the highlighted table cells. Do not discuss unrelated cells and do not add headings.",
+  "source_text": "Page: Ernest Burton (American football)\nSection: Head coaching record\nTable:\nYear | Team | Overall | Conference | Standing | Bowl/playoffs\n*Maine Black Bears (Maine Intercollegiate Athletic Association) (1900)*\n1900 | Maine | 4–4 |  |  | \nMaine: | 4–4 |  | \nTotal: | *4–4* | \nCells surrounded by * are highlighted.",
+  "source_payload": {
+    "table_page_title": "Ernest Burton (American football)",
+    "table_section_title": "Head coaching record",
+    "table_section_text": "",
+    "table": [
+      [
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Year"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Team"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Overall"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Conference"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Standing"
+        },
+        {
+          "column_span": 1,
+          "is_header": true,
+          "row_span": 1,
+          "value": "Bowl/playoffs"
+        }
+      ],
+      [
+        {
+          "column_span": 9,
+          "is_header": false,
+          "row_span": 1,
+          "value": "Maine Black Bears (Maine Intercollegiate Athletic Association) (1900)"
+        }
+      ],
+      [
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "1900"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "Maine"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "4–4"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": ""
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": ""
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": ""
+        }
+      ],
+      [
+        {
+          "column_span": 2,
+          "is_header": false,
+          "row_span": 1,
+          "value": "Maine:"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "4–4"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": ""
+        },
+        {
+          "column_span": 5,
+          "is_header": false,
+          "row_span": 1,
+          "value": ""
+        }
+      ],
+      [
+        {
+          "column_span": 2,
+          "is_header": false,
+          "row_span": 1,
+          "value": "Total:"
+        },
+        {
+          "column_span": 1,
+          "is_header": false,
+          "row_span": 1,
+          "value": "4–4"
+        },
+        {
+          "column_span": 7,
+          "is_header": false,
+          "row_span": 1,
+          "value": ""
+        }
+      ]
+    ],
+    "highlighted_cells": [
+      [
+        1,
+        0
+      ],
+      [
+        4,
+        1
+      ]
+    ]
+  },
+  "parent_table": [
+    [
+      "Year",
+      "Team",
+      "Overall",
+      "Conference",
+      "Standing",
+      "Bowl/playoffs"
+    ],
+    [
+      "Maine Black Bears (Maine Intercollegiate Athletic Association) (1900)"
+    ],
+    [
+      "1900",
+      "Maine",
+      "4–4",
+      "",
+      "",
+      ""
+    ],
+    [
+      "Maine:",
+      "4–4",
+      "",
+      ""
+    ],
+    [
+      "Total:",
+      "4–4",
+      ""
+    ]
+  ],
+  "metadata": {
+    "overlap_subset": "True",
+    "table_page_title": "Ernest Burton (American football)",
+    "table_section_title": "Head coaching record",
+    "normalizer": "totto",
+    "requested_split": "validation",
+    "hub_id": "GEM/totto",
+    "config_name": null
+  }
+}

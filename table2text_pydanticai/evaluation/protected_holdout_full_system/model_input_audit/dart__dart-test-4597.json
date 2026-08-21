@@ -1,0 +1,92 @@
+{
+  "__table2text_benchmark_example__": true,
+  "dataset_id": "dart",
+  "example_id": "dart-test-4597",
+  "task_family": "triple_verbalisation",
+  "output_mode": "short_text",
+  "request": "Express all and only the supplied triples as short, coherent natural language. Do not add unsupported facts.",
+  "source_text": "The Vaults | eatType | pub\nThe Vaults | food | Italian\nThe Vaults | priceRange | moderate\nThe Vaults | customer rating | average\nThe Vaults | area | riverside\nThe Vaults | familyFriendly | yes\nThe Vaults | near | Rainbow Vegetarian Café",
+  "source_payload": {
+    "triples": [
+      [
+        "The Vaults",
+        "eatType",
+        "pub"
+      ],
+      [
+        "The Vaults",
+        "food",
+        "Italian"
+      ],
+      [
+        "The Vaults",
+        "priceRange",
+        "moderate"
+      ],
+      [
+        "The Vaults",
+        "customer rating",
+        "average"
+      ],
+      [
+        "The Vaults",
+        "area",
+        "riverside"
+      ],
+      [
+        "The Vaults",
+        "familyFriendly",
+        "yes"
+      ],
+      [
+        "The Vaults",
+        "near",
+        "Rainbow Vegetarian Café"
+      ]
+    ],
+    "category": null
+  },
+  "parent_table": [
+    [
+      "The Vaults",
+      "eatType",
+      "pub"
+    ],
+    [
+      "The Vaults",
+      "food",
+      "Italian"
+    ],
+    [
+      "The Vaults",
+      "priceRange",
+      "moderate"
+    ],
+    [
+      "The Vaults",
+      "customer rating",
+      "average"
+    ],
+    [
+      "The Vaults",
+      "area",
+      "riverside"
+    ],
+    [
+      "The Vaults",
+      "familyFriendly",
+      "yes"
+    ],
+    [
+      "The Vaults",
+      "near",
+      "Rainbow Vegetarian Café"
+    ]
+  ],
+  "metadata": {
+    "normalizer": "dart",
+    "requested_split": "test",
+    "hub_id": "GEM/dart",
+    "config_name": null
+  }
+}

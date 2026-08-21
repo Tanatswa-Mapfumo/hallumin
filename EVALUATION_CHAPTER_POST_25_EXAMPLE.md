@@ -6,12 +6,17 @@ This chapter evaluates whether the proposed evidence-led, multi-agent Table2Text
 
 The quantitative boundary for this chapter is the five-dataset, five-examples-per-dataset experiment carried out on 4-5 August 2026. This experiment contains 25 examples and 50 outputs: one output from the complete workflow and one from a raw generic DeepSeek V4 Flash baseline for every example. Tests and results produced before this boundary are excluded from the quantitative argument. Later experiments are included when they answer a distinct evaluation question, such as the effect of model strength, the effect of removing a workflow stage, or the behaviour of an LLM-only multi-agent system. Development smoke tests, interrupted model calls and repeated debugging runs are not combined with completed experiments.
 
-The main evaluation addresses four research questions:
+The main evaluation addresses five research questions:
 
 1. Does the complete workflow improve output quality relative to a direct, generic-prompt LLM baseline across heterogeneous table-to-text tasks?
-2. Which kinds of task benefit most from the architecture, and which tasks can already be handled effectively by a direct model call?
-3. Which workflow stages appear to contribute to grounding, content coverage and narrative quality?
-4. Are the observed improvements attributable mainly to the architecture, or can they be reproduced simply by replacing the underlying model with a stronger one?
+
+2. Does the workflow reduce hallucinated or unsupported claims by grounding report content in extracted evidence, verified facts and source-aware audit checks?
+
+3. Which kinds of task benefit most from the architecture, and which tasks can already be handled effectively by a direct model call?
+
+4. Which workflow stages appear to contribute most to factual grounding, content coverage, hallucination control and narrative quality?
+
+5. Are the observed improvements attributable mainly to the architecture, or can they be reproduced simply by replacing the underlying model with a stronger one?
 
 The chapter also considers a fifth exploratory question: can an LLM-only multi-agent design reduce hallucination risk without the deterministic evidence and verification infrastructure of the main system? This final question is based on a separate experimental clone and one detailed SportSett example, so it is interpreted as a case study rather than a general benchmark result.
 
@@ -342,6 +347,28 @@ SportSett 4934 was rerun with the generic request on both the complete workflow 
 
 The post-fix workflow won BERTScore, BLEU, chrF and METEOR, while the shorter raw output retained better ROUGE-L and TER. More importantly, the workflow inferred an event-report genre and produced result, progression, performances and contrasts rather than treating the nested record as a dataset profile. This experiment supports H1: the system can construct task structure from the input, but only if structure recognition, report-contract resolution and writer routing all succeed.
 
+A later exploratory task-contract upgrade was tested on the same SportSett 4934 example. This version added an explicit inferred-contract variant that attempted to infer task family, report genre, communication task, output form and focus scope from operational source structure. The inference itself succeeded: the system selected an event report, multi-paragraph output and event-recap focus with high confidence. However, the resulting report did not improve over the selected workflow. With DeepSeek V4 Flash, the inferred-contract variant scored below the saved full-system run on BLEU, chrF, METEOR, ROUGE, BERTScore, AlignScore and HHEM mean support. It was also slow, taking approximately 946 seconds for one example, and still used contextually risky wording around team records. This result is treated as a useful negative finding: task-contract inference is promising as lightweight routing, but the tested heavyweight inferred-contract path is not adopted as the final system.
+
+### 8.1 Additional exploratory findings from development runs
+
+Several useful findings emerged during development runs that were not treated as primary benchmark evidence because they were produced before the protected 25-example comparison, used changing code, or were single-case diagnostics. They are nevertheless useful for interpreting the final architecture.
+
+First, single-event inputs should not be treated as ordinary flat datasets. Early basketball and baseball experiments showed that a generic data-quality template could correctly identify constant fields while missing the communicative task: describing what happened in the event. This motivated the later distinction between dataset reports, focused verbalisation tasks and event reports.
+
+Second, narrative ordering matters as much as fact extraction. In MLB development runs the system could extract many correct rankings, score changes and player statistics, but early outputs read like exhaustive stat dumps. More useful reports began with the result, then selected a small number of game sequence events, key performances and participant contrasts. This supports the claim that data-to-text generation requires salience and discourse planning, not only fact recovery.
+
+Third, more evidence is not automatically better. Removing hard caps on findings and insights increased coverage, but it also made some outputs less reference-like because they included additional correct but non-reference details. This explains why reference metrics sometimes penalise richer reports and why human evaluation is needed for completeness and usefulness.
+
+Fourth, short-form datasets require stricter focus than event reports. ToTTo, E2E, WebNLG and DART examples showed that one-sentence and short-text tasks reward precise selection and restraint. The same architecture that helps SportSett through event structure can hurt short-form tasks if it expands a focused proposition into a mini report.
+
+Fifth, ToTTo exposed a highlighted-region salience problem. The Ma Ying-jeou, Switzerland-France tax and Jan Koukal development examples showed that the system needed to privilege highlighted cells and their local row/header context over globally interesting table facts. This finding helped motivate the focused-table-description route used in the final evaluation.
+
+Sixth, direct raw LLM outputs often score well because they are compact and stylistically close to references. This is not the same as being more controllable or more source-faithful. The final evaluation therefore separates reference-overlap metrics from source-grounded checks and structured LLM-as-judge annotations.
+
+Seventh, model upgrades alone were not sufficient. DeepSeek Pro and GPT-5.5 experiments improved some individual outputs, but did not consistently solve task interpretation, salience or source-grounded discourse structure. The strongest results came from combining capable models with task routing, evidence selection, writer constraints and auditing.
+
+Eighth, LLM-as-judge and automatic metrics exposed different risks. DeepEval-style judgement was useful for coherence and adequacy, but showed ceiling effects. GPT-5.6 structured annotation was more useful for named error categories, while HHEM and AlignScore were more sensitive to the choice of reference context versus source context. These findings support the multi-perspective evaluation design rather than reliance on a single score.
+
 ## 9. Ablation study
 
 The stage ablation used SportSett example 4934. It compared the complete workflow with no insight synthesis, no writer quality revision and no audit repair rounds. The original raw row in the ablation artifact used an earlier raw Flash baseline; the later narrative analysis refreshed that baseline with raw generic Flash. The cleanest architectural comparisons are among the workflow variants.
@@ -604,6 +631,8 @@ evaluation/results/ablation_sportsett_4934_20260805_021058_reference_metrics.jso
 evaluation/results/sportsett_4934_ablation_story.md
 evaluation/generations/generic_only_sportsett_basketball_4934_20260805_162215_generations.jsonl
 evaluation/results/generic_only_sportsett_basketball_4934_20260805_162215_reference_metrics.jsonl
+evaluation/generations/sportsett_basketball_4934_inferred_contract_deepseek-v4-flash_20260813_203625_generations.jsonl
+evaluation/results/sportsett_basketball_4934_inferred_contract_deepseek-v4-flash_20260813_203625_reference_metrics.jsonl
 ```
 
 Model comparisons:
@@ -837,10 +866,19 @@ The same models behave differently when source text replaces references as conte
 
 | Variant | BLEU | chrF | TER | ROUGE-1 | ROUGE-2 | ROUGE-L | ROUGE-Lsum | METEOR | BERTScore F1 | AlignScore (reference) | HHEM mean | HHEM minimum | HHEM unsupported rate |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| First full-generic attempt | 0.0202 | 0.2961 | 2.7057 | 0.2619 | 0.0386 | 0.1186 | 0.1186 | 0.2215 | 0.8054 | 0.2860 | 0.0736 | 0.0070 | 0.9804 |
+| First raw-generic comparison | 0.0592 | 0.2802 | 0.7958 | 0.3833 | 0.1381 | 0.2583 | 0.2583 | 0.2042 | 0.8376 | 0.2139 | 0.1097 | 0.0130 | 1.0000 |
 | Full generic after fix | 0.1110 | 0.4507 | 0.9550 | 0.5246 | 0.1854 | 0.2385 | 0.2385 | 0.3054 | 0.8506 | 0.1774 | 0.0981 | 0.0126 | 1.0000 |
 | Raw generic | 0.0755 | 0.2994 | 0.8198 | 0.3966 | 0.1713 | 0.2772 | 0.2772 | 0.1974 | 0.8414 | 0.2999 | 0.1195 | 0.0197 | 1.0000 |
+| Saved full system on same example | 0.1232 | 0.4432 | 0.8438 | 0.5186 | 0.2049 | 0.2755 | 0.2755 | 0.2588 | 0.8671 | 0.2873 | 0.1964 | 0.0110 | 0.8333 |
+| Saved raw-generic Flash on same example | 0.0302 | 0.2248 | 0.8108 | 0.3566 | 0.1453 | 0.2410 | 0.2410 | 0.1677 | 0.8144 | 0.3898 | 0.1423 | 0.0578 | 1.0000 |
+| Exploratory inferred-contract Flash | 0.0754 | 0.3724 | 0.8649 | 0.4038 | 0.1093 | 0.2019 | 0.2019 | 0.2170 | 0.8315 | 0.2485 | 0.1018 | 0.0075 | 1.0000 |
+
+The rows in this table come from several saved SportSett 4934 diagnostic artifacts. They are retained together so a writing model can see the full metric trail, but they should not be averaged into one experiment.
 
 The overlap measures split: the workflow improves BLEU, chrF, ROUGE-1, ROUGE-2, METEOR and BERTScore, while raw generic improves TER, ROUGE-L and the local reference-context support measures. Because this configuration compares sentences with the reference rather than the source, the unsupported rate of 1.0 means that HHEM found neither long event report sufficiently entailed by the much shorter human reference. It is not evidence that every sentence was unsupported by the structured game record.
+
+The exploratory inferred-contract row is not used as a replacement system. It confirms that source-structure task inference can select the correct event-report contract, but the full inferred-contract path was slower and weaker than the already selected full-generic workflow. Its main value is diagnostic: future work should reuse task-contract inference as a lightweight routing signal rather than routing large source-only event records through a heavier inferred-contract pipeline.
 
 ### J.2 Four-example DeepSeek model-strength comparison
 
@@ -882,9 +920,51 @@ The refreshed raw-generic values used in the narrative ablation table are a diff
 
 ### J.6 LLM-only multi-agent case-study diagnostics
 
+#### J.6.1 Complete reference-similarity metrics
+
+| Metric | Full system | Raw Flash | LLM-only Flash | LLM-only Pro |
+| --- | ---: | ---: | ---: | ---: |
+| AlignScore (reference) | 0.3986 | 0.3078 | n/a | n/a |
+| BERTScore F1 | 0.8517 | 0.8504 | 0.8318 | 0.8548 |
+| BLEU | 0.1071 | 0.1357 | 0.0363 | 0.0525 |
+| chrF | 0.4166 | 0.3860 | 0.1835 | 0.2580 |
+| Corpus BLEU | 0.1071 | 0.1357 | 0.0363 | 0.0525 |
+| Corpus chrF | 0.4166 | 0.3860 | 0.1835 | 0.2580 |
+| Corpus TER | 0.9099 | 0.8138 | 0.8559 | 0.8018 |
+| HHEM mean support (reference) | 0.2690 | 0.2504 | n/a | n/a |
+| HHEM minimum support (reference) | 0.0045 | 0.0062 | n/a | n/a |
+| HHEM unsupported rate (reference) | 0.7368 | 0.7692 | n/a | n/a |
+| METEOR | 0.2580 | 0.2534 | 0.1111 | 0.1584 |
+| ROUGE-1 | 0.4715 | 0.5142 | 0.3206 | 0.4223 |
+| ROUGE-2 | 0.1546 | 0.1898 | 0.1535 | 0.2195 |
+| ROUGE-L | 0.2311 | 0.3214 | 0.2341 | 0.3058 |
+| ROUGE-Lsum | 0.2311 | 0.3214 | 0.2341 | 0.3058 |
+| TER | 0.9099 | 0.8138 | 0.8559 | 0.8018 |
+
+#### J.6.2 Complete source-grounded metrics
+
+| Metric | Full system | Raw Flash | LLM-only Flash | LLM-only Pro |
+| --- | ---: | ---: | ---: | ---: |
+| AlignScore (source) | 0.1908 | 0.1802 | n/a | n/a |
+| HHEM mean support (source) | 0.2065 | 0.1662 | 0.2200 | 0.1808 |
+| HHEM minimum support (source) | 0.0083 | 0.0113 | 0.0120 | 0.0083 |
+| HHEM unsupported rate (source) | 0.7895 | 0.7692 | 0.7143 | 0.7500 |
+
+#### J.6.3 Generation diagnostics
+
 | Configuration | Accepted claims | Native audit support | Generated-number source precision | Words | Prompt tokens | Completion tokens | Total tokens |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | LLM-only Flash | 7 | 1.000 | 1.000 | 85 | 61,372 | 20,039 | 81,411 |
 | LLM-only Pro | 9 | 1.000 | 1.000 | 106 | 61,446 | 19,178 | 80,624 |
 
-The corresponding reference and source metrics remain those in Section 11: BERTScore, BLEU, chrF, METEOR, ROUGE-L, source HHEM mean support and source HHEM unsupported rate. Token counts are supplied for reproducibility and architectural interpretation, not as a principal dissertation outcome.
+Token counts are supplied for reproducibility and architectural interpretation, not as a principal dissertation outcome.
+
+### J.7 Provenance-mismatched all-agent GPT-5.5 metric file
+
+The following values are retained because the associated run is discussed in Section 10.3. They should not be used as a completed model-strength result: the generation file contained only one completed SportSett row while the metric file contained five dataset rows.
+
+| Variant | BLEU | chrF | TER | ROUGE-1 | ROUGE-2 | ROUGE-L | ROUGE-Lsum | METEOR | BERTScore F1 | AlignScore (reference) | HHEM mean | HHEM minimum | HHEM unsupported rate |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Provenance-mismatched all-agent GPT-5.5 metric file | 0.4617 | 0.6219 | 0.6561 | 0.6865 | 0.5039 | 0.5937 | 0.5937 | 0.5814 | 0.9251 | 0.7634 | 0.5036 | 0.4695 | 0.5789 |
+
+The same file also contained five scored rows each for corpus BLEU, corpus chrF and corpus TER, plus six skipped PARENT rows and nine unavailable PARENT rows. These status counts are preserved for provenance only.

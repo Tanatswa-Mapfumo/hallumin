@@ -1,0 +1,206 @@
+{
+  "created_at": "2026-08-21T00:28:22.968026+00:00",
+  "reference_isolation": "pass",
+  "records": [
+    {
+      "dataset_id": "e2e_nlg",
+      "example_id": "e2e_nlg-test-1330",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/e2e_nlg__e2e_nlg-test-1330.json",
+      "materialized_input_sha256": "a644bff015ac6f0f07fcc632deef47cfd6616dbac3c83921fc362ae4f144d5b3",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "web_nlg",
+      "example_id": "web_nlg_en-test-1209",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/web_nlg__web_nlg_en-test-1209.json",
+      "materialized_input_sha256": "fb51a14bb56c48d5e823d84b458c2a3c981cd82e3e62ee1d85f7090099365713",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "dart",
+      "example_id": "dart-test-1791",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/dart__dart-test-1791.json",
+      "materialized_input_sha256": "f0e41d4a3d15e1e3caf1149b225e110e8008c53596a1750ece87ddb72a923d09",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "totto",
+      "example_id": "totto-validation-1828",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/totto__totto-validation-1828.json",
+      "materialized_input_sha256": "9d73b0046588b89d78ab7497565c684dd8e4cdc95d78728b9ae683a648af80f6",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "sportsett_basketball",
+      "example_id": "5130",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/sportsett_basketball__5130.json",
+      "materialized_input_sha256": "26ca385127f08fb26ab04479148d8fe74c388b4be05214273e832577d44adc71",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "e2e_nlg",
+      "example_id": "e2e_nlg-test-209",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/e2e_nlg__e2e_nlg-test-209.json",
+      "materialized_input_sha256": "fd2c12ff2916d87343e03ebc9ebab88dcaf5644e729ffb08fcdc2b3556e51472",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "web_nlg",
+      "example_id": "web_nlg_en-test-1330",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/web_nlg__web_nlg_en-test-1330.json",
+      "materialized_input_sha256": "1aeaecb39121f7a760d220a0c868a17b756a9f1911fd4c015b43fbb0205beaea",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "dart",
+      "example_id": "dart-test-1805",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/dart__dart-test-1805.json",
+      "materialized_input_sha256": "5ec666ff500091f5de279a217bc369d3115678a2e547652691ac30175ed31a60",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "totto",
+      "example_id": "totto-validation-4467",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/totto__totto-validation-4467.json",
+      "materialized_input_sha256": "6879c3566a759745dc6ce587a348cc9f3c41e5c39b51aa34a53fbf1b9e922cd5",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "sportsett_basketball",
+      "example_id": "5372",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/sportsett_basketball__5372.json",
+      "materialized_input_sha256": "e25f8f441a3038f80ebc2b7463486988f9514dd2a04eab41dd528c2d7ae9387a",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "e2e_nlg",
+      "example_id": "e2e_nlg-test-447",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/e2e_nlg__e2e_nlg-test-447.json",
+      "materialized_input_sha256": "453836dd9c3bb836f0358a4971e161bbb91d7f19013dc833a5ed9f797c76896a",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "web_nlg",
+      "example_id": "web_nlg_en-test-1466",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/web_nlg__web_nlg_en-test-1466.json",
+      "materialized_input_sha256": "34ea60f546eabda7e8cdd2500c91c0d562b7f558f2c4eda41f35c82a25105973",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "dart",
+      "example_id": "dart-test-1828",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/dart__dart-test-1828.json",
+      "materialized_input_sha256": "1861c00c7ed7dba32402fc5b41e0ff7502c0c79aa46694f30df3db4025cbe547",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "totto",
+      "example_id": "totto-validation-6067",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/totto__totto-validation-6067.json",
+      "materialized_input_sha256": "28660718b3c71e9ba23bbe8273647fa606a098917d4784aef024bc506f098713",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "sportsett_basketball",
+      "example_id": "5786",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/sportsett_basketball__5786.json",
+      "materialized_input_sha256": "8fca2894a7dc7912ff896d0cf1f9a596634a84007dd9806bfa7a446c0908c27d",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "e2e_nlg",
+      "example_id": "e2e_nlg-test-476",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/e2e_nlg__e2e_nlg-test-476.json",
+      "materialized_input_sha256": "d515c0a2e0ed478856ed2addb4dd3a7e91f720d799e52d5b2e0e0c59969c559d",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "web_nlg",
+      "example_id": "web_nlg_en-test-859",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/web_nlg__web_nlg_en-test-859.json",
+      "materialized_input_sha256": "d17ed3c212b73dbe553a3791c3db0bae4f138d35e8fc8ea31d47d48139290bab",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "dart",
+      "example_id": "dart-test-2278",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/dart__dart-test-2278.json",
+      "materialized_input_sha256": "cd61af4769422d6f75aeb8afad43812438605a4beb5761a7266edc0f59e12194",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "totto",
+      "example_id": "totto-validation-839",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/totto__totto-validation-839.json",
+      "materialized_input_sha256": "c80c2c21b0a275a0439f6e804f6792e735c5f35eeb4ca1bd409615e069c3ae9f",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "sportsett_basketball",
+      "example_id": "5955",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/sportsett_basketball__5955.json",
+      "materialized_input_sha256": "752a2496373eed12fd9993082feb1bf5a42d2871cce123d5266d07ed96e72646",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "e2e_nlg",
+      "example_id": "e2e_nlg-test-864",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/e2e_nlg__e2e_nlg-test-864.json",
+      "materialized_input_sha256": "e0e90b1c004440b8f04d494ece89229015ddc5b85e0b5a8afd5e4d74a4993191",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "web_nlg",
+      "example_id": "web_nlg_en-test-864",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/web_nlg__web_nlg_en-test-864.json",
+      "materialized_input_sha256": "157b12b40509cd022398b69a491f40f38fbe89e6b9d8f52bf17ab1c4f27c2258",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "dart",
+      "example_id": "dart-test-4597",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/dart__dart-test-4597.json",
+      "materialized_input_sha256": "50ef55e205bea5237082f68f2ab4cbb1aae5b920a6540948611473c2ffe33516",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "totto",
+      "example_id": "totto-validation-912",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/totto__totto-validation-912.json",
+      "materialized_input_sha256": "bc8a912666dc4bbdba9a149dd67cf0d6b6bb0d8919ea34aad32f844943bee21e",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    },
+    {
+      "dataset_id": "sportsett_basketball",
+      "example_id": "6127",
+      "materialized_input_path": "evaluation/protected_holdout_full_system/model_input_audit/sportsett_basketball__6127.json",
+      "materialized_input_sha256": "9b5e74df71dd5da8c8e17caaeb0d89f352c3ae0ae65a4faefe9ca5ba70dbabbd",
+      "reference_fields_present": [],
+      "reference_sentinel_present": false
+    }
+  ]
+}

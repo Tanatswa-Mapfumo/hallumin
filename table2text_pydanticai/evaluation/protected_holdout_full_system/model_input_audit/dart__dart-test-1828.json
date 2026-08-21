@@ -1,0 +1,53 @@
+{
+  "__table2text_benchmark_example__": true,
+  "dataset_id": "dart",
+  "example_id": "dart-test-1828",
+  "task_family": "triple_verbalisation",
+  "output_mode": "short_text",
+  "request": "Express all and only the supplied triples as short, coherent natural language. Do not add unsupported facts.",
+  "source_text": "A.C. Lumezzane | FULL_NAME | \"Associazione Calcio Lumezzane SpA\"\nA.C. Lumezzane | LEAGUE | \"Lega Pro/A\"\nA.C. Lumezzane | NUMBER_OF_MEMBERS | 4150",
+  "source_payload": {
+    "triples": [
+      [
+        "A.C. Lumezzane",
+        "FULL_NAME",
+        "\"Associazione Calcio Lumezzane SpA\""
+      ],
+      [
+        "A.C. Lumezzane",
+        "LEAGUE",
+        "\"Lega Pro/A\""
+      ],
+      [
+        "A.C. Lumezzane",
+        "NUMBER_OF_MEMBERS",
+        "4150"
+      ]
+    ],
+    "category": null
+  },
+  "parent_table": [
+    [
+      "A.C. Lumezzane",
+      "FULL_NAME",
+      "\"Associazione Calcio Lumezzane SpA\""
+    ],
+    [
+      "A.C. Lumezzane",
+      "LEAGUE",
+      "\"Lega Pro/A\""
+    ],
+    [
+      "A.C. Lumezzane",
+      "NUMBER_OF_MEMBERS",
+      "4150"
+    ]
+  ],
+  "metadata": {
+    "subtree_was_extended": false,
+    "normalizer": "dart",
+    "requested_split": "test",
+    "hub_id": "GEM/dart",
+    "config_name": null
+  }
+}

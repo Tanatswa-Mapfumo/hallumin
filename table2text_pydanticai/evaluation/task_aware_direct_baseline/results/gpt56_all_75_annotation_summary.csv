@@ -1,0 +1,17 @@
+execution_mode,variant_id,dataset_id,outputs,outputs_with_errors,errors
+interactive_session,full_system,sportsett_basketball,1,1,2
+interactive_session,task_aware_direct_flash,dart,5,0,0
+interactive_session,task_aware_direct_flash,e2e_nlg,5,0,0
+interactive_session,task_aware_direct_flash,sportsett_basketball,5,4,12
+interactive_session,task_aware_direct_flash,totto,5,1,1
+interactive_session,task_aware_direct_flash,web_nlg,5,0,0
+openai_responses_api,full_system,dart,5,0,0
+openai_responses_api,full_system,e2e_nlg,5,0,0
+openai_responses_api,full_system,sportsett_basketball,4,4,8
+openai_responses_api,full_system,totto,5,0,0
+openai_responses_api,full_system,web_nlg,5,0,0
+openai_responses_api,raw_generic_flash,dart,5,0,0
+openai_responses_api,raw_generic_flash,e2e_nlg,5,0,0
+openai_responses_api,raw_generic_flash,sportsett_basketball,5,5,7
+openai_responses_api,raw_generic_flash,totto,5,5,11
+openai_responses_api,raw_generic_flash,web_nlg,5,1,1

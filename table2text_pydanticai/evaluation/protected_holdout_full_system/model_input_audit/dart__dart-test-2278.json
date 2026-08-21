@@ -1,0 +1,73 @@
+{
+  "__table2text_benchmark_example__": true,
+  "dataset_id": "dart",
+  "example_id": "dart-test-2278",
+  "task_family": "triple_verbalisation",
+  "output_mode": "short_text",
+  "request": "Express all and only the supplied triples as short, coherent natural language. Do not add unsupported facts.",
+  "source_text": "Al Asad Airbase | OPERATING_ORGANISATION | United States Air Force\nUnited States Air Force | ATTACK_AIRCRAFT | Lockheed AC-130\nUnited States Air Force | TRANSPORT_AIRCRAFT | Boeing C-17 Globemaster III\nUnited States Air Force | AIRCRAFT_FIGHTER | General Dynamics F-16 Fighting Falcon\nUnited States Air Force | BATTLES | 1986 United States bombing of Libya",
+  "source_payload": {
+    "triples": [
+      [
+        "Al Asad Airbase",
+        "OPERATING_ORGANISATION",
+        "United States Air Force"
+      ],
+      [
+        "United States Air Force",
+        "ATTACK_AIRCRAFT",
+        "Lockheed AC-130"
+      ],
+      [
+        "United States Air Force",
+        "TRANSPORT_AIRCRAFT",
+        "Boeing C-17 Globemaster III"
+      ],
+      [
+        "United States Air Force",
+        "AIRCRAFT_FIGHTER",
+        "General Dynamics F-16 Fighting Falcon"
+      ],
+      [
+        "United States Air Force",
+        "BATTLES",
+        "1986 United States bombing of Libya"
+      ]
+    ],
+    "category": null
+  },
+  "parent_table": [
+    [
+      "Al Asad Airbase",
+      "OPERATING_ORGANISATION",
+      "United States Air Force"
+    ],
+    [
+      "United States Air Force",
+      "ATTACK_AIRCRAFT",
+      "Lockheed AC-130"
+    ],
+    [
+      "United States Air Force",
+      "TRANSPORT_AIRCRAFT",
+      "Boeing C-17 Globemaster III"
+    ],
+    [
+      "United States Air Force",
+      "AIRCRAFT_FIGHTER",
+      "General Dynamics F-16 Fighting Falcon"
+    ],
+    [
+      "United States Air Force",
+      "BATTLES",
+      "1986 United States bombing of Libya"
+    ]
+  ],
+  "metadata": {
+    "subtree_was_extended": false,
+    "normalizer": "dart",
+    "requested_split": "test",
+    "hub_id": "GEM/dart",
+    "config_name": null
+  }
+}

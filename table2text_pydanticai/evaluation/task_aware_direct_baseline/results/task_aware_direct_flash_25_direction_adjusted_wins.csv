@@ -1,0 +1,4 @@
+comparison,paired_metric_cases,left_wins,ties,right_wins
+Full vs Task-aware Direct,265,110,77,78
+Task-aware Direct vs Raw Generic,265,172,47,46
+Full vs Raw Generic,265,171,38,56

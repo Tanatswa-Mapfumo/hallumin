@@ -1,0 +1,401 @@
+dataset_id,example_id,condition,category,count
+totto,totto-validation-912,Baseline,NAME,0
+totto,totto-validation-912,Baseline,NUMBER,0
+totto,totto-validation-912,Baseline,WORD,0
+totto,totto-validation-912,Baseline,CONTEXT,1
+totto,totto-validation-912,Baseline,NOT CHECKABLE,0
+totto,totto-validation-912,Baseline,OTHER,0
+totto,totto-validation-912,Baseline,OMISSION,0
+totto,totto-validation-912,Baseline,TASK/FORMAT,1
+e2e_nlg,e2e_nlg-test-209,Full System,NAME,0
+e2e_nlg,e2e_nlg-test-209,Full System,NUMBER,0
+e2e_nlg,e2e_nlg-test-209,Full System,WORD,0
+e2e_nlg,e2e_nlg-test-209,Full System,CONTEXT,0
+e2e_nlg,e2e_nlg-test-209,Full System,NOT CHECKABLE,0
+e2e_nlg,e2e_nlg-test-209,Full System,OTHER,0
+e2e_nlg,e2e_nlg-test-209,Full System,OMISSION,0
+e2e_nlg,e2e_nlg-test-209,Full System,TASK/FORMAT,0
+e2e_nlg,e2e_nlg-test-476,Baseline,NAME,0
+e2e_nlg,e2e_nlg-test-476,Baseline,NUMBER,0
+e2e_nlg,e2e_nlg-test-476,Baseline,WORD,0
+e2e_nlg,e2e_nlg-test-476,Baseline,CONTEXT,0
+e2e_nlg,e2e_nlg-test-476,Baseline,NOT CHECKABLE,0
+e2e_nlg,e2e_nlg-test-476,Baseline,OTHER,0
+e2e_nlg,e2e_nlg-test-476,Baseline,OMISSION,0
+e2e_nlg,e2e_nlg-test-476,Baseline,TASK/FORMAT,0
+dart,dart-test-1828,Baseline,NAME,0
+dart,dart-test-1828,Baseline,NUMBER,0
+dart,dart-test-1828,Baseline,WORD,0
+dart,dart-test-1828,Baseline,CONTEXT,0
+dart,dart-test-1828,Baseline,NOT CHECKABLE,0
+dart,dart-test-1828,Baseline,OTHER,0
+dart,dart-test-1828,Baseline,OMISSION,0
+dart,dart-test-1828,Baseline,TASK/FORMAT,0
+totto,totto-validation-839,Baseline,NAME,0
+totto,totto-validation-839,Baseline,NUMBER,0
+totto,totto-validation-839,Baseline,WORD,0
+totto,totto-validation-839,Baseline,CONTEXT,0
+totto,totto-validation-839,Baseline,NOT CHECKABLE,0
+totto,totto-validation-839,Baseline,OTHER,0
+totto,totto-validation-839,Baseline,OMISSION,0
+totto,totto-validation-839,Baseline,TASK/FORMAT,1
+dart,dart-test-1791,Baseline,NAME,0
+dart,dart-test-1791,Baseline,NUMBER,0
+dart,dart-test-1791,Baseline,WORD,0
+dart,dart-test-1791,Baseline,CONTEXT,0
+dart,dart-test-1791,Baseline,NOT CHECKABLE,0
+dart,dart-test-1791,Baseline,OTHER,0
+dart,dart-test-1791,Baseline,OMISSION,0
+dart,dart-test-1791,Baseline,TASK/FORMAT,0
+web_nlg,web_nlg_en-test-1466,Baseline,NAME,0
+web_nlg,web_nlg_en-test-1466,Baseline,NUMBER,0
+web_nlg,web_nlg_en-test-1466,Baseline,WORD,0
+web_nlg,web_nlg_en-test-1466,Baseline,CONTEXT,0
+web_nlg,web_nlg_en-test-1466,Baseline,NOT CHECKABLE,0
+web_nlg,web_nlg_en-test-1466,Baseline,OTHER,0
+web_nlg,web_nlg_en-test-1466,Baseline,OMISSION,0
+web_nlg,web_nlg_en-test-1466,Baseline,TASK/FORMAT,0
+sportsett_basketball,6127,Baseline,NAME,0
+sportsett_basketball,6127,Baseline,NUMBER,0
+sportsett_basketball,6127,Baseline,WORD,1
+sportsett_basketball,6127,Baseline,CONTEXT,1
+sportsett_basketball,6127,Baseline,NOT CHECKABLE,0
+sportsett_basketball,6127,Baseline,OTHER,0
+sportsett_basketball,6127,Baseline,OMISSION,0
+sportsett_basketball,6127,Baseline,TASK/FORMAT,1
+totto,totto-validation-4467,Baseline,NAME,0
+totto,totto-validation-4467,Baseline,NUMBER,0
+totto,totto-validation-4467,Baseline,WORD,0
+totto,totto-validation-4467,Baseline,CONTEXT,0
+totto,totto-validation-4467,Baseline,NOT CHECKABLE,0
+totto,totto-validation-4467,Baseline,OTHER,0
+totto,totto-validation-4467,Baseline,OMISSION,0
+totto,totto-validation-4467,Baseline,TASK/FORMAT,1
+e2e_nlg,e2e_nlg-test-1330,Full System,NAME,0
+e2e_nlg,e2e_nlg-test-1330,Full System,NUMBER,0
+e2e_nlg,e2e_nlg-test-1330,Full System,WORD,0
+e2e_nlg,e2e_nlg-test-1330,Full System,CONTEXT,0
+e2e_nlg,e2e_nlg-test-1330,Full System,NOT CHECKABLE,0
+e2e_nlg,e2e_nlg-test-1330,Full System,OTHER,0
+e2e_nlg,e2e_nlg-test-1330,Full System,OMISSION,0
+e2e_nlg,e2e_nlg-test-1330,Full System,TASK/FORMAT,0
+totto,totto-validation-839,Full System,NAME,0
+totto,totto-validation-839,Full System,NUMBER,0
+totto,totto-validation-839,Full System,WORD,0
+totto,totto-validation-839,Full System,CONTEXT,0
+totto,totto-validation-839,Full System,NOT CHECKABLE,0
+totto,totto-validation-839,Full System,OTHER,0
+totto,totto-validation-839,Full System,OMISSION,1
+totto,totto-validation-839,Full System,TASK/FORMAT,0
+dart,dart-test-4597,Baseline,NAME,0
+dart,dart-test-4597,Baseline,NUMBER,0
+dart,dart-test-4597,Baseline,WORD,0
+dart,dart-test-4597,Baseline,CONTEXT,0
+dart,dart-test-4597,Baseline,NOT CHECKABLE,0
+dart,dart-test-4597,Baseline,OTHER,0
+dart,dart-test-4597,Baseline,OMISSION,0
+dart,dart-test-4597,Baseline,TASK/FORMAT,0
+sportsett_basketball,5786,Baseline,NAME,0
+sportsett_basketball,5786,Baseline,NUMBER,0
+sportsett_basketball,5786,Baseline,WORD,0
+sportsett_basketball,5786,Baseline,CONTEXT,0
+sportsett_basketball,5786,Baseline,NOT CHECKABLE,0
+sportsett_basketball,5786,Baseline,OTHER,0
+sportsett_basketball,5786,Baseline,OMISSION,0
+sportsett_basketball,5786,Baseline,TASK/FORMAT,1
+sportsett_basketball,5372,Full System,NAME,0
+sportsett_basketball,5372,Full System,NUMBER,0
+sportsett_basketball,5372,Full System,WORD,0
+sportsett_basketball,5372,Full System,CONTEXT,1
+sportsett_basketball,5372,Full System,NOT CHECKABLE,0
+sportsett_basketball,5372,Full System,OTHER,0
+sportsett_basketball,5372,Full System,OMISSION,0
+sportsett_basketball,5372,Full System,TASK/FORMAT,1
+dart,dart-test-1791,Full System,NAME,0
+dart,dart-test-1791,Full System,NUMBER,0
+dart,dart-test-1791,Full System,WORD,0
+dart,dart-test-1791,Full System,CONTEXT,0
+dart,dart-test-1791,Full System,NOT CHECKABLE,0
+dart,dart-test-1791,Full System,OTHER,0
+dart,dart-test-1791,Full System,OMISSION,0
+dart,dart-test-1791,Full System,TASK/FORMAT,0
+sportsett_basketball,5130,Full System,NAME,0
+sportsett_basketball,5130,Full System,NUMBER,0
+sportsett_basketball,5130,Full System,WORD,0
+sportsett_basketball,5130,Full System,CONTEXT,1
+sportsett_basketball,5130,Full System,NOT CHECKABLE,0
+sportsett_basketball,5130,Full System,OTHER,0
+sportsett_basketball,5130,Full System,OMISSION,0
+sportsett_basketball,5130,Full System,TASK/FORMAT,1
+totto,totto-validation-1828,Full System,NAME,0
+totto,totto-validation-1828,Full System,NUMBER,0
+totto,totto-validation-1828,Full System,WORD,1
+totto,totto-validation-1828,Full System,CONTEXT,0
+totto,totto-validation-1828,Full System,NOT CHECKABLE,0
+totto,totto-validation-1828,Full System,OTHER,0
+totto,totto-validation-1828,Full System,OMISSION,0
+totto,totto-validation-1828,Full System,TASK/FORMAT,1
+web_nlg,web_nlg_en-test-864,Baseline,NAME,0
+web_nlg,web_nlg_en-test-864,Baseline,NUMBER,0
+web_nlg,web_nlg_en-test-864,Baseline,WORD,0
+web_nlg,web_nlg_en-test-864,Baseline,CONTEXT,0
+web_nlg,web_nlg_en-test-864,Baseline,NOT CHECKABLE,0
+web_nlg,web_nlg_en-test-864,Baseline,OTHER,0
+web_nlg,web_nlg_en-test-864,Baseline,OMISSION,0
+web_nlg,web_nlg_en-test-864,Baseline,TASK/FORMAT,0
+web_nlg,web_nlg_en-test-1466,Full System,NAME,0
+web_nlg,web_nlg_en-test-1466,Full System,NUMBER,0
+web_nlg,web_nlg_en-test-1466,Full System,WORD,0
+web_nlg,web_nlg_en-test-1466,Full System,CONTEXT,0
+web_nlg,web_nlg_en-test-1466,Full System,NOT CHECKABLE,0
+web_nlg,web_nlg_en-test-1466,Full System,OTHER,0
+web_nlg,web_nlg_en-test-1466,Full System,OMISSION,0
+web_nlg,web_nlg_en-test-1466,Full System,TASK/FORMAT,0
+dart,dart-test-2278,Baseline,NAME,0
+dart,dart-test-2278,Baseline,NUMBER,0
+dart,dart-test-2278,Baseline,WORD,0
+dart,dart-test-2278,Baseline,CONTEXT,0
+dart,dart-test-2278,Baseline,NOT CHECKABLE,0
+dart,dart-test-2278,Baseline,OTHER,0
+dart,dart-test-2278,Baseline,OMISSION,0
+dart,dart-test-2278,Baseline,TASK/FORMAT,0
+e2e_nlg,e2e_nlg-test-864,Full System,NAME,0
+e2e_nlg,e2e_nlg-test-864,Full System,NUMBER,0
+e2e_nlg,e2e_nlg-test-864,Full System,WORD,0
+e2e_nlg,e2e_nlg-test-864,Full System,CONTEXT,0
+e2e_nlg,e2e_nlg-test-864,Full System,NOT CHECKABLE,0
+e2e_nlg,e2e_nlg-test-864,Full System,OTHER,0
+e2e_nlg,e2e_nlg-test-864,Full System,OMISSION,0
+e2e_nlg,e2e_nlg-test-864,Full System,TASK/FORMAT,0
+totto,totto-validation-6067,Full System,NAME,0
+totto,totto-validation-6067,Full System,NUMBER,0
+totto,totto-validation-6067,Full System,WORD,0
+totto,totto-validation-6067,Full System,CONTEXT,0
+totto,totto-validation-6067,Full System,NOT CHECKABLE,0
+totto,totto-validation-6067,Full System,OTHER,0
+totto,totto-validation-6067,Full System,OMISSION,0
+totto,totto-validation-6067,Full System,TASK/FORMAT,0
+totto,totto-validation-1828,Baseline,NAME,0
+totto,totto-validation-1828,Baseline,NUMBER,0
+totto,totto-validation-1828,Baseline,WORD,0
+totto,totto-validation-1828,Baseline,CONTEXT,0
+totto,totto-validation-1828,Baseline,NOT CHECKABLE,0
+totto,totto-validation-1828,Baseline,OTHER,0
+totto,totto-validation-1828,Baseline,OMISSION,1
+totto,totto-validation-1828,Baseline,TASK/FORMAT,2
+web_nlg,web_nlg_en-test-1330,Baseline,NAME,0
+web_nlg,web_nlg_en-test-1330,Baseline,NUMBER,1
+web_nlg,web_nlg_en-test-1330,Baseline,WORD,0
+web_nlg,web_nlg_en-test-1330,Baseline,CONTEXT,0
+web_nlg,web_nlg_en-test-1330,Baseline,NOT CHECKABLE,0
+web_nlg,web_nlg_en-test-1330,Baseline,OTHER,0
+web_nlg,web_nlg_en-test-1330,Baseline,OMISSION,0
+web_nlg,web_nlg_en-test-1330,Baseline,TASK/FORMAT,0
+e2e_nlg,e2e_nlg-test-447,Full System,NAME,0
+e2e_nlg,e2e_nlg-test-447,Full System,NUMBER,0
+e2e_nlg,e2e_nlg-test-447,Full System,WORD,0
+e2e_nlg,e2e_nlg-test-447,Full System,CONTEXT,0
+e2e_nlg,e2e_nlg-test-447,Full System,NOT CHECKABLE,0
+e2e_nlg,e2e_nlg-test-447,Full System,OTHER,0
+e2e_nlg,e2e_nlg-test-447,Full System,OMISSION,0
+e2e_nlg,e2e_nlg-test-447,Full System,TASK/FORMAT,0
+sportsett_basketball,5786,Full System,NAME,0
+sportsett_basketball,5786,Full System,NUMBER,0
+sportsett_basketball,5786,Full System,WORD,0
+sportsett_basketball,5786,Full System,CONTEXT,1
+sportsett_basketball,5786,Full System,NOT CHECKABLE,0
+sportsett_basketball,5786,Full System,OTHER,0
+sportsett_basketball,5786,Full System,OMISSION,0
+sportsett_basketball,5786,Full System,TASK/FORMAT,1
+dart,dart-test-1805,Full System,NAME,0
+dart,dart-test-1805,Full System,NUMBER,0
+dart,dart-test-1805,Full System,WORD,0
+dart,dart-test-1805,Full System,CONTEXT,0
+dart,dart-test-1805,Full System,NOT CHECKABLE,0
+dart,dart-test-1805,Full System,OTHER,0
+dart,dart-test-1805,Full System,OMISSION,0
+dart,dart-test-1805,Full System,TASK/FORMAT,0
+dart,dart-test-1805,Baseline,NAME,0
+dart,dart-test-1805,Baseline,NUMBER,0
+dart,dart-test-1805,Baseline,WORD,0
+dart,dart-test-1805,Baseline,CONTEXT,0
+dart,dart-test-1805,Baseline,NOT CHECKABLE,0
+dart,dart-test-1805,Baseline,OTHER,0
+dart,dart-test-1805,Baseline,OMISSION,0
+dart,dart-test-1805,Baseline,TASK/FORMAT,0
+sportsett_basketball,5955,Full System,NAME,0
+sportsett_basketball,5955,Full System,NUMBER,0
+sportsett_basketball,5955,Full System,WORD,0
+sportsett_basketball,5955,Full System,CONTEXT,1
+sportsett_basketball,5955,Full System,NOT CHECKABLE,0
+sportsett_basketball,5955,Full System,OTHER,0
+sportsett_basketball,5955,Full System,OMISSION,1
+sportsett_basketball,5955,Full System,TASK/FORMAT,1
+dart,dart-test-2278,Full System,NAME,0
+dart,dart-test-2278,Full System,NUMBER,0
+dart,dart-test-2278,Full System,WORD,0
+dart,dart-test-2278,Full System,CONTEXT,0
+dart,dart-test-2278,Full System,NOT CHECKABLE,0
+dart,dart-test-2278,Full System,OTHER,0
+dart,dart-test-2278,Full System,OMISSION,0
+dart,dart-test-2278,Full System,TASK/FORMAT,0
+totto,totto-validation-4467,Full System,NAME,0
+totto,totto-validation-4467,Full System,NUMBER,0
+totto,totto-validation-4467,Full System,WORD,0
+totto,totto-validation-4467,Full System,CONTEXT,0
+totto,totto-validation-4467,Full System,NOT CHECKABLE,0
+totto,totto-validation-4467,Full System,OTHER,0
+totto,totto-validation-4467,Full System,OMISSION,0
+totto,totto-validation-4467,Full System,TASK/FORMAT,0
+sportsett_basketball,5372,Baseline,NAME,0
+sportsett_basketball,5372,Baseline,NUMBER,0
+sportsett_basketball,5372,Baseline,WORD,0
+sportsett_basketball,5372,Baseline,CONTEXT,0
+sportsett_basketball,5372,Baseline,NOT CHECKABLE,0
+sportsett_basketball,5372,Baseline,OTHER,0
+sportsett_basketball,5372,Baseline,OMISSION,0
+sportsett_basketball,5372,Baseline,TASK/FORMAT,1
+web_nlg,web_nlg_en-test-1209,Baseline,NAME,0
+web_nlg,web_nlg_en-test-1209,Baseline,NUMBER,0
+web_nlg,web_nlg_en-test-1209,Baseline,WORD,0
+web_nlg,web_nlg_en-test-1209,Baseline,CONTEXT,0
+web_nlg,web_nlg_en-test-1209,Baseline,NOT CHECKABLE,0
+web_nlg,web_nlg_en-test-1209,Baseline,OTHER,0
+web_nlg,web_nlg_en-test-1209,Baseline,OMISSION,0
+web_nlg,web_nlg_en-test-1209,Baseline,TASK/FORMAT,0
+dart,dart-test-4597,Full System,NAME,0
+dart,dart-test-4597,Full System,NUMBER,0
+dart,dart-test-4597,Full System,WORD,0
+dart,dart-test-4597,Full System,CONTEXT,0
+dart,dart-test-4597,Full System,NOT CHECKABLE,0
+dart,dart-test-4597,Full System,OTHER,0
+dart,dart-test-4597,Full System,OMISSION,0
+dart,dart-test-4597,Full System,TASK/FORMAT,0
+web_nlg,web_nlg_en-test-864,Full System,NAME,0
+web_nlg,web_nlg_en-test-864,Full System,NUMBER,0
+web_nlg,web_nlg_en-test-864,Full System,WORD,0
+web_nlg,web_nlg_en-test-864,Full System,CONTEXT,0
+web_nlg,web_nlg_en-test-864,Full System,NOT CHECKABLE,0
+web_nlg,web_nlg_en-test-864,Full System,OTHER,0
+web_nlg,web_nlg_en-test-864,Full System,OMISSION,0
+web_nlg,web_nlg_en-test-864,Full System,TASK/FORMAT,0
+e2e_nlg,e2e_nlg-test-864,Baseline,NAME,0
+e2e_nlg,e2e_nlg-test-864,Baseline,NUMBER,0
+e2e_nlg,e2e_nlg-test-864,Baseline,WORD,0
+e2e_nlg,e2e_nlg-test-864,Baseline,CONTEXT,0
+e2e_nlg,e2e_nlg-test-864,Baseline,NOT CHECKABLE,0
+e2e_nlg,e2e_nlg-test-864,Baseline,OTHER,0
+e2e_nlg,e2e_nlg-test-864,Baseline,OMISSION,0
+e2e_nlg,e2e_nlg-test-864,Baseline,TASK/FORMAT,0
+web_nlg,web_nlg_en-test-1330,Full System,NAME,0
+web_nlg,web_nlg_en-test-1330,Full System,NUMBER,0
+web_nlg,web_nlg_en-test-1330,Full System,WORD,0
+web_nlg,web_nlg_en-test-1330,Full System,CONTEXT,0
+web_nlg,web_nlg_en-test-1330,Full System,NOT CHECKABLE,0
+web_nlg,web_nlg_en-test-1330,Full System,OTHER,0
+web_nlg,web_nlg_en-test-1330,Full System,OMISSION,0
+web_nlg,web_nlg_en-test-1330,Full System,TASK/FORMAT,0
+e2e_nlg,e2e_nlg-test-209,Baseline,NAME,0
+e2e_nlg,e2e_nlg-test-209,Baseline,NUMBER,0
+e2e_nlg,e2e_nlg-test-209,Baseline,WORD,0
+e2e_nlg,e2e_nlg-test-209,Baseline,CONTEXT,0
+e2e_nlg,e2e_nlg-test-209,Baseline,NOT CHECKABLE,0
+e2e_nlg,e2e_nlg-test-209,Baseline,OTHER,0
+e2e_nlg,e2e_nlg-test-209,Baseline,OMISSION,0
+e2e_nlg,e2e_nlg-test-209,Baseline,TASK/FORMAT,0
+sportsett_basketball,5130,Baseline,NAME,0
+sportsett_basketball,5130,Baseline,NUMBER,0
+sportsett_basketball,5130,Baseline,WORD,0
+sportsett_basketball,5130,Baseline,CONTEXT,0
+sportsett_basketball,5130,Baseline,NOT CHECKABLE,0
+sportsett_basketball,5130,Baseline,OTHER,0
+sportsett_basketball,5130,Baseline,OMISSION,0
+sportsett_basketball,5130,Baseline,TASK/FORMAT,1
+e2e_nlg,e2e_nlg-test-1330,Baseline,NAME,0
+e2e_nlg,e2e_nlg-test-1330,Baseline,NUMBER,0
+e2e_nlg,e2e_nlg-test-1330,Baseline,WORD,0
+e2e_nlg,e2e_nlg-test-1330,Baseline,CONTEXT,0
+e2e_nlg,e2e_nlg-test-1330,Baseline,NOT CHECKABLE,0
+e2e_nlg,e2e_nlg-test-1330,Baseline,OTHER,0
+e2e_nlg,e2e_nlg-test-1330,Baseline,OMISSION,0
+e2e_nlg,e2e_nlg-test-1330,Baseline,TASK/FORMAT,0
+e2e_nlg,e2e_nlg-test-447,Baseline,NAME,0
+e2e_nlg,e2e_nlg-test-447,Baseline,NUMBER,0
+e2e_nlg,e2e_nlg-test-447,Baseline,WORD,0
+e2e_nlg,e2e_nlg-test-447,Baseline,CONTEXT,0
+e2e_nlg,e2e_nlg-test-447,Baseline,NOT CHECKABLE,0
+e2e_nlg,e2e_nlg-test-447,Baseline,OTHER,0
+e2e_nlg,e2e_nlg-test-447,Baseline,OMISSION,0
+e2e_nlg,e2e_nlg-test-447,Baseline,TASK/FORMAT,0
+e2e_nlg,e2e_nlg-test-476,Full System,NAME,0
+e2e_nlg,e2e_nlg-test-476,Full System,NUMBER,0
+e2e_nlg,e2e_nlg-test-476,Full System,WORD,0
+e2e_nlg,e2e_nlg-test-476,Full System,CONTEXT,0
+e2e_nlg,e2e_nlg-test-476,Full System,NOT CHECKABLE,0
+e2e_nlg,e2e_nlg-test-476,Full System,OTHER,0
+e2e_nlg,e2e_nlg-test-476,Full System,OMISSION,0
+e2e_nlg,e2e_nlg-test-476,Full System,TASK/FORMAT,0
+sportsett_basketball,5955,Baseline,NAME,0
+sportsett_basketball,5955,Baseline,NUMBER,0
+sportsett_basketball,5955,Baseline,WORD,0
+sportsett_basketball,5955,Baseline,CONTEXT,0
+sportsett_basketball,5955,Baseline,NOT CHECKABLE,0
+sportsett_basketball,5955,Baseline,OTHER,0
+sportsett_basketball,5955,Baseline,OMISSION,0
+sportsett_basketball,5955,Baseline,TASK/FORMAT,1
+web_nlg,web_nlg_en-test-859,Full System,NAME,0
+web_nlg,web_nlg_en-test-859,Full System,NUMBER,0
+web_nlg,web_nlg_en-test-859,Full System,WORD,0
+web_nlg,web_nlg_en-test-859,Full System,CONTEXT,0
+web_nlg,web_nlg_en-test-859,Full System,NOT CHECKABLE,0
+web_nlg,web_nlg_en-test-859,Full System,OTHER,0
+web_nlg,web_nlg_en-test-859,Full System,OMISSION,0
+web_nlg,web_nlg_en-test-859,Full System,TASK/FORMAT,0
+web_nlg,web_nlg_en-test-859,Baseline,NAME,0
+web_nlg,web_nlg_en-test-859,Baseline,NUMBER,0
+web_nlg,web_nlg_en-test-859,Baseline,WORD,0
+web_nlg,web_nlg_en-test-859,Baseline,CONTEXT,0
+web_nlg,web_nlg_en-test-859,Baseline,NOT CHECKABLE,0
+web_nlg,web_nlg_en-test-859,Baseline,OTHER,0
+web_nlg,web_nlg_en-test-859,Baseline,OMISSION,0
+web_nlg,web_nlg_en-test-859,Baseline,TASK/FORMAT,0
+totto,totto-validation-912,Full System,NAME,0
+totto,totto-validation-912,Full System,NUMBER,0
+totto,totto-validation-912,Full System,WORD,0
+totto,totto-validation-912,Full System,CONTEXT,0
+totto,totto-validation-912,Full System,NOT CHECKABLE,0
+totto,totto-validation-912,Full System,OTHER,0
+totto,totto-validation-912,Full System,OMISSION,0
+totto,totto-validation-912,Full System,TASK/FORMAT,0
+totto,totto-validation-6067,Baseline,NAME,0
+totto,totto-validation-6067,Baseline,NUMBER,0
+totto,totto-validation-6067,Baseline,WORD,0
+totto,totto-validation-6067,Baseline,CONTEXT,0
+totto,totto-validation-6067,Baseline,NOT CHECKABLE,0
+totto,totto-validation-6067,Baseline,OTHER,0
+totto,totto-validation-6067,Baseline,OMISSION,0
+totto,totto-validation-6067,Baseline,TASK/FORMAT,1
+web_nlg,web_nlg_en-test-1209,Full System,NAME,0
+web_nlg,web_nlg_en-test-1209,Full System,NUMBER,0
+web_nlg,web_nlg_en-test-1209,Full System,WORD,0
+web_nlg,web_nlg_en-test-1209,Full System,CONTEXT,0
+web_nlg,web_nlg_en-test-1209,Full System,NOT CHECKABLE,0
+web_nlg,web_nlg_en-test-1209,Full System,OTHER,0
+web_nlg,web_nlg_en-test-1209,Full System,OMISSION,0
+web_nlg,web_nlg_en-test-1209,Full System,TASK/FORMAT,0
+dart,dart-test-1828,Full System,NAME,0
+dart,dart-test-1828,Full System,NUMBER,0
+dart,dart-test-1828,Full System,WORD,0
+dart,dart-test-1828,Full System,CONTEXT,0
+dart,dart-test-1828,Full System,NOT CHECKABLE,0
+dart,dart-test-1828,Full System,OTHER,0
+dart,dart-test-1828,Full System,OMISSION,0
+dart,dart-test-1828,Full System,TASK/FORMAT,0
+sportsett_basketball,6127,Full System,NAME,0
+sportsett_basketball,6127,Full System,NUMBER,0
+sportsett_basketball,6127,Full System,WORD,1
+sportsett_basketball,6127,Full System,CONTEXT,2
+sportsett_basketball,6127,Full System,NOT CHECKABLE,0
+sportsett_basketball,6127,Full System,OTHER,0
+sportsett_basketball,6127,Full System,OMISSION,0
+sportsett_basketball,6127,Full System,TASK/FORMAT,1

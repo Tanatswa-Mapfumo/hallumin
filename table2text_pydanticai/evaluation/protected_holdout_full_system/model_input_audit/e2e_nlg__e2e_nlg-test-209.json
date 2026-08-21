@@ -1,0 +1,36 @@
+{
+  "__table2text_benchmark_example__": true,
+  "dataset_id": "e2e_nlg",
+  "example_id": "e2e_nlg-test-209",
+  "task_family": "attribute_verbalisation",
+  "output_mode": "short_text",
+  "request": "Express all and only the supplied attributes in one or two fluent sentences. Do not add headings or unsupported details.",
+  "source_text": "name[The Cricketers], eatType[coffee shop], familyFriendly[yes], near[Café Sicilia]",
+  "source_payload": {
+    "meaning_representation": "name[The Cricketers], eatType[coffee shop], familyFriendly[yes], near[Café Sicilia]"
+  },
+  "parent_table": [
+    [
+      "name",
+      "The Cricketers"
+    ],
+    [
+      "eatType",
+      "coffee shop"
+    ],
+    [
+      "familyFriendly",
+      "yes"
+    ],
+    [
+      "near",
+      "Café Sicilia"
+    ]
+  ],
+  "metadata": {
+    "normalizer": "e2e",
+    "requested_split": "test",
+    "hub_id": "GEM/e2e_nlg",
+    "config_name": null
+  }
+}

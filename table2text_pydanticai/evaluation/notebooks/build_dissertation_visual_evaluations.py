@@ -87,14 +87,14 @@ variant_labels = {
 }
 
 variant_colors = {
-    "full_system": "#2563eb",
-    "raw_generic_flash": "#f97316",
-    "raw_deepseek_v4_flash": "#f97316",
-    "full_system_pro": "#0f766e",
-    "raw_generic_pro": "#9333ea",
-    "no_insight_synthesis": "#db2777",
-    "no_writer_quality_revision": "#7c3aed",
-    "no_audit_repair_rounds": "#64748b",
+    "full_system": "#0072B2",
+    "raw_generic_flash": "#D55E00",
+    "raw_deepseek_v4_flash": "#D55E00",
+    "full_system_pro": "#009E73",
+    "raw_generic_pro": "#CC79A7",
+    "no_insight_synthesis": "#E69F00",
+    "no_writer_quality_revision": "#6A3D9A",
+    "no_audit_repair_rounds": "#6B7280",
 }
 
 metric_labels = {
@@ -495,12 +495,12 @@ x = np.arange(len(win_df))
 ax.plot(
     x,
     win_df["win_rate"],
-    color="#2563eb",
+    color=variant_colors["full_system"],
     marker="o",
     linewidth=2.8,
     markersize=8,
 )
-ax.fill_between(x, 0.5, win_df["win_rate"], where=win_df["win_rate"] >= 0.5, color="#bfdbfe", alpha=0.55, interpolate=True)
+ax.fill_between(x, 0.5, win_df["win_rate"], where=win_df["win_rate"] >= 0.5, color="#9BD3EA", alpha=0.45, interpolate=True)
 for xi, value, n in zip(x, win_df["win_rate"], win_df["n"]):
     ax.text(xi, value + 0.035, f"{value:.0%}\n(n={n})", ha="center", fontsize=8)
 ax.axhline(0.5, color="#64748b", linestyle="--", linewidth=1.2)
