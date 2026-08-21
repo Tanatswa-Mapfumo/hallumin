@@ -29,6 +29,7 @@ table2text_pydanticai/.uv-python/
 
 # Local experimental worktrees and snapshots
 table2text_pydanticai_experiment/
+.local_archive/
 
 # Generated run artifacts
 runs/

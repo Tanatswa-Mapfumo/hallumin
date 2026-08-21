@@ -650,10 +650,10 @@ LLM-only experiment:
 
 ```text
 LLM_ONLY_MULTIAGENT_EXPERIMENTATION_DOCUMENT.md
-../table2text_pydanticai_experiment/evaluation/llm_only_runs_notebook_dataset/sportsett_basketball/814de3d5c33d2f7f.json
-../table2text_pydanticai_experiment/evaluation/llm_only_runs_notebook_dataset_pro/sportsett_basketball/3fb04b6be798d06c.json
-../table2text_pydanticai_experiment/evaluation/results/llm_only_pro_existing/sportsett_4934_selected_metric_comparison.csv
-../table2text_pydanticai_experiment/evaluation/results/llm_only_pro_existing/sportsett_4934_generation_diagnostics_comparison.csv
+experiments/llm_only_pipeline/artifacts/sportsett_4934/flash/result.json
+experiments/llm_only_pipeline/artifacts/sportsett_4934/pro/result.json
+experiments/llm_only_pipeline/artifacts/sportsett_4934/pro/metrics/sportsett_4934_selected_metric_comparison.csv
+experiments/llm_only_pipeline/artifacts/sportsett_4934/pro/metrics/sportsett_4934_generation_diagnostics_comparison.csv
 ```
 
 ## Appendix D. Complete main DeepEval score matrix

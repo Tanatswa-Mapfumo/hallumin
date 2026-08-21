@@ -1,0 +1,46 @@
+{
+  "variants": [
+    {
+      "variant_id": "llm_only_flash",
+      "enabled": true,
+      "backend": "callable",
+      "description": "LLM-only multi-agent workflow using DeepSeek V4 Flash.",
+      "settings_overrides": {
+        "llm_only_model": "deepseek-v4-flash",
+        "llm_only_max_source_characters": 100000,
+        "llm_only_max_source_payload_characters": 5000,
+        "llm_only_max_output_tokens": 6000,
+        "llm_only_temperature": 0.1,
+        "llm_only_max_claims": 18,
+        "llm_only_repair_rounds": 1,
+        "llm_only_artifact_dir": "experiments/llm_only_pipeline/artifacts/runs/flash"
+      },
+      "callable_path": "table2text_llm_only.backend.llm_only_multi_agent",
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [42]
+    },
+    {
+      "variant_id": "llm_only_pro",
+      "enabled": false,
+      "backend": "callable",
+      "description": "Optional model-strength comparison using DeepSeek V4 Pro.",
+      "settings_overrides": {
+        "llm_only_model": "deepseek-v4-pro",
+        "llm_only_max_source_characters": 100000,
+        "llm_only_max_source_payload_characters": 5000,
+        "llm_only_max_output_tokens": 6000,
+        "llm_only_temperature": 0.1,
+        "llm_only_max_claims": 18,
+        "llm_only_repair_rounds": 1,
+        "llm_only_artifact_dir": "experiments/llm_only_pipeline/artifacts/runs/pro"
+      },
+      "callable_path": "table2text_llm_only.backend.llm_only_multi_agent",
+      "command": [],
+      "precomputed_path": null,
+      "repetitions": 1,
+      "seeds": [42]
+    }
+  ]
+}

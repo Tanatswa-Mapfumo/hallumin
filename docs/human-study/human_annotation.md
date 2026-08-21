@@ -137,7 +137,7 @@ recorded separately when they led to different judgements.
 | SportSett ablation | `table2text_pydanticai/evaluation/generations/ablation_sportsett_4934_20260805_021058_combined_generations.jsonl` |
 | Generic-request experiment | `table2text_pydanticai/evaluation/generations/generic_only_sportsett_basketball_4934_20260805_131536_generations.jsonl` and `table2text_pydanticai/evaluation/generations/generic_only_sportsett_basketball_4934_20260805_162215_generations.jsonl`. |
 | Inferred-contract experiment | `table2text_pydanticai/evaluation/generations/sportsett_4934_inferred_contract_20260813_200558_generations.jsonl` and `table2text_pydanticai/evaluation/generations/sportsett_basketball_4934_inferred_contract_deepseek-v4-flash_20260813_203625_generations.jsonl`. |
-| LLM-only Flash and Pro | `table2text_pydanticai_experiment/evaluation/llm_only_runs_notebook_dataset/sportsett_basketball/814de3d5c33d2f7f.json` and `table2text_pydanticai_experiment/evaluation/llm_only_runs_notebook_dataset_pro/sportsett_basketball/3fb04b6be798d06c.json`. |
+| LLM-only Flash and Pro | `experiments/llm_only_pipeline/artifacts/sportsett_4934/flash/result.json` and `experiments/llm_only_pipeline/artifacts/sportsett_4934/pro/result.json`. |
 | GPT-5.6 structured error annotations | `table2text_pydanticai/evaluation/results/openai_structured_error_annotations.jsonl` and `sportsett_basketball_4934_full_system_openai_judge_annotations.jsonl`. |
 
 The human references were held out from every generation condition. They were

@@ -1,0 +1,570 @@
+{
+  "generated_text": "The Philadelphia 76ers defeated the Memphis Grizzlies 103-95 on Sunday, December 2, 2018 at Wells Fargo Center in Philadelphia. Philadelphia entered the game with a 17-8 record, while Memphis held a 13-9 mark, and the contest drew an attendance of 20,300. The 76ers used a 28-19 second quarter to build a 54-44 halftime lead. J.J. Redick led the charge with 24 points on 9-of-17 shooting. Jimmy Butler added 21 points, while Ben Simmons posted a double-double of 19 points, 12 rebounds and a game-high 6 assists. Joel Embiid also recorded a double-double with 15 points and 14 rebounds. Mike Conley paced the Grizzlies with 21 points.",
+  "interpretation": {
+    "task_understanding": "Generate a game report from structured box score data for a basketball game. The source contains team and player statistics, game context, and quarter/half scores.",
+    "source_units": "game; home team; visitor team; player box scores; team line scores",
+    "important_entities": [
+      "76ers",
+      "Grizzlies",
+      "J.J. Redick",
+      "Jimmy Butler",
+      "Ben Simmons",
+      "Joel Embiid",
+      "Mike Conley",
+      "Jaren Jackson",
+      "JaMychal Green",
+      "MarShon Brooks"
+    ],
+    "important_fields": [
+      "home_team_score",
+      "visitor_team_score",
+      "home_team_name",
+      "visitor_team_name",
+      "game_date",
+      "attendance",
+      "stadium",
+      "player_points",
+      "player_rebounds",
+      "player_assists",
+      "player_field_goal_percentage",
+      "player_three_point_percentage",
+      "player_free_throw_percentage",
+      "player_double_double",
+      "team_field_goal_percentage",
+      "team_turnovers",
+      "quarter_scores",
+      "plus_minus",
+      "starter_status",
+      "minutes_played"
+    ],
+    "allowed_claim_types": [
+      "final_score",
+      "top_scorer",
+      "double_double",
+      "shooting_percentage",
+      "quarter_scores",
+      "bench_contribution",
+      "turnovers",
+      "attendance",
+      "team_record",
+      "player_comparison"
+    ],
+    "risks": [
+      "Inventing quotes or player reactions",
+      "Assuming causation from correlation",
+      "Misinterpreting +/- as overall performance",
+      "Extrapolating future game outcomes",
+      "Inventing historical context or rivalries",
+      "Making claims not directly backed by stats (e.g., injury, mood)",
+      "Confusing quarter scores with full-game stats",
+      "Misattributing team standing to this game result"
+    ]
+  },
+  "candidate_claims": {
+    "claims": [
+      {
+        "claim_id": "1",
+        "claim": "The Philadelphia 76ers defeated the Memphis Grizzlies 103-95.",
+        "claim_type": "final_score",
+        "source_refs": [
+          "home.line_score.game.PTS",
+          "vis.line_score.game.PTS"
+        ],
+        "copied_values": [
+          "103",
+          "95"
+        ],
+        "calculation_or_reasoning": "Directly from team totals.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "2",
+        "claim": "The game was played on Sunday, December 2, 2018 at Wells Fargo Center in Philadelphia before a crowd of 20,300.",
+        "claim_type": "event_context",
+        "source_refs": [
+          "game.dayname",
+          "game.month",
+          "game.day",
+          "game.year",
+          "game.stadium",
+          "game.city",
+          "game.state",
+          "game.attendance"
+        ],
+        "copied_values": [
+          "Sunday",
+          "December",
+          "2",
+          "2018",
+          "Wells Fargo Center",
+          "Philadelphia",
+          "Pennsylvania",
+          "20300"
+        ],
+        "calculation_or_reasoning": "All values copied directly from game metadata.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "3",
+        "claim": "Philadelphia entered with a 17-8 record, while Memphis was 13-9.",
+        "claim_type": "record_context",
+        "source_refs": [
+          "home.wins",
+          "home.losses",
+          "vis.wins",
+          "vis.losses"
+        ],
+        "copied_values": [
+          "17",
+          "8",
+          "13",
+          "9"
+        ],
+        "calculation_or_reasoning": "Records from team data.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "4",
+        "claim": "The 76ers used a 28-19 second quarter to build a 54-44 halftime lead.",
+        "claim_type": "period_score_progression",
+        "source_refs": [
+          "home.line_score.Q1.PTS",
+          "home.line_score.Q2.PTS",
+          "vis.line_score.Q1.PTS",
+          "vis.line_score.Q2.PTS"
+        ],
+        "copied_values": [
+          "26",
+          "28",
+          "25",
+          "19"
+        ],
+        "calculation_or_reasoning": "Summed each team's first half: 26+28=54 and 25+19=44.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "5",
+        "claim": "J.J. Redick paced the 76ers with 24 points on 9-of-17 shooting.",
+        "claim_type": "lead_scorer",
+        "source_refs": [
+          "home.box_score.J.J._Redick.PTS",
+          "home.box_score.J.J._Redick.FGM",
+          "home.box_score.J.J._Redick.FGA"
+        ],
+        "copied_values": [
+          "24",
+          "9",
+          "17"
+        ],
+        "calculation_or_reasoning": "Highest points among 76ers; field goal line from box.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "6",
+        "claim": "Mike Conley led the Grizzlies with 21 points.",
+        "claim_type": "lead_scorer",
+        "source_refs": [
+          "vis.box_score.Mike_Conley.PTS"
+        ],
+        "copied_values": [
+          "21"
+        ],
+        "calculation_or_reasoning": "Highest points among Grizzlies.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "7",
+        "claim": "Jimmy Butler added 21 points and Ben Simmons scored 19 for Philadelphia.",
+        "claim_type": "secondary_scorers",
+        "source_refs": [
+          "home.box_score.Jimmy_Butler.PTS",
+          "home.box_score.Ben_Simmons.PTS"
+        ],
+        "copied_values": [
+          "21",
+          "19"
+        ],
+        "calculation_or_reasoning": "Second and third highest scorers for 76ers.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "8",
+        "claim": "Joel Embiid and Ben Simmons each recorded a double-double; Embiid had 15 points and 14 rebounds while Simmons had 19 and 12.",
+        "claim_type": "double_double",
+        "source_refs": [
+          "home.box_score.Joel_Embiid.PTS",
+          "home.box_score.Joel_Embiid.TREB",
+          "home.box_score.Ben_Simmons.PTS",
+          "home.box_score.Ben_Simmons.TREB",
+          "home.box_score.Joel_Embiid.DOUBLE",
+          "home.box_score.Ben_Simmons.DOUBLE"
+        ],
+        "copied_values": [
+          "15",
+          "14",
+          "19",
+          "12",
+          "double",
+          "double"
+        ],
+        "calculation_or_reasoning": "Double designation confirmed in box score.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "9",
+        "claim": "Ben Simmons dished out a game-high 6 assists.",
+        "claim_type": "source_fact",
+        "source_refs": [],
+        "copied_values": [],
+        "calculation_or_reasoning": "",
+        "confidence": 0.5
+      }
+    ],
+    "analysis_notes": []
+  },
+  "critique": {
+    "reviews": [
+      {
+        "claim_id": "1",
+        "status": "supported",
+        "reason": "The final score matches the home and visitor point totals in the source.",
+        "corrected_claim": "The Philadelphia 76ers defeated the Memphis Grizzlies 103-95."
+      },
+      {
+        "claim_id": "2",
+        "status": "supported",
+        "reason": "All event details (day, date, venue, city, attendance) are directly copied from game metadata.",
+        "corrected_claim": "The game was played on Sunday, December 2, 2018 at Wells Fargo Center in Philadelphia before a crowd of 20,300."
+      },
+      {
+        "claim_id": "3",
+        "status": "supported",
+        "reason": "Team records (wins-losses) are correctly taken from team data.",
+        "corrected_claim": "Philadelphia entered with a 17-8 record, while Memphis was 13-9."
+      },
+      {
+        "claim_id": "4",
+        "status": "supported",
+        "reason": "Quarter scores sum correctly to the halftime lead as indicated in the line score.",
+        "corrected_claim": "The 76ers used a 28-19 second quarter to build a 54-44 halftime lead."
+      },
+      {
+        "claim_id": "5",
+        "status": "supported",
+        "reason": "Redick's point total and shooting line are correctly extracted and he is the leading scorer.",
+        "corrected_claim": "J.J. Redick paced the 76ers with 24 points on 9-of-17 shooting."
+      },
+      {
+        "claim_id": "6",
+        "status": "supported",
+        "reason": "Conley's 21 points is the highest among Grizzlies players in the box score.",
+        "corrected_claim": "Mike Conley led the Grizzlies with 21 points."
+      },
+      {
+        "claim_id": "7",
+        "status": "supported",
+        "reason": "Butler and Simmons' point totals match their box score entries.",
+        "corrected_claim": "Jimmy Butler added 21 points and Ben Simmons scored 19 for Philadelphia."
+      },
+      {
+        "claim_id": "8",
+        "status": "supported",
+        "reason": "Both Embiid and Simmons recorded double-doubles with the stated points and rebounds.",
+        "corrected_claim": "Joel Embiid and Ben Simmons each recorded a double-double; Embiid had 15 points and 14 rebounds while Simmons had 19 and 12."
+      },
+      {
+        "claim_id": "9",
+        "status": "supported",
+        "reason": "Simmons' 6 assists is the highest total in the game compared to all players' assist numbers.",
+        "corrected_claim": "Ben Simmons dished out a game-high 6 assists."
+      }
+    ],
+    "global_warnings": []
+  },
+  "adjudicated_claims": {
+    "accepted_claims": [
+      {
+        "claim_id": "1",
+        "claim": "The Philadelphia 76ers defeated the Memphis Grizzlies 103-95.",
+        "claim_type": "final_score",
+        "source_refs": [
+          "home.line_score.game.PTS",
+          "vis.line_score.game.PTS"
+        ],
+        "copied_values": [
+          "103",
+          "95"
+        ],
+        "calculation_or_reasoning": "Directly from team totals.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "2",
+        "claim": "The game was played on Sunday, December 2, 2018 at Wells Fargo Center in Philadelphia before a crowd of 20,300.",
+        "claim_type": "event_context",
+        "source_refs": [
+          "game.dayname",
+          "game.month",
+          "game.day",
+          "game.year",
+          "game.stadium",
+          "game.city",
+          "game.state",
+          "game.attendance"
+        ],
+        "copied_values": [
+          "Sunday",
+          "December",
+          "2",
+          "2018",
+          "Wells Fargo Center",
+          "Philadelphia",
+          "Pennsylvania",
+          "20300"
+        ],
+        "calculation_or_reasoning": "All values copied directly from game metadata.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "3",
+        "claim": "Philadelphia entered with a 17-8 record, while Memphis was 13-9.",
+        "claim_type": "record_context",
+        "source_refs": [
+          "home.wins",
+          "home.losses",
+          "vis.wins",
+          "vis.losses"
+        ],
+        "copied_values": [
+          "17",
+          "8",
+          "13",
+          "9"
+        ],
+        "calculation_or_reasoning": "Records from team data.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "4",
+        "claim": "The 76ers used a 28-19 second quarter to build a 54-44 halftime lead.",
+        "claim_type": "period_score_progression",
+        "source_refs": [
+          "home.line_score.Q1.PTS",
+          "home.line_score.Q2.PTS",
+          "vis.line_score.Q1.PTS",
+          "vis.line_score.Q2.PTS"
+        ],
+        "copied_values": [
+          "26",
+          "28",
+          "25",
+          "19"
+        ],
+        "calculation_or_reasoning": "Summed each team's first half: 26+28=54 and 25+19=44.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "5",
+        "claim": "J.J. Redick paced the 76ers with 24 points on 9-of-17 shooting.",
+        "claim_type": "lead_scorer",
+        "source_refs": [
+          "home.box_score.J.J._Redick.PTS",
+          "home.box_score.J.J._Redick.FGM",
+          "home.box_score.J.J._Redick.FGA"
+        ],
+        "copied_values": [
+          "24",
+          "9",
+          "17"
+        ],
+        "calculation_or_reasoning": "Highest points among 76ers; field goal line from box.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "6",
+        "claim": "Mike Conley led the Grizzlies with 21 points.",
+        "claim_type": "lead_scorer",
+        "source_refs": [
+          "vis.box_score.Mike_Conley.PTS"
+        ],
+        "copied_values": [
+          "21"
+        ],
+        "calculation_or_reasoning": "Highest points among Grizzlies.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "7",
+        "claim": "Jimmy Butler added 21 points and Ben Simmons scored 19 for Philadelphia.",
+        "claim_type": "secondary_scorers",
+        "source_refs": [
+          "home.box_score.Jimmy_Butler.PTS",
+          "home.box_score.Ben_Simmons.PTS"
+        ],
+        "copied_values": [
+          "21",
+          "19"
+        ],
+        "calculation_or_reasoning": "Second and third highest scorers for 76ers.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "8",
+        "claim": "Joel Embiid and Ben Simmons each recorded a double-double; Embiid had 15 points and 14 rebounds while Simmons had 19 and 12.",
+        "claim_type": "double_double",
+        "source_refs": [
+          "home.box_score.Joel_Embiid.PTS",
+          "home.box_score.Joel_Embiid.TREB",
+          "home.box_score.Ben_Simmons.PTS",
+          "home.box_score.Ben_Simmons.TREB",
+          "home.box_score.Joel_Embiid.DOUBLE",
+          "home.box_score.Ben_Simmons.DOUBLE"
+        ],
+        "copied_values": [
+          "15",
+          "14",
+          "19",
+          "12",
+          "double",
+          "double"
+        ],
+        "calculation_or_reasoning": "Double designation confirmed in box score.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "9",
+        "claim": "Ben Simmons dished out a game-high 6 assists.",
+        "claim_type": "source_fact",
+        "source_refs": [],
+        "copied_values": [],
+        "calculation_or_reasoning": "",
+        "confidence": 0.5
+      }
+    ],
+    "rejected_claims": [],
+    "warnings": []
+  },
+  "writer_draft": {
+    "title": "Philadelphia 76ers Defeat Memphis Grizzlies 103-95",
+    "sentences": [
+      {
+        "text": "The Philadelphia 76ers defeated the Memphis Grizzlies 103-95 on Sunday, December 2, 2018 at Wells Fargo Center in Philadelphia.",
+        "claim_ids": [
+          "1",
+          "2"
+        ]
+      },
+      {
+        "text": "Philadelphia entered the game with a 17-8 record, while Memphis held a 13-9 mark, and the contest drew an attendance of 20,300.",
+        "claim_ids": [
+          "2",
+          "3"
+        ]
+      },
+      {
+        "text": "The 76ers used a 28-19 second quarter to build a 54-44 halftime lead.",
+        "claim_ids": [
+          "4"
+        ]
+      },
+      {
+        "text": "J.J. Redick led the charge with 24 points on 9-of-17 shooting.",
+        "claim_ids": [
+          "5"
+        ]
+      },
+      {
+        "text": "Jimmy Butler added 21 points, while Ben Simmons posted a double-double of 19 points, 12 rebounds and a game-high 6 assists.",
+        "claim_ids": [
+          "7",
+          "8",
+          "9"
+        ]
+      },
+      {
+        "text": "Joel Embiid also recorded a double-double with 15 points and 14 rebounds.",
+        "claim_ids": [
+          "8"
+        ]
+      },
+      {
+        "text": "Mike Conley paced the Grizzlies with 21 points.",
+        "claim_ids": [
+          "6"
+        ]
+      }
+    ]
+  },
+  "final_audit": {
+    "decision": "pass",
+    "support_rate": 1.0,
+    "findings": [],
+    "notes": [
+      "All sentences are fully supported by the accepted claims. Coverage meets the required elements. Claim 9 (Ben Simmons 6 assists) has low confidence but is accepted and used appropriately."
+    ]
+  },
+  "repaired_draft": null,
+  "traces": [
+    {
+      "stage": "source_interpreter",
+      "model": "deepseek-v4-pro",
+      "elapsed_seconds": 20.25337849999778,
+      "usage": {
+        "prompt_tokens": 10601,
+        "completion_tokens": 1292,
+        "total_tokens": 11893
+      }
+    },
+    {
+      "stage": "llm_analysis",
+      "model": "deepseek-v4-pro",
+      "elapsed_seconds": 140.67263116699178,
+      "usage": {
+        "prompt_tokens": 12614,
+        "completion_tokens": 8576,
+        "total_tokens": 21190
+      }
+    },
+    {
+      "stage": "claim_critic",
+      "model": "deepseek-v4-pro",
+      "elapsed_seconds": 43.79880883300211,
+      "usage": {
+        "prompt_tokens": 11851,
+        "completion_tokens": 2531,
+        "total_tokens": 14382
+      }
+    },
+    {
+      "stage": "claim_adjudicator",
+      "model": "deepseek-v4-pro",
+      "elapsed_seconds": 19.625664666993544,
+      "usage": {
+        "prompt_tokens": 12535,
+        "completion_tokens": 1764,
+        "total_tokens": 14299
+      }
+    },
+    {
+      "stage": "writer",
+      "model": "deepseek-v4-pro",
+      "elapsed_seconds": 48.373546833056025,
+      "usage": {
+        "prompt_tokens": 1541,
+        "completion_tokens": 3175,
+        "total_tokens": 4716
+      }
+    },
+    {
+      "stage": "output_auditor",
+      "model": "deepseek-v4-pro",
+      "elapsed_seconds": 28.891318082925864,
+      "usage": {
+        "prompt_tokens": 12304,
+        "completion_tokens": 1840,
+        "total_tokens": 14144
+      }
+    }
+  ],
+  "artifact_path": "evaluation/llm_only_runs_notebook_dataset_pro/sportsett_basketball/3fb04b6be798d06c.json"
+}

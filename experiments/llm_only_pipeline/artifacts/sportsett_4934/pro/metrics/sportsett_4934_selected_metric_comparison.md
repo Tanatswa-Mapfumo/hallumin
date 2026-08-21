@@ -1,0 +1,13 @@
+| metric_context       | metric_name                             | higher_is_better   |   full_system |   raw_deepseek_v4_flash |   llm_only_multiagent_notebook_dataset |   llm_only_multiagent_pro_existing |
+|:---------------------|:----------------------------------------|:-------------------|--------------:|------------------------:|---------------------------------------:|-----------------------------------:|
+| reference_similarity | alignscore_base                         | True               |      0.39862  |                0.307779 |                            nan         |                         nan        |
+| reference_similarity | bertscore_f1                            | True               |      0.851689 |                0.850376 |                              0.831787  |                           0.854808 |
+| reference_similarity | bleu                                    | True               |      0.107134 |                0.135714 |                              0.0362637 |                           0.052467 |
+| reference_similarity | chrf                                    | True               |      0.416579 |                0.385963 |                              0.183514  |                           0.257979 |
+| reference_similarity | hhem_2_1_open_mean_support              | True               |      0.268974 |                0.250427 |                            nan         |                         nan        |
+| reference_similarity | hhem_2_1_open_unsupported_sentence_rate | False              |      0.736842 |                0.769231 |                            nan         |                         nan        |
+| reference_similarity | meteor                                  | True               |      0.257996 |                0.253407 |                              0.111136  |                           0.158409 |
+| reference_similarity | rougeL                                  | True               |      0.231125 |                0.321361 |                              0.234097  |                           0.305825 |
+| source_grounded      | alignscore_base                         | True               |      0.190825 |                0.180214 |                            nan         |                         nan        |
+| source_grounded      | hhem_2_1_open_mean_support              | True               |      0.206466 |                0.166208 |                              0.219999  |                           0.180767 |
+| source_grounded      | hhem_2_1_open_unsupported_sentence_rate | False              |      0.789474 |                0.769231 |                              0.714286  |                           0.75     |

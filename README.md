@@ -10,6 +10,7 @@ evidence and research notebooks are kept outside the runtime package.
 | Path | Purpose |
 | --- | --- |
 | `table2text_pydanticai/` | Installable Python package, tests, evaluation framework, and sealed evaluation artifacts. |
+| `experiments/` | Isolated research implementations that reuse, but do not duplicate, the main evaluation framework. |
 | `docs/` | Architecture notes, evaluation evidence banks, human-study materials, and figures. |
 | `notebooks/` | Research-facing workflow, ablation, and LLM-judge notebooks. |
 

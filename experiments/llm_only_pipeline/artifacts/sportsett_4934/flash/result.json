@@ -1,0 +1,501 @@
+{
+  "generated_text": "On December 2, 2018, the Philadelphia 76ers defeated the Memphis Grizzlies 103-95 at Wells Fargo Center in Philadelphia before a near-capacity crowd of 20,300. The win improved Philadelphia to 17-8; Memphis fell to 13-9. Quarter scoring went 26-25 Philadelphia, 28-19 Philadelphia, 24-24, and 27-25 Memphis. Philadelphia seized control with a 28-19 second quarter and led 54-44 at halftime. J.J. Redick led all scorers with 24 points on 9-of-17 shooting. Jimmy Butler (21), Ben Simmons (19), and Joel Embiid (15) also reached double figures for Philadelphia.",
+  "interpretation": {
+    "task_understanding": "Structured NBA box score for 76ers vs Grizzlies on Dec 2, 2018; write multi-paragraph report that leads with final result and highlights stats without inventing info.",
+    "source_units": "One game object with home/visitor team metadata, player box scores, quarter line scores, cumulative team totals, records, venue, and next-game fields.",
+    "important_entities": [
+      "Philadelphia 76ers",
+      "Memphis Grizzlies",
+      "Joel Embiid",
+      "Ben Simmons",
+      "Jimmy Butler",
+      "J.J. Redick",
+      "Mike Conley",
+      "Marc Gasol",
+      "Jaren Jackson Jr.",
+      "JaMychal Green",
+      "Wells Fargo Center"
+    ],
+    "important_fields": [
+      "PTS",
+      "FGM",
+      "FGA",
+      "FG_PCT",
+      "FG3M",
+      "FG3A",
+      "FTM",
+      "FTA",
+      "REB",
+      "AST",
+      "STL",
+      "BLK",
+      "TOV",
+      "MIN",
+      "+/-",
+      "starter",
+      "quarter line scores",
+      "team game totals",
+      "wins/losses",
+      "attendance"
+    ],
+    "allowed_claim_types": [
+      "final score and winner",
+      "team and player point totals",
+      "shooting efficiency comparisons",
+      "quarter-by-quarter scoring",
+      "rebounding, assists, steals, blocks, turnovers",
+      "double-double performances",
+      "starting lineup and bench contributions",
+      "venue and attendance facts",
+      "team records and standings"
+    ],
+    "risks": [
+      "Half totals (H1/H2) appear concatenated/malformed; use validated game totals only.",
+      "Do not infer narratives, momentum, or effort not shown in the box score.",
+      "Percentages are stored as whole numbers; do not convert or compare without context.",
+      "OT values are all zero; do not claim an overtime period.",
+      "Do not use next-game schedule as part of this game's report.",
+      "Game MIN totals may be anomalous; avoid reasoning from total minutes.",
+      "Do not invent injuries, coach decisions, or player roles beyond starter flag.",
+      "Avoid deriving unstated combined or period-specific stats from raw numbers."
+    ]
+  },
+  "candidate_claims": {
+    "claims": [
+      {
+        "claim_id": "c1",
+        "claim": "Philadelphia 76ers defeated the Memphis Grizzlies 103-95.",
+        "claim_type": "event_result",
+        "source_refs": [
+          "teams.home.line_score.game.PTS",
+          "teams.vis.line_score.game.PTS"
+        ],
+        "copied_values": [
+          "103",
+          "95"
+        ],
+        "calculation_or_reasoning": "Direct final score from team game totals.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "c2",
+        "claim": "On December 2, 2018, the 76ers hosted the Grizzlies at Wells Fargo Center in Philadelphia before a near-capacity crowd of 20,300.",
+        "claim_type": "event_context",
+        "source_refs": [
+          "game.day",
+          "game.month",
+          "game.year",
+          "game.stadium",
+          "game.city",
+          "game.attendance",
+          "game.capacity"
+        ],
+        "copied_values": [
+          "2",
+          "December",
+          "2018",
+          "Wells Fargo Center",
+          "Philadelphia",
+          "20300",
+          "20500"
+        ],
+        "calculation_or_reasoning": "Attendance 20,300 of 20,500 capacity is near sellout.",
+        "confidence": 0.97
+      },
+      {
+        "claim_id": "c3",
+        "claim": "The win improved Philadelphia to 17-8; Memphis fell to 13-9.",
+        "claim_type": "record_context",
+        "source_refs": [
+          "teams.home.wins",
+          "teams.home.losses",
+          "teams.vis.wins",
+          "teams.vis.losses"
+        ],
+        "copied_values": [
+          "17",
+          "8",
+          "13",
+          "9"
+        ],
+        "calculation_or_reasoning": "Record inferred directly from team wins and losses.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "c4",
+        "claim": "Quarter scoring went 26-25 Philadelphia, 28-19 Philadelphia, 24-24, and 27-25 Memphis.",
+        "claim_type": "period_score_progression",
+        "source_refs": [
+          "teams.home.line_score.Q1.PTS",
+          "teams.vis.line_score.Q1.PTS",
+          "teams.home.line_score.Q2.PTS",
+          "teams.vis.line_score.Q2.PTS",
+          "teams.home.line_score.Q3.PTS",
+          "teams.vis.line_score.Q3.PTS",
+          "teams.home.line_score.Q4.PTS",
+          "teams.vis.line_score.Q4.PTS"
+        ],
+        "copied_values": [
+          "26",
+          "25",
+          "28",
+          "19",
+          "24",
+          "24",
+          "25",
+          "27"
+        ],
+        "calculation_or_reasoning": "Extracted quarter-by-quarter point totals from both line scores.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "c5",
+        "claim": "Philadelphia seized control with a 28-19 second quarter and led 54-44 at halftime.",
+        "claim_type": "turning_period_or_key_run",
+        "source_refs": [
+          "teams.home.line_score.Q2.PTS",
+          "teams.vis.line_score.Q2.PTS",
+          "teams.home.line_score.Q1.PTS",
+          "teams.vis.line_score.Q1.PTS"
+        ],
+        "copied_values": [
+          "28",
+          "19",
+          "26",
+          "25"
+        ],
+        "calculation_or_reasoning": "Halftime lead = (26+28) - (25+19) = 54-44.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "c6",
+        "claim": "J.J. Redick led all scorers with 24 points on 9-of-17 shooting.",
+        "claim_type": "lead_scorer",
+        "source_refs": [
+          "teams.home.box_score.8.name",
+          "teams.home.box_score.8.PTS",
+          "teams.home.box_score.8.FGM",
+          "teams.home.box_score.8.FGA"
+        ],
+        "copied_values": [
+          "J.J. Redick",
+          "24",
+          "9",
+          "17"
+        ],
+        "calculation_or_reasoning": "Highest PTS in the game; FG accuracy shown directly.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "c7",
+        "claim": "Jimmy Butler (21), Ben Simmons (19), and Joel Embiid (15) also reached double figures for Philadelphia.",
+        "claim_type": "secondary_scorers",
+        "source_refs": [
+          "teams.home.box_score.2.PTS",
+          "teams.home.box_score.1.PTS"
+        ],
+        "copied_values": [],
+        "calculation_or_reasoning": "",
+        "confidence": 0.5
+      }
+    ],
+    "analysis_notes": []
+  },
+  "critique": {
+    "reviews": [
+      {
+        "claim_id": "c1",
+        "status": "supported",
+        "reason": "Final scores match the home and visitor game PTS totals (103-95).",
+        "corrected_claim": "Philadelphia 76ers defeated the Memphis Grizzlies 103-95."
+      },
+      {
+        "claim_id": "c2",
+        "status": "supported",
+        "reason": "Date, venue, city, and attendance match source; 20,300 of 20,500 is near capacity.",
+        "corrected_claim": "On December 2, 2018, the 76ers hosted the Grizzlies at Wells Fargo Center in Philadelphia before a near-capacity crowd of 20,300."
+      },
+      {
+        "claim_id": "c3",
+        "status": "supported",
+        "reason": "Records match the provided wins/losses for both teams.",
+        "corrected_claim": "The win improved Philadelphia to 17-8; Memphis fell to 13-9."
+      },
+      {
+        "claim_id": "c4",
+        "status": "supported",
+        "reason": "Quarter scoring matches each team's Q1-Q4 PTS values.",
+        "corrected_claim": "Quarter scoring went 26-25 Philadelphia, 28-19 Philadelphia, 24-24, and 27-25 Memphis."
+      },
+      {
+        "claim_id": "c5",
+        "status": "supported",
+        "reason": "Second quarter and halftime totals (54-44) correctly calculate from Q1/Q2 scores.",
+        "corrected_claim": "Philadelphia seized control with a 28-19 second quarter and led 54-44 at halftime."
+      },
+      {
+        "claim_id": "c6",
+        "status": "supported",
+        "reason": "Redick's 24 points lead all players and his 9-of-17 shooting matches source.",
+        "corrected_claim": "J.J. Redick led all scorers with 24 points on 9-of-17 shooting."
+      },
+      {
+        "claim_id": "c7",
+        "status": "supported",
+        "reason": "Butler, Simmons, and Embiid scored 21, 19, and 15, all double figures.",
+        "corrected_claim": "Jimmy Butler (21), Ben Simmons (19), and Joel Embiid (15) also reached double figures for Philadelphia."
+      }
+    ],
+    "global_warnings": [
+      "All claims verified against source_text; no unsupported claims found."
+    ]
+  },
+  "adjudicated_claims": {
+    "accepted_claims": [
+      {
+        "claim_id": "c1",
+        "claim": "Philadelphia 76ers defeated the Memphis Grizzlies 103-95.",
+        "claim_type": "event_result",
+        "source_refs": [
+          "teams.home.line_score.game.PTS",
+          "teams.vis.line_score.game.PTS"
+        ],
+        "copied_values": [
+          "103",
+          "95"
+        ],
+        "calculation_or_reasoning": "Direct final score from team game totals.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "c2",
+        "claim": "On December 2, 2018, the 76ers hosted the Grizzlies at Wells Fargo Center in Philadelphia before a near-capacity crowd of 20,300.",
+        "claim_type": "event_context",
+        "source_refs": [
+          "game.day",
+          "game.month",
+          "game.year",
+          "game.stadium",
+          "game.city",
+          "game.attendance",
+          "game.capacity"
+        ],
+        "copied_values": [
+          "2",
+          "December",
+          "2018",
+          "Wells Fargo Center",
+          "Philadelphia",
+          "20300",
+          "20500"
+        ],
+        "calculation_or_reasoning": "Attendance 20,300 of 20,500 capacity is near sellout.",
+        "confidence": 0.97
+      },
+      {
+        "claim_id": "c3",
+        "claim": "The win improved Philadelphia to 17-8; Memphis fell to 13-9.",
+        "claim_type": "record_context",
+        "source_refs": [
+          "teams.home.wins",
+          "teams.home.losses",
+          "teams.vis.wins",
+          "teams.vis.losses"
+        ],
+        "copied_values": [
+          "17",
+          "8",
+          "13",
+          "9"
+        ],
+        "calculation_or_reasoning": "Record inferred directly from team wins and losses.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "c4",
+        "claim": "Quarter scoring went 26-25 Philadelphia, 28-19 Philadelphia, 24-24, and 27-25 Memphis.",
+        "claim_type": "period_score_progression",
+        "source_refs": [
+          "teams.home.line_score.Q1.PTS",
+          "teams.vis.line_score.Q1.PTS",
+          "teams.home.line_score.Q2.PTS",
+          "teams.vis.line_score.Q2.PTS",
+          "teams.home.line_score.Q3.PTS",
+          "teams.vis.line_score.Q3.PTS",
+          "teams.home.line_score.Q4.PTS",
+          "teams.vis.line_score.Q4.PTS"
+        ],
+        "copied_values": [
+          "26",
+          "25",
+          "28",
+          "19",
+          "24",
+          "24",
+          "25",
+          "27"
+        ],
+        "calculation_or_reasoning": "Extracted quarter-by-quarter point totals from both line scores.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "c5",
+        "claim": "Philadelphia seized control with a 28-19 second quarter and led 54-44 at halftime.",
+        "claim_type": "turning_period_or_key_run",
+        "source_refs": [
+          "teams.home.line_score.Q2.PTS",
+          "teams.vis.line_score.Q2.PTS",
+          "teams.home.line_score.Q1.PTS",
+          "teams.vis.line_score.Q1.PTS"
+        ],
+        "copied_values": [
+          "28",
+          "19",
+          "26",
+          "25"
+        ],
+        "calculation_or_reasoning": "Halftime lead = (26+28) - (25+19) = 54-44.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "c6",
+        "claim": "J.J. Redick led all scorers with 24 points on 9-of-17 shooting.",
+        "claim_type": "lead_scorer",
+        "source_refs": [
+          "teams.home.box_score.3.name",
+          "teams.home.box_score.3.PTS",
+          "teams.home.box_score.3.FGM",
+          "teams.home.box_score.3.FGA"
+        ],
+        "copied_values": [
+          "J.J. Redick",
+          "24",
+          "9",
+          "17"
+        ],
+        "calculation_or_reasoning": "Highest PTS in the game; FG accuracy shown directly.",
+        "confidence": 1.0
+      },
+      {
+        "claim_id": "c7",
+        "claim": "Jimmy Butler (21), Ben Simmons (19), and Joel Embiid (15) also reached double figures for Philadelphia.",
+        "claim_type": "secondary_scorers",
+        "source_refs": [
+          "teams.home.box_score.2.PTS",
+          "teams.home.box_score.1.PTS",
+          "teams.home.box_score.0.PTS"
+        ],
+        "copied_values": [
+          "21",
+          "19",
+          "15"
+        ],
+        "calculation_or_reasoning": "All three players scored at least 10 points.",
+        "confidence": 1.0
+      }
+    ],
+    "rejected_claims": [],
+    "warnings": [
+      "c6 and c7 source_refs were corrected to match actual box-score indices; all claims remain supported."
+    ]
+  },
+  "writer_draft": {
+    "title": "76ers Top Grizzlies 103-95",
+    "sentences": [
+      {
+        "text": "On December 2, 2018, the Philadelphia 76ers defeated the Memphis Grizzlies 103-95 at Wells Fargo Center in Philadelphia before a near-capacity crowd of 20,300. The win improved Philadelphia to 17-8; Memphis fell to 13-9.",
+        "claim_ids": [
+          "c2",
+          "c1",
+          "c3"
+        ]
+      },
+      {
+        "text": "Quarter scoring went 26-25 Philadelphia, 28-19 Philadelphia, 24-24, and 27-25 Memphis. Philadelphia seized control with a 28-19 second quarter and led 54-44 at halftime.",
+        "claim_ids": [
+          "c4",
+          "c5"
+        ]
+      },
+      {
+        "text": "J.J. Redick led all scorers with 24 points on 9-of-17 shooting. Jimmy Butler (21), Ben Simmons (19), and Joel Embiid (15) also reached double figures for Philadelphia.",
+        "claim_ids": [
+          "c6",
+          "c7"
+        ]
+      }
+    ]
+  },
+  "final_audit": {
+    "decision": "pass",
+    "support_rate": 1.0,
+    "findings": [],
+    "notes": [
+      "Draft uses only accepted claims and covers all required slots: result, event context, score progression, leading performances, and team-level contrasts (records and quarter-by-quarter comparison)."
+    ]
+  },
+  "repaired_draft": null,
+  "traces": [
+    {
+      "stage": "source_interpreter",
+      "model": "deepseek-v4-flash",
+      "elapsed_seconds": 14.713535499991849,
+      "usage": {
+        "prompt_tokens": 10680,
+        "completion_tokens": 1534,
+        "total_tokens": 12214
+      }
+    },
+    {
+      "stage": "llm_analysis",
+      "model": "deepseek-v4-flash",
+      "elapsed_seconds": 71.36897108401172,
+      "usage": {
+        "prompt_tokens": 12673,
+        "completion_tokens": 9067,
+        "total_tokens": 21740
+      }
+    },
+    {
+      "stage": "claim_critic",
+      "model": "deepseek-v4-flash",
+      "elapsed_seconds": 20.581013374961913,
+      "usage": {
+        "prompt_tokens": 11820,
+        "completion_tokens": 2381,
+        "total_tokens": 14201
+      }
+    },
+    {
+      "stage": "claim_adjudicator",
+      "model": "deepseek-v4-flash",
+      "elapsed_seconds": 37.071843457990326,
+      "usage": {
+        "prompt_tokens": 12420,
+        "completion_tokens": 5023,
+        "total_tokens": 17443
+      }
+    },
+    {
+      "stage": "writer",
+      "model": "deepseek-v4-flash",
+      "elapsed_seconds": 13.923540459014475,
+      "usage": {
+        "prompt_tokens": 1571,
+        "completion_tokens": 1659,
+        "total_tokens": 3230
+      }
+    },
+    {
+      "stage": "output_auditor",
+      "model": "deepseek-v4-flash",
+      "elapsed_seconds": 4.855793167022057,
+      "usage": {
+        "prompt_tokens": 12208,
+        "completion_tokens": 375,
+        "total_tokens": 12583
+      }
+    }
+  ],
+  "artifact_path": "evaluation/llm_only_runs_notebook_dataset/sportsett_basketball/814de3d5c33d2f7f.json"
+}

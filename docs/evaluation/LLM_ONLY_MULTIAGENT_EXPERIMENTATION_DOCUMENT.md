@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document records the design, implementation, failures, fixes, and empirical findings from an experimental LLM-only multi-agent table-to-text system. The experiment was intentionally developed in a clone of the main project so that the behaviour of the existing system would not overly influence the new design.
+This document records the design, implementation, failures, fixes, and empirical findings from an experimental LLM-only multi-agent table-to-text system. The experiment was originally developed in a clone of the main project so that the behaviour of the existing system would not overly influence the new design. Its retained implementation and evidence have since been extracted into a focused experiment package.
 
 The central research question was:
 
@@ -12,10 +12,10 @@ The experiment should be treated as separate from the main operational system. I
 
 ## Repository Context
 
-The experimental clone is:
+The isolated experiment package is:
 
 ```text
-table2text_pydanticai_experiment/
+experiments/llm_only_pipeline/
 ```
 
 The main project remains:
@@ -27,13 +27,13 @@ table2text_pydanticai/
 The LLM-only workflow lives in:
 
 ```text
-table2text_pydanticai_experiment/src/table2text/llm_only/
+experiments/llm_only_pipeline/src/table2text_llm_only/
 ```
 
 The callable evaluation backend is:
 
 ```text
-table2text.evaluation_backends.llm_only_multi_agent
+table2text_llm_only.backend.llm_only_multi_agent
 ```
 
 The experiment deliberately does not call the main system's:
@@ -52,7 +52,7 @@ This boundary matters because the experiment is not testing the full current sys
 The main worked example was the prepared SportSett basketball example:
 
 ```text
-evaluation/prepared/sportsett_basketball_4934.jsonl
+experiments/llm_only_pipeline/data/sportsett_basketball_4934.jsonl
 ```
 
 Dataset and example:
@@ -173,16 +173,16 @@ The LLM-only system should not be interpreted as replacing the current system. I
 
 ## Implementation Summary
 
-Key files added or changed in the experimental clone:
+Key files retained in the isolated experiment package:
 
 ```text
-src/table2text/llm_only/client.py
-src/table2text/llm_only/schemas.py
-src/table2text/llm_only/workflow.py
-src/table2text/evaluation_backends.py
-evaluation/config/variants_llm_only_multiagent.json
-llm_only_smoke_test.ipynb
-LLM_ONLY_EXPERIMENT.md
+src/table2text_llm_only/client.py
+src/table2text_llm_only/schemas.py
+src/table2text_llm_only/workflow.py
+src/table2text_llm_only/backend.py
+config/variants.json
+notebooks/llm_only_smoke_test.ipynb
+README.md
 ```
 
 The client uses an OpenAI-compatible chat completions API. The default endpoint is DeepSeek:
@@ -407,7 +407,7 @@ Audit semantics are:
 The latest Flash artifact was:
 
 ```text
-table2text_pydanticai_experiment/evaluation/llm_only_runs_notebook_dataset/sportsett_basketball/814de3d5c33d2f7f.json
+experiments/llm_only_pipeline/artifacts/sportsett_4934/flash/result.json
 ```
 
 Summary:
@@ -451,7 +451,7 @@ The Flash model produced a cautious and compact report. It had perfect generated
 The existing Pro artifact was:
 
 ```text
-table2text_pydanticai_experiment/evaluation/llm_only_runs_notebook_dataset_pro/sportsett_basketball/3fb04b6be798d06c.json
+experiments/llm_only_pipeline/artifacts/sportsett_4934/pro/result.json
 ```
 
 Summary:
@@ -497,7 +497,7 @@ A fresh evidence-gated Pro rerun was attempted, but it required sending the Spor
 Metrics were computed using the existing evaluation tooling. The selected comparison table was written to:
 
 ```text
-table2text_pydanticai_experiment/evaluation/results/llm_only_pro_existing/sportsett_4934_selected_metric_comparison.csv
+experiments/llm_only_pipeline/artifacts/sportsett_4934/pro/metrics/sportsett_4934_selected_metric_comparison.csv
 ```
 
 ### Selected Metric Comparison
@@ -906,31 +906,31 @@ The following paragraph can be adapted directly:
 Important files produced by the experiment:
 
 ```text
-table2text_pydanticai_experiment/src/table2text/llm_only/client.py
-table2text_pydanticai_experiment/src/table2text/llm_only/schemas.py
-table2text_pydanticai_experiment/src/table2text/llm_only/workflow.py
-table2text_pydanticai_experiment/src/table2text/evaluation_backends.py
-table2text_pydanticai_experiment/evaluation/config/variants_llm_only_multiagent.json
-table2text_pydanticai_experiment/llm_only_smoke_test.ipynb
-table2text_pydanticai_experiment/LLM_ONLY_EXPERIMENT.md
+experiments/llm_only_pipeline/src/table2text_llm_only/client.py
+experiments/llm_only_pipeline/src/table2text_llm_only/schemas.py
+experiments/llm_only_pipeline/src/table2text_llm_only/workflow.py
+experiments/llm_only_pipeline/src/table2text_llm_only/backend.py
+experiments/llm_only_pipeline/config/variants.json
+experiments/llm_only_pipeline/notebooks/llm_only_smoke_test.ipynb
+experiments/llm_only_pipeline/README.md
 ```
 
 Key output artifacts:
 
 ```text
-table2text_pydanticai_experiment/evaluation/llm_only_runs_notebook_dataset/sportsett_basketball/814de3d5c33d2f7f.json
-table2text_pydanticai_experiment/evaluation/llm_only_runs_notebook_dataset_pro/sportsett_basketball/3fb04b6be798d06c.json
+experiments/llm_only_pipeline/artifacts/sportsett_4934/flash/result.json
+experiments/llm_only_pipeline/artifacts/sportsett_4934/pro/result.json
 ```
 
 Key metric files:
 
 ```text
-table2text_pydanticai_experiment/evaluation/results/llm_only_notebook/reference_metrics.jsonl
-table2text_pydanticai_experiment/evaluation/results/llm_only_notebook/source_grounded_metrics.jsonl
-table2text_pydanticai_experiment/evaluation/results/llm_only_pro_existing/reference_metrics.jsonl
-table2text_pydanticai_experiment/evaluation/results/llm_only_pro_existing/source_grounded_metrics.jsonl
-table2text_pydanticai_experiment/evaluation/results/llm_only_pro_existing/sportsett_4934_selected_metric_comparison.csv
-table2text_pydanticai_experiment/evaluation/results/llm_only_pro_existing/sportsett_4934_generation_diagnostics_comparison.csv
+experiments/llm_only_pipeline/artifacts/sportsett_4934/flash/metrics/reference_metrics.jsonl
+experiments/llm_only_pipeline/artifacts/sportsett_4934/flash/metrics/source_grounded_metrics.jsonl
+experiments/llm_only_pipeline/artifacts/sportsett_4934/pro/metrics/reference_metrics.jsonl
+experiments/llm_only_pipeline/artifacts/sportsett_4934/pro/metrics/source_grounded_metrics.jsonl
+experiments/llm_only_pipeline/artifacts/sportsett_4934/pro/metrics/sportsett_4934_selected_metric_comparison.csv
+experiments/llm_only_pipeline/artifacts/sportsett_4934/pro/metrics/sportsett_4934_generation_diagnostics_comparison.csv
 ```
 
 ## Conclusion

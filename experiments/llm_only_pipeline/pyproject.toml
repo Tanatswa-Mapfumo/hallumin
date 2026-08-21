@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "table2text-llm-only-experiment"
+version = "0.1.0"
+description = "Isolated LLM-only multi-agent comparison for the MSc Table2Text project."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.0,<2.0",
+    "pydantic>=2.10,<3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+    "ruff>=0.8,<1.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/table2text_llm_only"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "../../table2text_pydanticai/src"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
