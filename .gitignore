@@ -47,6 +47,9 @@ table2text_pydanticai/evaluation_inspection/
 table2text_pydanticai/evaluation_results/
 table2text_pydanticai/.table2text_report_fix_backup_*/
 
+# Regenerated program-listing typesetting intermediates
+submission/program_listings/build/
+
 # Local input datasets
 inputs/
 table2text_pydanticai/inputs/
