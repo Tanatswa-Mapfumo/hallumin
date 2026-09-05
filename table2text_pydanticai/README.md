@@ -50,6 +50,11 @@ For deterministic operation without model calls, add `--no-llm`. Use
 `table2text run --help` for report contracts, input-role declarations, and
 audit modes.
 
+`T2T_MAX_AGENT_REQUESTS` and `T2T_MAX_TOTAL_TOKENS` are report-wide limits
+shared by all model stages and retries. Each run writes cumulative structured
+usage to `16_usage_summary.json`; `trace.jsonl` also records the usage delta
+for every successful or failed model attempt.
+
 ## Run tests
 
 ```bash

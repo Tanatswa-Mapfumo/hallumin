@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from pydantic_ai import UsageLimits
+from pydantic_ai import RunUsage, UsageLimits
 
 from .agents import (
     AgentDependencies,
@@ -1757,6 +1757,49 @@ class Table2TextWorkflow:
             total_tokens_limit=self.settings.max_total_tokens,
         )
 
+    @staticmethod
+    def usage_snapshot(usage: RunUsage) -> dict[str, Any]:
+        """Return stable, machine-readable usage fields for run telemetry."""
+        return {
+            "requests": usage.requests,
+            "tool_calls": usage.tool_calls,
+            "input_tokens": usage.input_tokens,
+            "cache_write_tokens": usage.cache_write_tokens,
+            "cache_read_tokens": usage.cache_read_tokens,
+            "output_tokens": usage.output_tokens,
+            "total_tokens": usage.total_tokens,
+            "details": dict(usage.details),
+        }
+
+    @classmethod
+    def usage_delta(
+        cls,
+        before: dict[str, Any],
+        after: RunUsage,
+    ) -> dict[str, Any]:
+        """Calculate the usage attributable to one attempted workflow stage."""
+        current = cls.usage_snapshot(after)
+        numeric_fields = (
+            "requests",
+            "tool_calls",
+            "input_tokens",
+            "cache_write_tokens",
+            "cache_read_tokens",
+            "output_tokens",
+            "total_tokens",
+        )
+        delta = {
+            field: current[field] - before[field]
+            for field in numeric_fields
+        }
+        before_details = before.get("details", {})
+        delta["details"] = {
+            key: value - before_details.get(key, 0)
+            for key, value in current["details"].items()
+            if value - before_details.get(key, 0)
+        }
+        return delta
+
     async def run_agent_or_fallback(
         self,
         *,
@@ -1766,6 +1809,7 @@ class Table2TextWorkflow:
         dependencies: AgentDependencies,
         fallback: Callable[[], Any],
         store: ArtifactStore,
+        report_usage: RunUsage,
     ) -> Any:
         if not self.settings.use_llm:
             store.trace(
@@ -1775,19 +1819,25 @@ class Table2TextWorkflow:
             )
             return fallback()
 
+        usage_before = self.usage_snapshot(report_usage)
         try:
             result = await agent.run(
                 prompt,
                 deps=dependencies,
                 usage_limits=self.usage_limits(),
+                usage=report_usage,
             )
-
-            usage = getattr(result, "usage", None)
 
             store.trace(
                 stage,
                 "completed",
-                {"usage": str(usage)},
+                {
+                    "attempt_usage": self.usage_delta(
+                        usage_before,
+                        report_usage,
+                    ),
+                    "report_usage": self.usage_snapshot(report_usage),
+                },
             )
 
             return result.output
@@ -1805,6 +1855,11 @@ class Table2TextWorkflow:
                             error
                         )
                     ),
+                    "attempt_usage": self.usage_delta(
+                        usage_before,
+                        report_usage,
+                    ),
+                    "report_usage": self.usage_snapshot(report_usage),
                 },
             )
             return fallback()
@@ -1817,6 +1872,7 @@ class Table2TextWorkflow:
         prompt: str,
         dependencies: AgentDependencies,
         store: ArtifactStore,
+        report_usage: RunUsage,
     ) -> tuple[Any | None, str | None]:
         if not self.settings.use_llm or agent is None:
             reason = "LLM execution disabled"
@@ -1827,17 +1883,24 @@ class Table2TextWorkflow:
             )
             return None, reason
 
+        usage_before = self.usage_snapshot(report_usage)
         try:
             result = await agent.run(
                 prompt,
                 deps=dependencies,
                 usage_limits=self.usage_limits(),
+                usage=report_usage,
             )
-            usage = getattr(result, "usage", None)
             store.trace(
                 stage,
                 "completed",
-                {"usage": str(usage)},
+                {
+                    "attempt_usage": self.usage_delta(
+                        usage_before,
+                        report_usage,
+                    ),
+                    "report_usage": self.usage_snapshot(report_usage),
+                },
             )
             return result.output, None
         except Exception as error:
@@ -1848,6 +1911,11 @@ class Table2TextWorkflow:
                 {
                     "reason": reason,
                     "cause_chain": exception_cause_chain(error),
+                    "attempt_usage": self.usage_delta(
+                        usage_before,
+                        report_usage,
+                    ),
+                    "report_usage": self.usage_snapshot(report_usage),
                 },
             )
             return None, reason
@@ -1869,6 +1937,7 @@ class Table2TextWorkflow:
         revision_round: int,
         store: ArtifactStore,
         stage_name: str,
+        report_usage: RunUsage,
     ) -> tuple[AuditReport, AuditRepairProposal, WriterOutput]:
         deterministic_pre_patch = deterministic_audit(
             writer_output=writer_output,
@@ -2112,6 +2181,7 @@ class Table2TextWorkflow:
                 deterministic
             ),
             store=store,
+            report_usage=report_usage,
         )
 
         proposal = AuditRepairProposal.model_validate(proposal)
@@ -2168,6 +2238,7 @@ class Table2TextWorkflow:
             self.settings.output_dir,
             run_id,
         )
+        report_usage = RunUsage()
 
         store.save_json("00_input_structure.json", input_structure)
         store.save_json(
@@ -2314,6 +2385,7 @@ class Table2TextWorkflow:
                 ),
                 fallback=lambda: fallback_understanding(profile),
                 store=store,
+                report_usage=report_usage,
             )
         understanding = DataUnderstanding.model_validate(understanding)
         semantic_map = understanding.semantic_map
@@ -2535,6 +2607,7 @@ class Table2TextWorkflow:
                     report_genre_override=controller_genre,
                 ),
                 store=store,
+                report_usage=report_usage,
             )
 
         plan = ExecutionPlan.model_validate(plan)
@@ -2797,6 +2870,7 @@ class Table2TextWorkflow:
                 ),
                 fallback=empty_fact_candidate_enrichment,
                 store=store,
+                report_usage=report_usage,
             )
         fact_candidate_enrichment = FactCandidateSet.model_validate(
             fact_candidate_enrichment
@@ -2847,6 +2921,7 @@ class Table2TextWorkflow:
                     fact_candidates
                 ),
                 store=store,
+                report_usage=report_usage,
             )
         verification = VerificationResult.model_validate(verification)
         raw_verification = verification
@@ -3072,6 +3147,7 @@ class Table2TextWorkflow:
                         },
                     ),
                     store=store,
+                    report_usage=report_usage,
                 )
             )
 
@@ -3174,6 +3250,7 @@ class Table2TextWorkflow:
                                     },
                                 ),
                                 store=store,
+                                report_usage=report_usage,
                             )
                         )
 
@@ -3325,6 +3402,7 @@ class Table2TextWorkflow:
                                         },
                                     ),
                                     store=store,
+                                    report_usage=report_usage,
                                 )
                             )
                             if retry_error is not None:
@@ -3594,6 +3672,7 @@ class Table2TextWorkflow:
                 ),
                 fallback=lambda: fallback_writer(writer_pack),
                 store=store,
+                report_usage=report_usage,
             )
         else:
             writer_draft_or_fallback = fallback_writer(writer_pack)
@@ -3783,6 +3862,7 @@ class Table2TextWorkflow:
                 ),
                 fallback=lambda: raw_writer_output,
                 store=store,
+                report_usage=report_usage,
             )
 
             revision_materialisation_error: str | None = None
@@ -4005,6 +4085,7 @@ class Table2TextWorkflow:
             revision_round=0,
             store=store,
             stage_name="initial_audit_and_repair",
+            report_usage=report_usage,
         )
 
         store.save_json("10_initial_audit.json", initial_audit)
@@ -4090,6 +4171,7 @@ class Table2TextWorkflow:
                 revision_round=repair_rounds,
                 store=store,
                 stage_name=f"post_repair_audit_round_{repair_rounds}",
+                report_usage=report_usage,
             )
 
             current_audit = current_audit.model_copy(
@@ -4249,6 +4331,8 @@ class Table2TextWorkflow:
             "final_report.md",
             header + current_output.markdown,
         )
+        usage_summary = self.usage_snapshot(report_usage)
+        store.save_json("16_usage_summary.json", usage_summary)
 
         store.trace(
             "workflow",
@@ -4271,6 +4355,7 @@ class Table2TextWorkflow:
                 ),
                 "genre_quality_status": genre_quality.status.value,
                 "primary_evaluation_eligible": representation_eligible,
+                "report_usage": usage_summary,
             },
         )
 

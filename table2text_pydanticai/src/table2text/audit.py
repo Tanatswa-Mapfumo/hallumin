@@ -453,20 +453,13 @@ def json_safe(value: Any) -> Any:
     return str(value)
 
 
-def compact_json(
-    value: Any,
-    maximum_characters: int = 160_000,
-) -> str:
-    rendered = json.dumps(
+def compact_json(value: Any) -> str:
+    """Serialize complete model context without whitespace or invalid truncation."""
+    return json.dumps(
         json_safe(value),
-        indent=2,
         ensure_ascii=False,
+        separators=(",", ":"),
     )
-
-    if len(rendered) <= maximum_characters:
-        return rendered
-
-    return rendered[:maximum_characters] + "\n... [truncated by controller]"
 
 
 def flatten_numbers(value: Any) -> list[float]:

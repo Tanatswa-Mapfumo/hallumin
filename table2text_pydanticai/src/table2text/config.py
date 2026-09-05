@@ -95,6 +95,7 @@ class Settings:
     output_dir: Path = Path("runs")
 
     max_revision_rounds: int = 2
+    # Shared report-wide model budget, including retries and repair rounds.
     max_agent_requests: int = 4
     max_total_tokens: int = 24_000
 
