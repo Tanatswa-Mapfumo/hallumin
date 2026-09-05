@@ -7,3 +7,4 @@ project directories.
 | Artifact | Purpose |
 | --- | --- |
 | [`program_listings/`](program_listings/) | Readable PDF listing of programs, tests, protected data, and evaluation results. |
+| [`software_archive/`](software_archive/) | Reproducible compressed software submission with documentation, source, tests, evidence, and executable wheel. |

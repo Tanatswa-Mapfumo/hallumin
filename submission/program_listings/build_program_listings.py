@@ -17,7 +17,8 @@ MAIN_PROJECT = PROJECT_ROOT / "table2text_pydanticai"
 EXPERIMENT = PROJECT_ROOT / "experiments/llm_only_pipeline"
 BUILD_DIR = SCRIPT_DIR / "build"
 GENERATED_DIR = BUILD_DIR / "generated"
-OUTPUT_PDF = SCRIPT_DIR / "MScProject_Program_Listings.pdf"
+OUTPUT_PDF = SCRIPT_DIR / "Tanatswa Mapfumo Project Code Printout.pdf"
+SOFTWARE_SUBMISSION = PROJECT_ROOT / "submission/software_archive"
 
 
 DATA_SHARDS = [
@@ -97,6 +98,8 @@ def program_files() -> list[Path]:
     paths.extend((MAIN_PROJECT / "evaluation/scripts").rglob("*.py"))
     paths.extend((MAIN_PROJECT / "evaluation/notebooks").glob("*.py"))
     paths.extend((EXPERIMENT / "src").rglob("*.py"))
+    paths.append(SOFTWARE_SUBMISSION / "build_software_submission.py")
+    paths.append(SOFTWARE_SUBMISSION / "examples/run_deterministic_demo.sh")
     paths.append(Path(__file__).resolve())
     return unique_paths(paths)
 
@@ -221,6 +224,7 @@ def listing_language(path: Path) -> str:
         ".py": "Python",
         ".json": "json",
         ".jsonl": "json",
+        ".sh": "bash",
         ".csv": "",
         ".toml": "",
         ".example": "",

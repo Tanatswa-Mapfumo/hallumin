@@ -49,6 +49,8 @@ table2text_pydanticai/.table2text_report_fix_backup_*/
 
 # Regenerated program-listing typesetting intermediates
 submission/program_listings/build/
+submission/software_archive/build/
+submission/software_archive/Tanatswa_Mapfumo_MScProject_Software_Submission/
 
 # Local input datasets
 inputs/

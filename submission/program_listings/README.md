@@ -28,5 +28,5 @@ The build requires `xelatex`. It writes temporary files under `build/` and the
 submission artifact to:
 
 ```text
-submission/program_listings/MScProject_Program_Listings.pdf
+submission/program_listings/Tanatswa Mapfumo Project Code Printout.pdf
 ```

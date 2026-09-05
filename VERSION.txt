@@ -1,0 +1,6 @@
+MScProject software submission
+Package: table2text-pydanticai 0.1.0
+Git commit: 23b33b45dff1c3f09418b6e77774feb146d2c6e5
+Archive build date: 2026-08-21
+Builder Python: 3.11.15
+Builder platform: macOS-26.5.1-arm64-arm-64bit
